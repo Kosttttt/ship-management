@@ -16,4 +16,10 @@ function(add_ship_test target_name source_file)
     add_test(NAME ${target_name} COMMAND ${target_name})
 endfunction()
 
-add_ship_test(tst_MigrationRunner core/tst_MigrationRunner.cpp)
+add_ship_test(tst_SqlStatementSplitter core/tst_SqlStatementSplitter.cpp)
+add_ship_test(tst_MigrationRunner      core/tst_MigrationRunner.cpp)
+add_ship_test(tst_ImoNumberValidator   core/tst_ImoNumberValidator.cpp)
+add_ship_test(tst_InstallationRepository core/tst_InstallationRepository.cpp)
+
+# This one runs the real migrations, so it needs them compiled in.
+ship_add_migrations(tst_InstallationRepository)

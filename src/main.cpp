@@ -1,5 +1,8 @@
+#include "app/FirstRunWizard.h"
 #include "app/MainWindow.h"
 #include "core/Database.h"
+#include "core/InstallationContext.h"
+#include "core/InstallationRepository.h"
 #include "core/Logger.h"
 #include "core/MigrationRunner.h"
 
@@ -7,6 +10,8 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QStandardPaths>
+
+#include <optional>
 
 namespace {
 
@@ -33,32 +38,31 @@ void startLogging()
     }
 }
 
-// Opens the database and brings the schema up to date. Returns false after
-// showing an explanatory dialog.
+void showStartupError(const QString& detail)
+{
+    // Logged before the dialog is shown: a modal dialog blocks until the user
+    // answers it, and a user who force-closes the application instead would
+    // otherwise leave nothing behind to diagnose.
+    qCritical() << "Startup failed:" << detail;
+    QMessageBox::critical(nullptr, QObject::tr("Cannot start"), detail);
+}
+
+// Opens the database and brings the schema up to date.
 bool prepareDatabase(Database& database)
 {
     const QString path = Database::defaultFilePath();
 
     if (!database.open(path)) {
-        // Logged before the dialog is shown: a modal dialog blocks until the
-        // user answers it, and a user who force-closes the application instead
-        // would otherwise leave nothing behind to diagnose.
-        qCritical() << "Database could not be opened:" << database.errorString();
-        QMessageBox::critical(nullptr,
-                              QObject::tr("Cannot start"),
-                              QObject::tr("The database could not be opened.\n\n%1")
-                                  .arg(database.errorString()));
+        showStartupError(QObject::tr("The database could not be opened.\n\n%1")
+                             .arg(database.errorString()));
         return false;
     }
     qInfo() << "Database opened:" << path;
 
     MigrationRunner runner(database.connection(), QString::fromLatin1(kMigrationsPath));
     if (!runner.run()) {
-        qCritical() << "Migrations failed:" << runner.errorString();
-        QMessageBox::critical(nullptr,
-                              QObject::tr("Cannot start"),
-                              QObject::tr("The database could not be brought up to date.\n\n%1")
-                                  .arg(runner.errorString()));
+        showStartupError(QObject::tr("The database could not be brought up to date.\n\n%1")
+                             .arg(runner.errorString()));
         return false;
     }
 
@@ -69,6 +73,37 @@ bool prepareDatabase(Database& database)
         qInfo() << "Applied migrations:" << applied.join(QStringLiteral(", "));
     }
     return true;
+}
+
+// first-run-wizard-spec §6. Zero installation rows means first run, and the
+// wizard is the only thing allowed to write until one exists.
+enum class StartupOutcome { Ready, Cancelled, Failed };
+
+StartupOutcome resolveInstallation(Database& database, InstallationContext* context)
+{
+    InstallationRepository repository(database.connection());
+
+    std::optional<InstallationRecord> existing;
+    if (!repository.load(&existing)) {
+        showStartupError(QObject::tr("The installation settings could not be read.\n\n%1")
+                             .arg(repository.errorString()));
+        return StartupOutcome::Failed;
+    }
+
+    if (existing.has_value()) {
+        *context = InstallationContext(*existing);
+        qInfo() << "Existing installation loaded:" << context->nodeId();
+        return StartupOutcome::Ready;
+    }
+
+    qInfo() << "No installation row found — running the first-run wizard.";
+    FirstRunWizard wizard(repository);
+    if (wizard.exec() != QDialog::Accepted) {
+        return StartupOutcome::Cancelled;
+    }
+
+    *context = InstallationContext(wizard.record());
+    return StartupOutcome::Ready;
 }
 
 } // namespace
@@ -87,12 +122,26 @@ int main(int argc, char* argv[])
 
     Database database;
     if (!prepareDatabase(database)) {
-        qCritical() << "Startup aborted.";
         Logger::shutdown();
         return 1;
     }
 
-    MainWindow window(database.filePath());
+    InstallationContext installation;
+    switch (resolveInstallation(database, &installation)) {
+    case StartupOutcome::Failed:
+        Logger::shutdown();
+        return 1;
+    case StartupOutcome::Cancelled:
+        // Not an error: the user declined to set the application up, and
+        // without a recorded mode nothing else may run.
+        qInfo() << "Setup cancelled — exiting without configuring.";
+        Logger::shutdown();
+        return 0;
+    case StartupOutcome::Ready:
+        break;
+    }
+
+    MainWindow window(installation);
     window.show();
 
     const int result = app.exec();

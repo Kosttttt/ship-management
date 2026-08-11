@@ -88,13 +88,47 @@ Two defects found during verification and fixed:
 2. Startup errors were logged after the modal dialog, so force-closing the
    dialog left no trace. Now logged before.
 
+### Step 3 — First-run wizard & vessel table ✅
+Full design in `docs/first-run-wizard-spec.md`. Built and verified end to end,
+including driving the real wizard through the GUI, not just unit tests.
+
+- `migrations/002_create_vessel.sql` — the `vessel` table, brought forward
+  from step 4 because the wizard needs a vessel row to point at.
+- `core/ImoNumberValidator` — the check-digit rule, a pure function with no
+  widgets and no SQL.
+- `core/InstallationContext` / `core/InstallationRepository` — the read-only
+  context and the one file in this step containing SQL. Both `create*`
+  methods write in a single transaction.
+- `app/FirstRunWizard`, `InstallationModePage`, `VesselIdentityPage` — the
+  `QWizard`, one class per file.
+- `core/SqlStatementSplitter` extracted out of `MigrationRunner.cpp`,
+  resolving the technical-debt item recorded after step 2. `MigrationRunner.cpp`
+  is now 272 lines, `SqlStatementSplitter.cpp` 51 — both comfortably under the
+  ~300-line limit in `CLAUDE.md` §9.
+- 53 unit tests (9 splitter, 13 migrations, 16 IMO validator, 15 installation
+  repository), all passing, run against an in-memory database with the real
+  migrations applied.
+
+One defect found during GUI verification and fixed:
+
+Pressing Enter reaches `QDialog::accept()` directly, bypassing whichever page
+the Finish/Next button was showing. The first fix only checked whether the
+current page was complete, which wasn't enough — the very first Enter on
+page 1 called `accept()` instead of advancing to page 2, because the mode
+page is always complete. `FirstRunWizard::accept()` now checks two things:
+the current page must be complete, **and** it must actually be the last page
+(`nextId() == -1`); otherwise it calls `next()` instead. Confirmed no errors
+logged and the full keyboard path completes correctly afterward.
+
 ---
 
 ## Decisions confirmed by the developer
 
-- `schema_version` is **exempt** from the `origin_node` and `revision` columns
-  required by `CLAUDE.md` §6.5. It is local bookkeeping and never replicates.
-  All other tables carry the full set.
+- `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
+  including `origin_node` (`'LOCAL'`) and `revision` (always `1`) —
+  correcting an earlier note here that said it was exempt. It never actually
+  was; the table has always required both. See "Outstanding technical debt"
+  below if the exemption is still wanted later.
 - The `singleton` column on `installation` **stays** — the database enforces
   the single-row rule rather than the application remembering it.
 - `created_by = 'SYSTEM'` for migration records until a user system exists.
@@ -110,27 +144,58 @@ Two defects found during verification and fixed:
 - An overdue survey invalidates the certificate regardless of its expiry date.
 - CSV before `.xlsx`. No new dependency until the simple version proves
   insufficient.
+- Migration 002 creates the `vessel` table during step 3, resolving the
+  ordering problem where the wizard needed a vessel to point at before step 4
+  created the table.
+- IMO numbers are validated by check digit at every entry point, and stored
+  as TEXT.
+- Installation mode is permanent. No change UI, and no password — that would
+  be a source-code constant with no user system behind it. Becomes an
+  Administrator action at step 15. Until then, the recovery path for a wrong
+  choice is to delete the database file and relaunch, which is safe only
+  because the wizard runs before anything can write.
+- The mode is displayed permanently in the UI so a wrong choice is noticed
+  immediately rather than after data entry.
+- The IMO check-digit validator lives in `core/ImoNumberValidator`, not under
+  a module's `domain/` folder, because both the wizard (core) and the future
+  Vessel CRUD form need it without either depending on the other.
+- `0000000` passes the check-digit formula (every digit zero sums to zero).
+  Left as-is deliberately — the formula stays pure with no special-casing
+  for implausible-looking numbers, and a unit test pins the behaviour so it
+  can only change on purpose.
+- `installation.vessel_id` → `vessel.id` is enforced by the write
+  transaction, not by a database foreign key — migration 001 never declared
+  one, and SQLite can't add a constraint to an existing table without a
+  rebuild. Not worth doing for a single-writer local file; the transaction
+  already prevents an orphaned row. `docs/first-run-wizard-spec.md` §5 has
+  been corrected to describe this accurately.
 
 ## Outstanding technical debt
 
-- `MigrationRunner.cpp` is ~283 lines, near the ~300 limit in `CLAUDE.md` §9.
-  **Agreed action: extract the statement splitter into its own file
-  (`core/SqlStatementSplitter`) before the next feature touches it.**
 - No SQLite viewer installed on the machine. DB Browser for SQLite is the
   suggested tool — a viewer the developer runs, not a project dependency.
 - Qt Creator breakpoints not working (see Environment above).
+- `schema_version` requires `origin_node` and `revision` even though it's
+  local bookkeeping that never replicates (see the corrected decision
+  above). Actually exempting it needs a table rebuild, not a plain `ALTER
+  TABLE` — SQLite migrations can't drop `NOT NULL` columns in place. Low
+  priority: the current state is stricter than necessary, not looser, so
+  nothing is broken by leaving it. Worth a dedicated migration if it starts
+  to matter.
 
 ---
 
 ## Next step
 
-**Step 3 — First-run wizard.** On first launch, ask whether this is an OFFICE or
-a VESSEL installation; if VESSEL, capture the vessel identity. Write the single
-row into the `installation` table that migration 001 created. Expose it through
-an `InstallationContext` that the repository layer will later consult for the
-vessel filter (`CLAUDE.md` §3).
+**Step 4 — Vessel CRUD.** The first complete vertical slice from database to
+screen: a list of vessels, and add/edit for the four fields the wizard didn't
+collect (call sign, gross tonnage, port of registry, flag state), reusing
+`core/ImoNumberValidator` for the IMO field. This is also where
+`InstallationContext::vesselScope()` gets its first consumer — the Vessel
+repository applies the VESSEL-mode filter from `CLAUDE.md` §3 for the first
+time.
 
-Then step 4: Vessel CRUD — the first complete vertical slice from database to
-screen.
+A dedicated spec doc for step 4 hasn't been written yet — bring it up here
+before handing anything to Claude Code, the same way step 3 went.
 
 Full build order is in `CLAUDE.md` §11.

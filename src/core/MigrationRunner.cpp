@@ -1,5 +1,7 @@
 #include "core/MigrationRunner.h"
 
+#include "core/SqlStatementSplitter.h"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -14,63 +16,6 @@
 #include <algorithm>
 
 namespace {
-
-// Splits a script into individual statements. QSqlQuery::exec() runs exactly
-// one statement per call, so a migration containing a table and an index has
-// to be broken up first.
-//
-// Quoted strings and comments are tracked so that a semicolon inside either is
-// not mistaken for a statement boundary. Known limitation: a compound
-// BEGIN ... END block (a trigger) would be split incorrectly. No migration
-// needs one yet; when one does, it gets its own file and this grows a case.
-QStringList splitStatements(const QString& script)
-{
-    QStringList statements;
-    QString     current;
-    bool        inLineComment  = false;
-    bool        inBlockComment = false;
-    bool        inQuotedText   = false;
-
-    for (int i = 0; i < script.size(); ++i) {
-        const QChar ch   = script.at(i);
-        const QChar next = (i + 1 < script.size()) ? script.at(i + 1) : QChar();
-
-        if (inLineComment) {
-            if (ch == QLatin1Char('\n')) {
-                inLineComment = false;
-                current.append(ch);
-            }
-        } else if (inBlockComment) {
-            if (ch == QLatin1Char('*') && next == QLatin1Char('/')) {
-                inBlockComment = false;
-                ++i;
-            }
-        } else if (inQuotedText) {
-            current.append(ch);
-            if (ch == QLatin1Char('\'')) {
-                inQuotedText = false;
-            }
-        } else if (ch == QLatin1Char('-') && next == QLatin1Char('-')) {
-            inLineComment = true;
-            ++i;
-        } else if (ch == QLatin1Char('/') && next == QLatin1Char('*')) {
-            inBlockComment = true;
-            ++i;
-        } else if (ch == QLatin1Char(';')) {
-            statements.append(current.trimmed());
-            current.clear();
-        } else {
-            if (ch == QLatin1Char('\'')) {
-                inQuotedText = true;
-            }
-            current.append(ch);
-        }
-    }
-    statements.append(current.trimmed());
-
-    statements.removeAll(QString());
-    return statements;
-}
 
 // Line endings differ between a Windows checkout and a Linux one. Hashing the
 // raw bytes would report an unmodified migration as tampered with the first
@@ -261,7 +206,7 @@ bool MigrationRunner::applyMigration(const MigrationFile& file,
         return false;
     }
 
-    const QStringList statements = splitStatements(sql);
+    const QStringList statements = SqlStatementSplitter::split(sql);
     for (const QString& statement : statements) {
         QSqlQuery query(m_database);
         if (!query.exec(statement)) {
