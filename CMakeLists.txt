@@ -34,6 +34,8 @@ qt_standard_project_setup()
 set(SHIP_MIGRATION_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/001_create_installation.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/002_create_vessel.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/003_create_certificate.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/004_add_certificate_list_number.sql
 )
 
 # Compiles the migrations into a target, reachable at ":/migrations/...".
@@ -59,6 +61,8 @@ qt_add_library(ShipCore STATIC
     src/core/ImoNumberValidator.h     src/core/ImoNumberValidator.cpp
     src/core/InstallationContext.h    src/core/InstallationContext.cpp
     src/core/InstallationRepository.h src/core/InstallationRepository.cpp
+    src/core/Vessel.h
+    src/core/VesselRepository.h       src/core/VesselRepository.cpp
 )
 
 # PUBLIC: anything linking ShipCore also gets src/ as an include root, so both
@@ -67,17 +71,61 @@ target_include_directories(ShipCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(ShipCore PUBLIC Qt6::Core Qt6::Sql)
 
 # ---------------------------------------------------------------------------
-# The application.
+# ShipCertificates — the Certificate Control module.
+#
+# Its own library, mirroring the folder split in CLAUDE.md §8. It depends on
+# ShipCore and on app/IModule.h, and nothing depends on it except the registry
+# — which is what "adding a module requires zero changes to existing modules"
+# has to mean in build terms.
 # ---------------------------------------------------------------------------
-qt_add_executable(ShipManagement
-    src/main.cpp
+qt_add_library(ShipCertificates STATIC
+    src/modules/certificates/CertificatesModule.h
+    src/modules/certificates/CertificatesModule.cpp
+    src/modules/certificates/domain/Certificate.h
+    src/modules/certificates/domain/Certificate.cpp
+    src/modules/certificates/data/CertificateRepository.h
+    src/modules/certificates/data/CertificateRepository.cpp
+    src/modules/certificates/ui/CertificateEditForm.h
+    src/modules/certificates/ui/CertificateEditForm.cpp
+    src/modules/certificates/ui/CertificateEditDialog.h
+    src/modules/certificates/ui/CertificateEditDialog.cpp
+    src/modules/certificates/ui/CertificateListWidget.h
+    src/modules/certificates/ui/CertificateListWidget.cpp
+    src/modules/certificates/ui/ListNumberItem.h
+    src/modules/certificates/ui/ListNumberItem.cpp
+)
+
+target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets)
+
+# ---------------------------------------------------------------------------
+# ShipApp — the shell: MainWindow, the module registry, the wizard, vessels.
+#
+# A library rather than sources compiled straight into the executable, so the
+# widget tests can link the very same code the application runs.
+# ---------------------------------------------------------------------------
+qt_add_library(ShipApp STATIC
+    src/app/IModule.h
+    src/app/Migration.h
+    src/app/ModuleRegistry.h        src/app/ModuleRegistry.cpp
     src/app/MainWindow.h           src/app/MainWindow.cpp
     src/app/FirstRunWizard.h       src/app/FirstRunWizard.cpp
     src/app/InstallationModePage.h src/app/InstallationModePage.cpp
     src/app/VesselIdentityPage.h   src/app/VesselIdentityPage.cpp
+    src/app/ImoNumberMessages.h    src/app/ImoNumberMessages.cpp
+    src/app/VesselEditForm.h       src/app/VesselEditForm.cpp
+    src/app/VesselEditDialog.h     src/app/VesselEditDialog.cpp
+    src/app/VesselListWidget.h     src/app/VesselListWidget.cpp
+    src/app/VesselDetailPage.h     src/app/VesselDetailPage.cpp
 )
 
-target_link_libraries(ShipManagement PRIVATE ShipCore Qt6::Widgets)
+target_link_libraries(ShipApp PUBLIC ShipCore ShipCertificates Qt6::Widgets)
+
+# ---------------------------------------------------------------------------
+# The application.
+# ---------------------------------------------------------------------------
+qt_add_executable(ShipManagement src/main.cpp)
+
+target_link_libraries(ShipManagement PRIVATE ShipApp)
 ship_add_migrations(ShipManagement)
 
 # While developing, the console window stays open next to the application so

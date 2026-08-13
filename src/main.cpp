@@ -1,10 +1,12 @@
 #include "app/FirstRunWizard.h"
 #include "app/MainWindow.h"
+#include "app/ModuleRegistry.h"
 #include "core/Database.h"
 #include "core/InstallationContext.h"
 #include "core/InstallationRepository.h"
 #include "core/Logger.h"
 #include "core/MigrationRunner.h"
+#include "core/VesselRepository.h"
 
 #include <QApplication>
 #include <QDir>
@@ -141,7 +143,13 @@ int main(int argc, char* argv[])
         break;
     }
 
-    MainWindow window(installation);
+    // Declared before the window so they outlive every screen holding a
+    // reference to them. The registry owns each module, and each module owns
+    // its own repositories.
+    VesselRepository vessels(database.connection(), installation);
+    ModuleRegistry   modules(database.connection(), installation);
+
+    MainWindow window(installation, vessels, modules);
     window.show();
 
     const int result = app.exec();

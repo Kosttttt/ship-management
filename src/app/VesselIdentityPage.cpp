@@ -1,34 +1,12 @@
 #include "app/VesselIdentityPage.h"
 
+#include "app/ImoNumberMessages.h"
 #include "core/ImoNumberValidator.h"
 
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QVBoxLayout>
-
-namespace {
-
-// Turns the validator's result into words for the user. The decision of what
-// is valid stays in core; this only chooses how to say it, which is what
-// CLAUDE.md §4 rule 3 permits a widget to do.
-QString messageFor(ImoNumberValidator::Result result)
-{
-    switch (result) {
-    case ImoNumberValidator::Result::Valid:
-        return QString();
-    case ImoNumberValidator::Result::Empty:
-        return VesselIdentityPage::tr("An IMO number is required.");
-    case ImoNumberValidator::Result::WrongLength:
-        return VesselIdentityPage::tr("An IMO number has seven digits.");
-    case ImoNumberValidator::Result::CheckDigitMismatch:
-        return VesselIdentityPage::tr("The check digit does not match. "
-                                      "Please re-read the number from the certificate.");
-    }
-    return QString();
-}
-
-} // namespace
 
 VesselIdentityPage::VesselIdentityPage(QWidget* parent)
     : QWizardPage(parent)
@@ -78,7 +56,7 @@ void VesselIdentityPage::updateImoFeedback()
         m_imoError->clear();
         return;
     }
-    m_imoError->setText(messageFor(ImoNumberValidator::validate(m_imoEdit->text())));
+    m_imoError->setText(ImoNumberMessages::describe(ImoNumberValidator::validate(m_imoEdit->text())));
 }
 
 QString VesselIdentityPage::vesselName() const

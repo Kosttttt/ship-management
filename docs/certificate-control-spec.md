@@ -21,8 +21,10 @@ ensures nothing slips through.
 module.
 
 - Statutory certificates: Safety Construction, Safety Equipment, Safety Radio,
-  Load Line, IOPP, IAPP, ISPP, Sewage, Garbage, Tonnage, ISSC, SMC, DOC (the
-  company copy carried on board), MLC, AFS, BWM, and others.
+  Load Line, IOPP, IAPP, ISPP (Sewage Pollution Prevention), Garbage, Tonnage,
+  ISSC, SMC, DOC (the company copy carried on board), MLC, AFS, BWM, and
+  others. This is a descriptive list, not an enumerated set anything reads
+  from — see §5.
 - Class certificates: hull, machinery, docking, tailshaft, boilers.
 - Certificates covering an item of equipment (lifeboat, liferaft, EPIRB,
   lifting gear, fire extinguishers) are entered as **ordinary certificates**,
@@ -112,13 +114,16 @@ requirement, and an intermediate endorsement never satisfies an annual. The
 scopes differ. Each endorsement records its own `survey_type` and is matched
 only against a requirement of the same type.
 
-**Per-type exception.** A small number of certificates substitute rather than
-add — the periodical survey for the Cargo Ship Safety Equipment Certificate
-takes the place of one of the annual surveys. This is handled by a value in the
-certificate type record, not by code:
+**Per-certificate exception.** A small number of certificates substitute
+rather than add — the periodical survey for the Cargo Ship Safety Equipment
+Certificate takes the place of one of the annual surveys. There is no shared
+certificate type record to hold this (§5) — different vessels can legitimately
+carry what looks like "the same" certificate under different terms (short-term
+vs. full-term, differing authorities), so nothing is looked up or inherited.
+Whoever enters the certificate sets this directly on the record:
 
 ```
-intermediate_mode = 'ADDITIONAL'       -- default: parallel tracks, as above
+intermediate_mode = 'ADDITIONAL'       -- parallel tracks, as above — the common case
                   | 'REPLACES_ANNUAL'  -- set only where the rule says so
 ```
 
@@ -146,7 +151,6 @@ struct CertificateState {
 };
 
 CertificateState computeCertificateState(const Certificate& cert,
-                                         const CertificateType& type,
                                          const QList<Endorsement>& endorsements,
                                          const AlertThresholds& thresholds,
                                          QDate today);
@@ -154,6 +158,21 @@ CertificateState computeCertificateState(const Certificate& cert,
 
 `today` is a **parameter, never `QDate::currentDate()` inside the function**.
 That is what makes every rule below unit-testable.
+
+There is no `CertificateType` parameter — no such type exists (§5). Everything
+this function used to read from it (`requiresAnnualSurvey`, `requiresIntermediateSurvey`,
+`intermediateMode`) is a field on `cert` itself, set by whoever entered that
+certificate.
+
+**No expiry.** `cert.expiryDate` may be null — some certificates (a Tonnage
+Certificate, typically) never expire and have no periodic survey requirement
+at all. When it is null, `expiry` is always `Valid`, `survey` is always
+`NotRequired`, and the function returns immediately without touching §4.5's
+anniversary calculation — that calculation counts backward from an expiry
+date, so it has nothing to anchor to without one. A certificate entered with
+`expiryDate` null and `requiresAnnualSurvey`/`requiresIntermediateSurvey` true
+is invalid input (§4.8 item 13): a no-expiry certificate cannot have a survey
+schedule, because there is no anniversary to schedule it against.
 
 ### 4.1 An overdue survey invalidates the certificate
 
@@ -257,6 +276,9 @@ silently** by the calculation.
 11. `intermediate_mode = 'REPLACES_ANNUAL'` — an intermediate endorsement
     satisfies the 2nd or 3rd annual.
 12. An extension recorded against the certificate.
+13. `expiryDate` null: `computeCertificateState()` returns `Valid`/`NotRequired`
+    immediately. `expiryDate` null with either survey flag true is rejected as
+    invalid input before it reaches the calculation at all.
 
 ---
 
@@ -264,20 +286,28 @@ silently** by the calculation.
 
 All tables carry the standard audit and sync columns from `CLAUDE.md` §6.5.
 
-```
-certificate_type
-    code, name, category ('STATUTORY' | 'CLASS' | 'EQUIPMENT' | 'OTHER'),
-    convention, issuing_authority_kind,
-    default_validity_months,
-    requires_annual_survey, requires_intermediate_survey,
-    intermediate_mode ('ADDITIONAL' | 'REPLACES_ANNUAL')
+**There is no `certificate_type` table.** Earlier drafts of this spec had one
+— a shared catalogue a certificate would look up its survey rules from. It was
+dropped: different vessels can legitimately need different rules for what
+looks like "the same" certificate (a short-term certificate on one ship, a
+full-term one on another, issued by different authorities), so nothing about
+a certificate's rules is safe to assume is shared or reusable. Building and
+maintaining an accurate seeded catalogue against the IMO Compendium also isn't
+this project's job to get right on the developer's behalf — every certificate
+carries its own rules, entered by whoever adds it:
 
+```
 certificate
-    vessel_id, certificate_type_id, certificate_number,
+    vessel_id, certificate_number,
+    name,                              -- free text, e.g. "Safety Construction Certificate"
+    category ('STATUTORY' | 'CLASS' | 'EQUIPMENT' | 'OTHER'),  -- a broad bucket for
+                                       -- filtering/reporting, not authoritative data
     applies_to,                       -- free text, e.g. "Liferaft No. 3"
-    issue_date, expiry_date,
+    issue_date, expiry_date,          -- expiry_date is nullable: null means "does not expire"
     issued_by, place_of_issue,
-    is_interim, previous_certificate_id, notes
+    is_interim, previous_certificate_id, notes,
+    requires_annual_survey, requires_intermediate_survey,     -- set per certificate,
+    intermediate_mode ('ADDITIONAL' | 'REPLACES_ANNUAL')      -- not looked up (§3.4)
 
 endorsement
     certificate_id,

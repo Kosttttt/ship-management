@@ -54,6 +54,16 @@ that warning is a false alarm (the executable is MinGW-built; the earlier
 `libstdc++-6.dll` error proves it). Ctrl+R works. Revisit when a real need
 arises.
 
+The developer's shell is Windows PowerShell, where `&&` does not chain
+commands the way it does in bash/PowerShell 7+ (`The token '&&' is not a
+valid statement separator in this version`). Any suggested commit command
+needs two separate commands, or `;`, instead of
+`git add -A && git commit -m "..."`:
+```
+git add -A
+git commit -m "..."
+```
+
 ---
 
 ## Completed steps
@@ -120,6 +130,140 @@ the current page must be complete, **and** it must actually be the last page
 (`nextId() == -1`); otherwise it calls `next()` instead. Confirmed no errors
 logged and the full keyboard path completes correctly afterward.
 
+### Step 4 — Vessel CRUD ✅
+Full design in `docs/vessel-crud-spec.md`. Built and verified end to end,
+including screenshots of both screens and a real Save through the GUI (click
+guarded by a foreground-window check after an earlier attempt using global
+keystrokes leaked a keystroke into an unrelated window — no harm done, but
+global `SendKeys`-style input is now avoided for this reason).
+
+- `core/Vessel` / `core/VesselRepository` — the first consumer of
+  `InstallationContext::vesselScope()`. The scope filter and the
+  `is_deleted = 0` exclusion are both applied inside `list()`/`findById()`
+  themselves, not left to the screen. `create()` refuses under a VESSEL
+  context; `update()` refuses any id other than the installation's own
+  vessel under VESSEL mode.
+- `update()` is the project's first `UPDATE` statement: it sets
+  `revision = revision + 1` in the SQL itself and never mentions
+  `created_at`/`created_by`, so those columns cannot be touched by accident.
+- Blank optional fields (`call_sign`, `gross_tonnage`, `port_of_registry`,
+  `flag_state`) store as SQL `NULL`, not `''`/`0`, so "not entered" stays
+  distinguishable — same convention `InstallationRepository` already used
+  for `vessel_id`.
+- `app/VesselEditForm` — one `QWidget` reused by both `VesselEditDialog`
+  (OFFICE, Add and Edit) and `VesselDetailPage` (VESSEL, no dialog chrome,
+  no list to return to). Gross tonnage uses a `QSpinBox` with minimum 0, so
+  "never negative, never a fraction" is enforced by the widget itself.
+- `app/ImoNumberMessages` extracted from the step-3 wizard so the wizard and
+  this form report the same IMO problem with the same wording.
+- `src/app/` became a static library, `ShipApp`, so the widget test can link
+  the same code the application runs. `main.cpp` is the only file left
+  outside it.
+- 85 unit tests total, all passing, across 7 suites. `tst_VesselRepository`
+  was split into `tst_VesselRepositoryScope` / `tst_VesselRepositoryWrites`
+  with a shared `VesselTestSupport.h` fixture, once the combined file passed
+  the ~300-line guideline.
+
+One defect found during verification and fixed:
+
+`create()`/`update()` checked IMO uniqueness by excluding the row's own id
+with `id != ?`, binding a default-constructed (null) `QString` for a new
+vessel. A null `QString` binds as SQL `NULL`, and `id != NULL` evaluates to
+unknown rather than true in SQL — so the exclusion clause silently matched
+nothing, and every duplicate IMO number fell through to the database's raw
+`UNIQUE` constraint error instead of the friendly message spec §6 requires.
+Fixed by adding the `AND id != ?` clause only when there is an id to
+exclude. A test now asserts the string `"UNIQUE"` never reaches the user.
+
+### Step 5 — Certificate CRUD ✅
+Full design in `docs/certificate-crud-spec.md`. Built and independently
+verified file-by-file against that spec (migration, domain, repository,
+both UI files, `IModule`/`ModuleRegistry`, `MainWindow`) — not just from
+Claude Code's own report.
+
+- `migrations/003_create_certificate.sql` — the `certificate` table. Every
+  certificate carries its own `name`, `category`, and survey-rule fields
+  directly, per the architecture decision below. `expiry_date` is nullable;
+  `previous_certificate_id` is deliberately absent (it belongs to step 9,
+  the renewal workflow, since nothing can populate it before then). A CHECK
+  constraint backstops the "no expiry means no survey requirement" rule.
+- `modules/certificates/domain/Certificate` — a plain struct plus a
+  `CertificateCodes` namespace for enum ↔ database-string mapping.
+  `CertificateCategory` has a fourth value, `Unset`, alongside the three
+  real categories — never stored, used only so the form and repository can
+  represent "no category chosen yet". See the decision below.
+- `modules/certificates/data/CertificateRepository` — the module's only SQL
+  file. Mirrors `VesselRepository`: the VESSEL-mode scope filter is applied
+  inside `list()`/`findById()` themselves; `create()`/`update()` refuse
+  outright, with a message, for another vessel's certificate under VESSEL
+  mode; the no-expiry-with-survey rule is checked with a friendly message
+  before the raw CHECK constraint; `update()` bumps `revision` and touches
+  only `updated_at`/`updated_by`, exactly as `VesselRepository::update()`
+  does.
+- `app/IModule`, `app/ModuleRegistry` — the module interface from
+  `CLAUDE.md` §7, and the fixed compile-time list of modules. Registering a
+  module is one line in `ModuleRegistry`'s constructor. `AlertProvider` is
+  only forward-declared — its interface is deferred to step 8, the first
+  step with something to report through it.
+- `modules/certificates/CertificatesModule` — the first `IModule`. Its
+  `migrations()` returns an empty list on purpose: `migrations/` stays one
+  flat, globally-numbered folder driven by `CMakeLists.txt`, not scattered
+  per module.
+- `modules/certificates/ui/CertificateEditForm` — the thirteen editable
+  fields, grouped into `QGroupBox` sections inside a `QScrollArea`. The "no
+  expiry" checkbox doesn't just grey out the survey checkboxes when ticked,
+  it clears them — an invalid combination must not survive hidden behind a
+  disabled control, ready to be saved if the box is unticked again later.
+- `modules/certificates/ui/CertificateEditDialog` — wraps the form in
+  Add/Edit, the same shape as step 4's `VesselEditDialog`. New method
+  `setVesselId()` added to the form (see the defect below) alongside
+  `setCertificate()`.
+- `modules/certificates/ui/CertificateListWidget` — one table per vessel,
+  shared by both installation modes (unlike vessels, a single vessel still
+  carries dozens of certificates, so there was no reason to split this into
+  two screen classes). Three states: an explicit "select a vessel above"
+  prompt, a populated table, and an empty-but-scoped table — the prompt is
+  a distinct label rather than an empty table, since an empty table would
+  read as "this vessel has no certificates," a different fact.
+- `app/MainWindow` gained the sidebar (`Vessels` fixed first, then one row
+  per registered module) and, in OFFICE mode only, a toolbar vessel
+  selector that starts unselected. `MainWindow` wires the selector directly
+  to the certificates screen via a `qobject_cast` rather than a general
+  "vessel-scoped module" abstraction — documented in the header as the one
+  piece of direct wiring the spec sanctions, to be generalised the moment a
+  second per-vessel module exists.
+- 142 unit tests total, across 13 suites. `tst_CertificateRepositoryWrites`
+  was split into `tst_CertificateRepositoryValidation` (what the repository
+  refuses) and `tst_CertificateRepositoryWrites` (what it stores) once the
+  combined file passed ~300 lines, the same pattern used for
+  `tst_VesselRepository` in step 4.
+
+Two defects found during verification and fixed:
+
+1. `CertificateEditDialog`'s Add mode called `setCertificate()` with a
+   default-constructed `Certificate`. A default-constructed certificate has
+   a null `expiryDate`, which domain-correctly means "never expires" — but
+   is the wrong default for a *new* certificate, where most certificates do
+   expire. The dialog opened with "does not expire" already ticked. Fixed
+   by adding `CertificateEditForm::setVesselId()`, which tells the form
+   which vessel it belongs to without touching any field, so Add mode keeps
+   the form's own constructor-set defaults (an expiry date five years out).
+   Confirmed by reading the fixed code directly: Add mode now calls only
+   `setVesselId()`, never `setCertificate()`.
+2. The test helper matched checkboxes by fuzzy substring text (`"inter"`),
+   which matched `"&Interim certificate"` before
+   `"Requires an inter&mediate survey"` and ticked the wrong one. Fixed by
+   looking widgets up by Qt object name instead of label text; a new test
+   asserts the interim and intermediate-survey checkboxes are genuinely
+   distinct controls.
+
+A smaller, harmless deviation from spec noticed on review: `intermediate_mode`
+is `NOT NULL DEFAULT 'ADDITIONAL'` rather than the nullable column the spec
+suggested. A reasonable simplification — every certificate needs *some*
+value there the moment a UI combo box is involved, since a combo always has
+a selection — and it matches how the form and repository already treat it.
+No action needed.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -169,6 +313,33 @@ logged and the full keyboard path completes correctly afterward.
   rebuild. Not worth doing for a single-writer local file; the transaction
   already prevents an orphaned row. `docs/first-run-wizard-spec.md` §5 has
   been corrected to describe this accurately.
+- The vessel screens split by installation mode rather than sharing one
+  widget: `VesselListWidget` (OFFICE) and `VesselDetailPage` (VESSEL) are
+  separate classes built around the same `VesselEditForm`, instead of one
+  screen that hides Add/Delete when in VESSEL mode.
+- Removing a vessel from the fleet is out of scope until a module that
+  depends on vessels exists to design the rule against (see
+  `docs/vessel-crud-spec.md` §2).
+- `CertificateCategory::Unset` is a real enum value, approved as a
+  deliberate exception to "no sentinel values" — it exists purely so
+  `create()`/`update()` can reject a certificate with no category chosen,
+  which a plain three-value enum can't represent. It's never written to the
+  database (`categoryToCode()` returns an empty string for it, on purpose)
+  and every switch over `CertificateCategory` in the codebase already
+  handles it explicitly. The distinction that matters: this is a
+  UI/validation state, not a fourth kind of certificate.
+- No foreign key on `certificate.vessel_id` → `vessel.id`. Same trade-off as
+  `installation.vessel_id` in step 3, and resolved the same way for
+  consistency: nothing in this schema uses a `REFERENCES` clause yet, every
+  repository already re-validates its own scope and existence checks
+  defensively (`checkVesselAllowed()`), and soft deletes mean rows are never
+  actually removed, so the orphan risk an FK guards against barely exists
+  today. The trade-off worth remembering: a real FK would catch a bad
+  `vessel_id` from a future non-UI write path — a CSV import (step 11) is
+  the concrete example — at the database layer for free, without relying on
+  every future writer remembering to call the repository. Revisit this when
+  step 11 (CSV import) or the sync engine is designed, since those are the
+  first paths that write outside the repository's own validation.
 
 ## Outstanding technical debt
 
@@ -182,20 +353,70 @@ logged and the full keyboard path completes correctly afterward.
   priority: the current state is stricter than necessary, not looser, so
   nothing is broken by leaving it. Worth a dedicated migration if it starts
   to matter.
+- `core/VesselRepository.cpp` is 312 lines, over the ~300-line guideline in
+  `CLAUDE.md` §9 (step 4's own report said 280 — verified against the actual
+  file, which is 312). Not split now: its six methods are cleanly separated
+  and there's no single obvious seam to extract, unlike the statement
+  splitter pulled out of `MigrationRunner`. Watch it — if it grows again in
+  a later step, that's the moment to pull out something real.
+- The first-run wizard (step 3) still lets a duplicate IMO number fail with
+  the raw SQLite constraint text, rather than the friendly pre-check
+  `VesselRepository::create()`/`update()` now do (step 4). Worth
+  backporting next time that file is touched.
 
 ---
 
+## Architecture decision: no `certificate_type` table
+
+Reached while designing what was going to be step 5. The original plan (and
+the original `certificate-control-spec.md` §5) had a shared `certificate_type`
+catalogue — survey rules (`requires_annual_survey`, `intermediate_mode`,
+etc.) looked up from a fixed set of types, seeded on install.
+
+Rejected, on the developer's correction: different vessels can legitimately
+need different rules for what looks like "the same" certificate — a
+short-term certificate on one ship, a full-term one on another, issued by
+different authorities. Nothing about a certificate's rules is safe to assume
+is shared. There is also no reliable way for this project to seed an
+accurate catalogue against the IMO Compendium on the developer's behalf —
+attempting one surfaced a real ambiguity in the source list (`certificate-control-spec.md`
+§2 lists both "ISPP" and "Sewage" as if they were different statutory
+certificates; they may be the same one) that's exactly the kind of mistake a
+seeded, hard-to-correct migration should not be allowed to bake in.
+
+Resolved by removing `certificate_type` entirely. Every certificate now
+carries its own `name`, `category`, and survey-rule fields directly,
+entered by whoever adds it. This also resolved the "no expiry" question
+(some certificates, a Tonnage Certificate typically, never expire and have
+no survey requirement at all) — `expiry_date` is simply nullable on
+`certificate`, with `computeCertificateState()` returning `Valid`/`NotRequired`
+immediately when it's null, and rejecting a null expiry paired with either
+survey flag as invalid input, since there's no anniversary to schedule
+against without an expiry date.
+
+Consequence for the build order: what was step 5 ("Certificate type
+catalogue + seed data") is gone. Step 5 is now Certificate CRUD directly
+— what used to be step 6 — and every step after it shifted up by one.
+`CLAUDE.md` §5 and §11, and `certificate-control-spec.md` §3.4, §4, and §5,
+were all updated to match.
+
 ## Next step
 
-**Step 4 — Vessel CRUD.** The first complete vertical slice from database to
-screen: a list of vessels, and add/edit for the four fields the wizard didn't
-collect (call sign, gross tonnage, port of registry, flag state), reusing
-`core/ImoNumberValidator` for the IMO field. This is also where
-`InstallationContext::vesselScope()` gets its first consumer — the Vessel
-repository applies the VESSEL-mode filter from `CLAUDE.md` §3 for the first
-time.
+**Step 6 — Endorsement model and `computeCertificateState()` + unit tests.**
+Certificates can now be entered and edited, but nothing yet reads their
+survey rules to say whether one is valid, due, or overdue — that logic is
+`computeCertificateState()`, specified in
+`docs/certificate-control-spec.md` §4, and it hasn't been built yet, only
+designed. This step also introduces the `endorsement` table: the record of
+each survey actually being carried out, which is what
+`computeCertificateState()` needs to check against to know whether an
+intermediate survey window has been met.
 
-A dedicated spec doc for step 4 hasn't been written yet — bring it up here
-before handing anything to Claude Code, the same way step 3 went.
+No implementation spec written yet for this step — bring it up here for a
+design discussion first, the same way steps 3, 4 and 5 went. Two things
+worth deciding early: what an endorsement needs to record (survey date,
+surveyor/class society, place — anything else?), and whether an endorsement
+belongs to `modules/certificates/domain` alongside `Certificate`, or gets
+its own repository the way `Certificate` did.
 
 Full build order is in `CLAUDE.md` §11.

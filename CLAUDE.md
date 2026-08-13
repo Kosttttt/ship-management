@@ -96,8 +96,9 @@ database.
 
 - **Core owns things that exist independently of any module:** `installation`,
   `vessel`, `audit_log`, `app_setting`, `schema_version`.
-- **The certificates module owns:** `certificate_type`, `certificate`,
-  `endorsement`, `extension`, `attachment`.
+- **The certificates module owns:** `certificate`, `endorsement`, `extension`,
+  `attachment`. There is deliberately no `certificate_type` table — see
+  `docs/certificate-control-spec.md` §5 for why.
 
 There is **no equipment registry in this project**. Equipment and planned
 maintenance belong to a future PMS module and are not this module's concern.
@@ -228,16 +229,17 @@ carefully on C++.
   2. Core infra: database connection, migration runner, logger
   3. First-run wizard: installation mode + vessel identity
   4. Vessel CRUD — first complete vertical slice
-  5. Certificate type catalogue + seed data
-  6. Certificate CRUD
-  7. Endorsement model and `computeCertificateState()` + unit tests
-  8. Certificate list screen: status colours, filters, days-left column
-  9. Alerts: sidebar badge, daily toast, filtered drill-down
-  10. Renewal workflow
-  11. Attachments with archive-on-replace
-  12. CSV import/export
-  13. Reports (print preview, PDF)
-  14. Audit trail viewer + backup/restore
+  5. Certificate CRUD — no separate type catalogue; each certificate carries
+     its own name and survey-rule fields directly (see
+     `docs/certificate-control-spec.md` §5)
+  6. Endorsement model and `computeCertificateState()` + unit tests
+  7. Certificate list screen: status colours, filters, days-left column
+  8. Alerts: sidebar badge, daily toast, filtered drill-down
+  9. Renewal workflow
+  10. Attachments with archive-on-replace
+  11. CSV import/export
+  12. Reports (print preview, PDF)
+  13. Audit trail viewer + backup/restore
 - **Not yet started:** ship-to-shore sync, role-based access control
   (deliberately last), all future modules (DMS, PMS, spares, purchasing, vessel
   life monitoring, budget, crew).
