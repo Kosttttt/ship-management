@@ -1,6 +1,7 @@
 #include "CertificateTestSupport.h"
 
 #include "modules/certificates/data/CertificateRepository.h"
+#include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/ui/CertificateListWidget.h"
 
 #include <QStackedWidget>
@@ -88,7 +89,8 @@ void TestCertificateListWidget::officeWithNoVesselShowsThePromptNotAnEmptyTable(
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
 
     QVERIFY2(showingPrompt(widget),
              "with no vessel chosen the screen must say so, not show an empty table");
@@ -101,7 +103,8 @@ void TestCertificateListWidget::choosingAVesselShowsThatVesselsCertificates()
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     QVERIFY(!showingPrompt(widget));
@@ -114,7 +117,8 @@ void TestCertificateListWidget::switchingVesselReloadsForTheNewVessel()
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
 
     widget.setVesselId(QStringLiteral("v1"));
     QCOMPARE(rowsShown(widget), 2);
@@ -131,7 +135,8 @@ void TestCertificateListWidget::clearingTheSelectionReturnsToThePrompt()
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("v1"));
     QVERIFY(!showingPrompt(widget));
 
@@ -148,7 +153,8 @@ void TestCertificateListWidget::aVesselWithNoCertificatesShowsAnEmptyTableNotThe
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("v-with-nothing"));
 
     QVERIFY(!showingPrompt(widget));
@@ -161,7 +167,8 @@ void TestCertificateListWidget::vesselModeOpensStraightToItsOwnList()
     const InstallationContext context = vesselContext(QStringLiteral("v1"));
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
 
     // No selector exists in VESSEL mode, so the widget must already be scoped.
     QVERIFY2(!showingPrompt(widget), "a vessel installation never sees the prompt");
@@ -189,7 +196,8 @@ void TestCertificateListWidget::defaultSortIsByListNumberNotByName()
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     const QStringList expected{QStringLiteral("3"), QStringLiteral("3A"), QStringLiteral("3B"),
@@ -212,7 +220,8 @@ void TestCertificateListWidget::certificatesWithoutAListNumberSortLast()
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     const QStringList numbers = columnContents(widget, 0);
@@ -233,7 +242,8 @@ void TestCertificateListWidget::columnsAreNumberNameIssueExpiryCategory()
     const InstallationContext context = officeContext();
     CertificateRepository     repository(db, context);
 
-    CertificateListWidget widget(repository, context);
+    EndorsementRepository endorsements(db, context);
+    CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     QTableWidget* table = tableOf(widget);

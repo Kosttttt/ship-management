@@ -264,6 +264,88 @@ value there the moment a UI combo box is involved, since a combo always has
 a selection — and it matches how the form and repository already treat it.
 No action needed.
 
+### Step 5 addendum — vessel selector fix, "No." field, Issue Date column ✅
+Full design in `docs/certificate-crud-spec.md` §8, written after the developer
+tried step 5 hands-on and found a real defect plus two things he wanted the
+list to show. Built and independently verified file-by-file, including
+reading the new migration, the domain rule, the repository backstop, the
+form validator, the new sort-aware table item, the selector-refresh fix, and
+the new/expanded tests — not just from Claude Code's own report.
+
+- §8.1 fix: the OFFICE toolbar vessel selector didn't see a vessel added
+  from the "Vessels" screen until restart, because it was populated once at
+  `MainWindow` construction and nothing told it to re-read afterwards.
+  `VesselListWidget` now emits `vesselsChanged()` after a successful add
+  *and* after a successful edit (a rename changes both the label and where
+  it sorts). `MainWindow::refreshVesselSelector()` re-reads the fleet and
+  restores the current selection **by id**, not position, since inserting a
+  vessel can shift where others sit alphabetically. The selector's initial
+  population now goes through this same method, so there's one code path
+  instead of two that could drift apart.
+- §8.2: a new optional `list_number` field ("No.") — a short company
+  reference like "15D", used in place of a certificate's full name.
+  `migrations/004_add_certificate_list_number.sql` adds the column (a new
+  migration, since `003_create_certificate.sql` is already committed and is
+  never edited). The format — digits, then letters, nothing else — is
+  enforced in one place, `CertificateListNumber` in the domain
+  (`pattern()`/`isValid()`/`lessThan()`), and every layer uses that same
+  rule: the form's `QLineEdit` validator is built from `pattern()` so an
+  invalid keystroke never appears on screen; the repository's `validate()`
+  calls `isValid()` as a backstop for anything that arrives another way (a
+  future CSV import); the migration's `CHECK` constraint (written with
+  `GLOB`, since SQLite has no regular expressions) is the final backstop.
+  Sorting is why the format matters at all: as free text, "15D" would sort
+  ahead of "3A", because `'1'` precedes `'3'` as a character. A new
+  `QTableWidgetItem` subclass, `ListNumberItem`, forwards its `operator<`
+  to `CertificateListNumber::lessThan()` so the list sorts by what the
+  number means, not by its characters.
+- §8.3: an `Issue Date` column, using data already stored since migration
+  003 — no schema change, just a new column.
+- Certificate list column order is now **No. · Name · Issue Date · Expiry
+  Date · Category**, default-sorted by No. ascending, with blank numbers
+  sorting after every certificate that has one (so the ones the fleet
+  refers to by number stay together). Clicking any header still re-sorts
+  by that column.
+- 190 unit tests total, across 15 suites (was 142/13) — five new (a new
+  `tst_VesselSelectorRefresh` suite covering the selector defect, a new
+  `tst_CertificateListNumber` suite testing the domain rule directly, plus
+  additions to `tst_CertificateRepositoryValidation` and
+  `tst_CertificateListWidget`).
+
+Verified on screen, not just in unit tests (database backed up first, then
+restored): the list actually renders `3A`, `9`, `15D`, then a blank row in
+that order — the exact case plain-text sorting would have gotten wrong; the
+form's validator refused a hyphen and a digit typed after a letter, live,
+as keystrokes; and migration 004 applied cleanly to a database that already
+had 001–003 on it, confirming 003 was never touched and `ALTER TABLE ...
+CHECK` works against a populated table.
+
+Judgment calls made and reviewed:
+- The migration's `CHECK` constraint (GLOB-based) and the domain's
+  `isValid()` (regex-based) encode the same rule two different ways, since
+  SQLite has no regex support — a place the two could in principle drift.
+  Tests pin both sides independently, and both were checked against the
+  same set of examples during review; no drift found.
+- Letters compare case-insensitively (`3a` and `3A` are the same
+  certificate to a person), with a case-sensitive tiebreak only so the sort
+  is stable. The spec didn't say; the validator permits both cases, so a
+  rule was needed.
+- Blank-last only holds under the default ascending sort; clicking the
+  header to sort descending puts blanks first, because Qt's table sort
+  reverses `operator<`. This matches what §8.2 actually specifies (the
+  *default* sort) rather than a stronger "always last" rule, which would
+  need custom sort handling not asked for.
+- The certificate row's id — used to know which row a double-click is
+  editing — moved from the Name cell to the new No. cell, since it rides on
+  column 0 and column 0 is now No. Invisible to the user either way.
+
+One minor note, not a defect: `MainWindow.cpp`'s new
+`refreshVesselSelector()` uses `QSignalBlocker` without an explicit
+`#include <QSignalBlocker>` — it compiles today because another Qt header
+pulls it in transitively, but that's not guaranteed across Qt versions or
+compilers. Worth adding the explicit include next time this file is
+touched; not worth a separate pass for on its own.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -340,6 +422,17 @@ No action needed.
   every future writer remembering to call the repository. Revisit this when
   step 11 (CSV import) or the sync engine is designed, since those are the
   first paths that write outside the repository's own validation.
+- The "No." field (`list_number`) is a single free-typed box with a live
+  validator, not two separate boxes for number and letter — tried, rejected
+  by the developer as fiddly to fill in during data entry. The format
+  restriction (digits, then letters) is what makes a single box safe: it
+  guarantees the value can always be split unambiguously for sorting.
+- The certificate list's default sort changed from Name to `list_number`
+  ascending. This matters to the developer beyond convenience — the fleet
+  refers to certificates by this number in day-to-day communication (e.g.
+  "Certificate 15D") specifically so the full name doesn't have to be
+  typed out, so the list needs to read in that order without the user
+  having to click anything.
 
 ## Outstanding technical debt
 
@@ -359,10 +452,21 @@ No action needed.
   and there's no single obvious seam to extract, unlike the statement
   splitter pulled out of `MigrationRunner`. Watch it — if it grows again in
   a later step, that's the moment to pull out something real.
+- `modules/certificates/data/CertificateRepository.cpp` is now ~310 lines,
+  over the same guideline, having grown past it while adding the `No.`
+  field's handling. Same call as `VesselRepository.cpp`: no obvious seam,
+  not split now, but this is the file step 6 (endorsements) will touch
+  next, so it's the one to watch most closely.
+- `tests/modules/certificates/tst_CertificateRepositoryValidation.cpp` is
+  now ~301 lines, also just over the guideline, for the same reason (the
+  new `list_number` validation tests). Same call: not split now.
 - The first-run wizard (step 3) still lets a duplicate IMO number fail with
   the raw SQLite constraint text, rather than the friendly pre-check
   `VesselRepository::create()`/`update()` now do (step 4). Worth
   backporting next time that file is touched.
+- `MainWindow.cpp` uses `QSignalBlocker` without including
+  `<QSignalBlocker>` directly — works today via a transitive include, but
+  is fragile. Add the explicit include next time this file is touched.
 
 ---
 
@@ -412,7 +516,14 @@ each survey actually being carried out, which is what
 `computeCertificateState()` needs to check against to know whether an
 intermediate survey window has been met.
 
-No implementation spec written yet for this step — bring it up here for a
+The developer has already asked for two things the list should eventually
+show — "Survey from / Survey to" and "Days left" / a status colour — and
+both map directly onto what `certificate-control-spec.md` §3.2 and §4
+already designed (`windowOpens`/`windowCloses` per survey, and the
+days-left and status-colour rules in §4.3/§4.4). That wiring is step 7, once
+step 6's engine exists to wire up.
+
+No implementation spec written yet for step 6 — bring it up here for a
 design discussion first, the same way steps 3, 4 and 5 went. Two things
 worth deciding early: what an endorsement needs to record (survey date,
 surveyor/class society, place — anything else?), and whether an endorsement

@@ -42,6 +42,15 @@ add_ship_test(tst_CertificateEditForm
 add_ship_test(tst_CertificateListWidget
     modules/certificates/tst_CertificateListWidget.cpp ShipCertificates)
 
+add_ship_test(tst_CertificateStateExpiry
+    modules/certificates/tst_CertificateStateExpiry.cpp ShipCertificates)
+add_ship_test(tst_CertificateStateSurvey
+    modules/certificates/tst_CertificateStateSurvey.cpp ShipCertificates)
+add_ship_test(tst_EndorsementRepository
+    modules/certificates/tst_EndorsementRepository.cpp ShipCertificates)
+add_ship_test(tst_EndorsementUi
+    modules/certificates/tst_EndorsementUi.cpp ShipCertificates)
+
 # These run the real migrations, so they need them compiled in.
 ship_add_migrations(tst_InstallationRepository)
 ship_add_migrations(tst_VesselRepositoryScope)
@@ -52,3 +61,5 @@ ship_add_migrations(tst_CertificateRepositoryScope)
 ship_add_migrations(tst_CertificateRepositoryValidation)
 ship_add_migrations(tst_CertificateRepositoryWrites)
 ship_add_migrations(tst_CertificateListWidget)
+ship_add_migrations(tst_EndorsementRepository)
+ship_add_migrations(tst_EndorsementUi)

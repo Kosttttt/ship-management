@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class CertificateRepository;
+class EndorsementRepository;
 class InstallationContext;
 class QPushButton;
 class QStackedWidget;
@@ -21,6 +22,7 @@ class CertificateListWidget : public QWidget
 
 public:
     CertificateListWidget(CertificateRepository&     repository,
+                          EndorsementRepository&     endorsements,
                           const InstallationContext& installation,
                           QWidget*                   parent = nullptr);
 
@@ -39,6 +41,7 @@ private:
     void updateVisibleState();
 
     CertificateRepository& m_repository;
+    EndorsementRepository& m_endorsements;
     QString                m_vesselId;
 
     QStackedWidget* m_stack      = nullptr;

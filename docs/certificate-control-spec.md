@@ -21,10 +21,8 @@ ensures nothing slips through.
 module.
 
 - Statutory certificates: Safety Construction, Safety Equipment, Safety Radio,
-  Load Line, IOPP, IAPP, ISPP (Sewage Pollution Prevention), Garbage, Tonnage,
-  ISSC, SMC, DOC (the company copy carried on board), MLC, AFS, BWM, and
-  others. This is a descriptive list, not an enumerated set anything reads
-  from — see §5.
+  Load Line, IOPP, IAPP, ISPP, Sewage, Garbage, Tonnage, ISSC, SMC, DOC (the
+  company copy carried on board), MLC, AFS, BWM, and others.
 - Class certificates: hull, machinery, docking, tailshaft, boilers.
 - Certificates covering an item of equipment (lifeboat, liferaft, EPIRB,
   lifting gear, fire extinguishers) are entered as **ordinary certificates**,
@@ -174,6 +172,22 @@ date, so it has nothing to anchor to without one. A certificate entered with
 is invalid input (§4.8 item 13): a no-expiry certificate cannot have a survey
 schedule, because there is no anniversary to schedule it against.
 
+**No `extensions` parameter yet.** §4.7 describes extensions and §4.8 item 12
+originally called for a test of one affecting this calculation, but there is
+nowhere for that data to come from — no `extension` table exists, and the
+signature above has no parameter for it. Extensions are deferred to their own
+step (`CLAUDE.md` §11), slotted after the renewal workflow since both are
+about a certificate's life running past its normal schedule. Until then, this
+function has no notion of an extension at all; item 12 is deferred with it.
+
+**Which survey types this function reasons about.** `survey_type` on an
+endorsement has four possible values (§5), but only `ANNUAL` and
+`INTERMEDIATE` are matched against a window by §4.5 below. `INITIAL` and
+`RENEWAL` endorsements may exist for historical record-keeping, but this
+function does not look for them and they satisfy nothing — a renewal
+endorsement's effect is creating the *next* certificate row (step 9), not
+changing this certificate's state.
+
 ### 4.1 An overdue survey invalidates the certificate
 
 If any required survey window has closed without a matching endorsement, the
@@ -204,8 +218,12 @@ Severity order, worst first:
 | ⬜ Light | **Due Soon** | a survey window opens within 90 days |
 | ⬜ White | **Valid** | none of the above |
 
-The thresholds 30 / 60 / 90 live in `app_setting` and are editable in Settings.
-They are **not** hard-coded constants.
+The thresholds 30 / 60 / 90 are read from an `AlertThresholds` value passed
+into the function — never a constant inside it, so a test can pass different
+numbers. Until the Settings step (`CLAUDE.md` §11) builds the `app_setting`
+table and a screen to edit them, `AlertThresholds` is constructed with these
+three values hardcoded as defaults. The function itself never changes when
+that step lands — only where the values it's handed come from.
 
 Status is **computed on demand from today's date and never stored in the
 database** (`CLAUDE.md` §6.7).
@@ -243,6 +261,22 @@ When intermediate_mode = 'REPLACES_ANNUAL', an INTERMEDIATE endorsement
 inside annualWindow(2) or annualWindow(3) also satisfies that annual.
 ```
 
+**A survey completed after its window closed still satisfies that
+anniversary.** The pseudocode above says an endorsement must fall *within*
+`annualWindow(n)`, but that leaves no way for a genuinely late survey to ever
+resolve — read literally, a certificate that missed one window would show
+`Overdue` forever, even after being surveyed, which does not match what
+actually happens: a late survey is still a survey. The matching rule is
+therefore: an endorsement of the matching type satisfies anniversary `n` if
+its `endorsement_date` is on or after `annualWindow(n)`'s opening date and
+has not already been claimed by an earlier, unsatisfied anniversary. There is
+no upper bound at the window's close — only being superseded by an even
+earlier open anniversary claiming it first. When such an endorsement's date
+falls after `windowCloses`, the anniversary is satisfied (the certificate is
+no longer `Overdue` for it), but `CertificateState.reason` records that it
+was completed late — this is surfaced through the existing `reason` string,
+not a new field. See §4.8 item 6.
+
 Once every anniversary is satisfied, the next required action is the **renewal
 survey** before expiry.
 
@@ -267,18 +301,23 @@ silently** by the calculation.
 3. Validity other than 5 years (interim, short-term certificates).
 4. No endorsements yet (freshly issued certificate).
 5. An endorsement dated before the issue date — reject as invalid input.
-6. An endorsement outside every window (late survey) — flagged, not silently
-   accepted.
+6. An endorsement completed after its window closed still satisfies that
+   anniversary (the certificate returns to valid), and `reason` records that
+   it was late — see the matching rule added to §4.5.
 7. Annual overdue while the intermediate is still in window, and the reverse.
 8. Both annual and intermediate windows open at once — annual is reported.
 9. Expiring soon **and** survey overdue at the same time.
 10. `today` exactly on a window boundary — boundaries are **inclusive**.
 11. `intermediate_mode = 'REPLACES_ANNUAL'` — an intermediate endorsement
     satisfies the 2nd or 3rd annual.
-12. An extension recorded against the certificate.
+12. **Deferred to the extensions step** (`CLAUDE.md` §11) — no `extension`
+    table or parameter exists yet; see the note under §4's signature.
 13. `expiryDate` null: `computeCertificateState()` returns `Valid`/`NotRequired`
     immediately. `expiryDate` null with either survey flag true is rejected as
     invalid input before it reaches the calculation at all.
+14. An `INITIAL` or `RENEWAL` endorsement is present alongside `ANNUAL`/
+    `INTERMEDIATE` ones — it is stored and returned by the repository, but
+    ignored by the matching logic; it satisfies nothing and changes nothing.
 
 ---
 

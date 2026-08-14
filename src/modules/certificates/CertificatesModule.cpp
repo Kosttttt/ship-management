@@ -8,6 +8,7 @@ CertificatesModule::CertificatesModule(QSqlDatabase&              database,
                                        const InstallationContext& installation)
     : m_installation(installation)
     , m_certificates(database, installation)
+    , m_endorsements(database, installation)
 {
 }
 
@@ -30,7 +31,7 @@ QIcon CertificatesModule::icon() const
 
 QWidget* CertificatesModule::createMainWidget(QWidget* parent)
 {
-    return new CertificateListWidget(m_certificates, m_installation, parent);
+    return new CertificateListWidget(m_certificates, m_endorsements, m_installation, parent);
 }
 
 QList<Migration> CertificatesModule::migrations() const

@@ -232,14 +232,22 @@ carefully on C++.
   5. Certificate CRUD — no separate type catalogue; each certificate carries
      its own name and survey-rule fields directly (see
      `docs/certificate-control-spec.md` §5)
-  6. Endorsement model and `computeCertificateState()` + unit tests
+  6. Endorsement model and `computeCertificateState()` + unit tests — annual
+     and intermediate tracks only; extensions deferred to step 11
+     (see `docs/certificate-endorsement-spec.md`)
   7. Certificate list screen: status colours, filters, days-left column
-  8. Alerts: sidebar badge, daily toast, filtered drill-down
-  9. Renewal workflow
-  10. Attachments with archive-on-replace
-  11. CSV import/export
-  12. Reports (print preview, PDF)
-  13. Audit trail viewer + backup/restore
+  8. Settings & `app_setting` — alert thresholds (editable), daily-toast
+     last-shown tracking; step 6 ships thresholds as hardcoded defaults, this
+     is what makes them the editable values `certificate-control-spec.md`
+     §4.3 describes
+  9. Alerts: sidebar badge, daily toast, filtered drill-down
+  10. Renewal workflow
+  11. Extensions — recorded against a certificate, feeding into
+      `computeCertificateState()` (deferred from step 6)
+  12. Attachments with archive-on-replace
+  13. CSV import/export
+  14. Reports (print preview, PDF)
+  15. Audit trail viewer + backup/restore
 - **Not yet started:** ship-to-shore sync, role-based access control
   (deliberately last), all future modules (DMS, PMS, spares, purchasing, vessel
   life monitoring, budget, crew).

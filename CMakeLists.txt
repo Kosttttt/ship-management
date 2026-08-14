@@ -36,6 +36,7 @@ set(SHIP_MIGRATION_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/002_create_vessel.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/003_create_certificate.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/004_add_certificate_list_number.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/005_create_endorsement.sql
 )
 
 # Compiles the migrations into a target, reachable at ":/migrations/...".
@@ -83,8 +84,16 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/CertificatesModule.cpp
     src/modules/certificates/domain/Certificate.h
     src/modules/certificates/domain/Certificate.cpp
+    src/modules/certificates/domain/Endorsement.h
+    src/modules/certificates/domain/Endorsement.cpp
+    src/modules/certificates/domain/CertificateState.h
+    src/modules/certificates/domain/CertificateState.cpp
+    src/modules/certificates/domain/SurveySchedule.h
+    src/modules/certificates/domain/SurveySchedule.cpp
     src/modules/certificates/data/CertificateRepository.h
     src/modules/certificates/data/CertificateRepository.cpp
+    src/modules/certificates/data/EndorsementRepository.h
+    src/modules/certificates/data/EndorsementRepository.cpp
     src/modules/certificates/ui/CertificateEditForm.h
     src/modules/certificates/ui/CertificateEditForm.cpp
     src/modules/certificates/ui/CertificateEditDialog.h
@@ -93,6 +102,10 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateListWidget.cpp
     src/modules/certificates/ui/ListNumberItem.h
     src/modules/certificates/ui/ListNumberItem.cpp
+    src/modules/certificates/ui/EndorsementEditForm.h
+    src/modules/certificates/ui/EndorsementEditForm.cpp
+    src/modules/certificates/ui/EndorsementEditDialog.h
+    src/modules/certificates/ui/EndorsementEditDialog.cpp
 )
 
 target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets)

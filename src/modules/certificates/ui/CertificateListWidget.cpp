@@ -67,10 +67,12 @@ QString expiryLabel(const Certificate& certificate)
 } // namespace
 
 CertificateListWidget::CertificateListWidget(CertificateRepository&     repository,
+                                             EndorsementRepository&     endorsements,
                                              const InstallationContext& installation,
                                              QWidget*                   parent)
     : QWidget(parent)
     , m_repository(repository)
+    , m_endorsements(endorsements)
 {
     m_addButton = new QPushButton(tr("&Add Certificate"), this);
 
@@ -197,7 +199,7 @@ void CertificateListWidget::addCertificate()
         return;
     }
 
-    CertificateEditDialog dialog(m_repository, m_vesselId, std::nullopt, this);
+    CertificateEditDialog dialog(m_repository, m_endorsements, m_vesselId, std::nullopt, this);
     if (dialog.exec() == QDialog::Accepted) {
         reload();
     }
@@ -228,7 +230,7 @@ void CertificateListWidget::editCertificate(QTableWidgetItem* item)
         return;
     }
 
-    CertificateEditDialog dialog(m_repository, m_vesselId, certificate, this);
+    CertificateEditDialog dialog(m_repository, m_endorsements, m_vesselId, certificate, this);
     if (dialog.exec() == QDialog::Accepted) {
         reload();
     }
