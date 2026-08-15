@@ -2,6 +2,7 @@
 
 #include "app/IModule.h"
 #include "app/ModuleRegistry.h"
+#include "app/SettingsPage.h"
 #include "app/VesselDetailPage.h"
 #include "app/VesselListWidget.h"
 #include "core/InstallationContext.h"
@@ -35,6 +36,7 @@ QString titleFor(const InstallationContext& installation)
 
 MainWindow::MainWindow(const InstallationContext& installation,
                        VesselRepository&          vessels,
+                       AppSettingRepository&      appSettings,
                        ModuleRegistry&            modules,
                        QWidget*                   parent)
     : QMainWindow(parent)
@@ -44,7 +46,7 @@ MainWindow::MainWindow(const InstallationContext& installation,
 
     m_vesselRepository = &vessels;
 
-    buildSidebar(installation, vessels, modules);
+    buildSidebar(installation, vessels, appSettings, modules);
 
     // CLAUDE.md §3: the ship selector is shown at the office and hidden on a
     // vessel, which has only itself.
@@ -57,6 +59,7 @@ MainWindow::MainWindow(const InstallationContext& installation,
 
 void MainWindow::buildSidebar(const InstallationContext& installation,
                               VesselRepository&          vessels,
+                              AppSettingRepository&      appSettings,
                               ModuleRegistry&            modules)
 {
     m_sidebar = new QListWidget(this);
@@ -90,6 +93,13 @@ void MainWindow::buildSidebar(const InstallationContext& installation,
             m_certificates = certificates;
         }
     }
+
+    // "Settings" is fixed too, and last: it is core rather than a module, and
+    // it is a utility screen rather than somewhere work happens. Visible in
+    // both installation modes — role-based access is layered on at the end of
+    // the project, not designed around now (CLAUDE.md §11).
+    m_sidebar->addItem(tr("Settings"));
+    m_pages->addWidget(new SettingsPage(appSettings, this));
 
     connect(m_sidebar, &QListWidget::currentRowChanged, m_pages, &QStackedWidget::setCurrentIndex);
     m_sidebar->setCurrentRow(0);

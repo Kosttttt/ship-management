@@ -585,6 +585,123 @@ Committed as `33f90b0` and pushed to `origin/main`, alongside this
 `PROJECT-STATUS.md` update, the `CLAUDE.md` §10.1 safety rule, and
 `docs/certificate-list-status-spec.md`.
 
+### Step 8 — Settings & `app_setting` ✅
+Full design in `docs/settings-app-setting-spec.md`, written after a design
+discussion that settled four questions: the singleton-table shape (copying
+`installation`'s mechanism exactly, rather than a generic key/value table),
+enforcing strictly-increasing thresholds with a friendly message ahead of
+the raw CHECK constraint, adding the `last_alert_toast_date` column now but
+leaving its behaviour to step 9, and an ungated Settings entry in the
+sidebar. Built and independently verified file-by-file against the spec —
+migration, both core files, the Settings screen, every wiring point
+(`CertificateListWidget`, `CertificatesModule`, `MainWindow`, `main.cpp`),
+both `CMakeLists.txt` files, and all five new/changed test files — not just
+from Claude Code's own report. **No defects found.**
+
+- `migrations/006_create_app_setting.sql` — the `app_setting` table. The
+  singleton mechanism (`singleton INTEGER NOT NULL DEFAULT 1 UNIQUE CHECK
+  (singleton = 1)`) is copied verbatim from `001_create_installation.sql`,
+  confirmed byte-for-byte identical in intent. Two CHECK constraints: each
+  threshold `> 0`, and the three strictly increasing — a correctness
+  requirement, not tidiness, since `computeCertificateState()` tests them in
+  that order and an out-of-order set would make a whole severity tier
+  unreachable. Unlike `installation`, the single row is seeded by the
+  migration itself, not a wizard — there's no decision for a user to make,
+  since the defaults are already the right starting values. The seed
+  `INSERT` builds a version-4-shaped UUID directly in SQL (`randomblob()`/
+  `hex()`/`substr()`), since a migration can't call `QUuid::createUuid()`;
+  `origin_node = 'LOCAL'`, matching the precedent `schema_version` already
+  set, since this migration runs before the first-run wizard creates an
+  `installation` row.
+- `core/AppSetting` — a plain struct (`id`, three `int` thresholds default
+  30/60/90, a nullable `lastAlertToastDate`), deliberately free of any
+  dependency on the certificates module and of audit columns, matching the
+  convention `Vessel`/`Certificate` already follow (the repository owns
+  audit columns, not the struct).
+- `core/AppSettingRepository` — `read()`/`update()`, no `create()` (the row
+  always exists once migration 006 has run), no `InstallationContext` and no
+  scope filtering (app settings are installation-wide, not vessel-specific).
+  `validate()` checks positivity then strict ordering, both with named-pair
+  messages (e.g. "Critical (%1 days) must be fewer than Expiring Soon (%2
+  days)."), before the raw CHECK constraint is ever reached. `update()`
+  deliberately never writes `last_alert_toast_date` — nothing owns that
+  column until step 9, and a threshold save must not silently clear it.
+- `app/SettingsPage` — a plain form, no dialog wrapper, editing the one
+  settings row directly (the same shape `VesselDetailPage` uses for the one
+  vessel in VESSEL mode). Three `QSpinBox` fields (range 1–3650 days) whose
+  Save button is disabled live whenever the ordering rule is broken, with a
+  hint label naming the offending pair — the same message the repository's
+  own `validate()` would give, so the invalid combination is never actually
+  something a user can submit. Loads via `read()`, saves via `update()`,
+  reloads from the stored row afterward rather than trusting the form.
+- Wiring: `main.cpp` constructs one `AppSettingRepository` alongside
+  `VesselRepository`/`ModuleRegistry`, before the window, so it outlives
+  every screen holding a reference to it — passed into `MainWindow`, which
+  threads it into both `SettingsPage` and (via `CertificatesModule`)
+  `CertificateListWidget`. `CertificateListWidget::reload()` is the one
+  place an `AppSetting` (core) becomes an `AlertThresholds` (this module),
+  translated a field at a time on the module's side of the architecture
+  boundary — core knows nothing about `AlertThresholds`. A failed read
+  leaves the hardcoded 30/60/90 defaults in place, the same "something
+  reasonable beats nothing" call step 7 made for unreadable endorsements.
+- "Settings" is a fixed sidebar entry, core rather than a module, placed
+  **last** — after "Vessels" and every registered module — and visible in
+  both installation modes with no role gating, since roles are layered on
+  at the end of the project (`CLAUDE.md`'s development approach), not
+  designed around now.
+- 286 unit tests total, across 22 suites (was 259/20) — two new suites
+  (`tst_AppSettingRepository` covering spec §8 items 1–6: seeded defaults,
+  both ordering refusals with named-pair messages, zero/negative refusal,
+  a valid update round-tripping and bumping revision, and the raw CHECK
+  text never reaching the user; `tst_SettingsPage` covering item 7: the
+  Save button's live validation, re-enabling once corrected, and a save
+  actually writing through to the repository), plus two new cases added to
+  `tst_CertificateListStatus` (items 8–9: an edited threshold changing what
+  the list shows for the same certificate; a `read()` failure falling back
+  to the hardcoded defaults rather than breaking the screen) and
+  constructor-signature updates to `tst_ModuleRegistry` (a new
+  `settingsEntryIsPresentInVesselModeToo` case, plus sidebar-count
+  assertions updated for the third fixed entry) and
+  `tst_VesselSelectorRefresh` (all `MainWindow` construction sites updated
+  for the new `AppSettingRepository&` parameter).
+
+Judgment calls made (Claude Code's, all reviewed individually):
+1. The seed `INSERT`'s UUID, built from SQLite's own randomness rather than
+   a fixed literal — confirmed correct: a literal would give every
+   installation in the fleet the same settings-row id, which defeats the
+   point of per-installation UUIDs.
+2. `origin_node = 'LOCAL'` for the seeded row — confirmed correct, matching
+   the precedent `schema_version` already set for the same reason (no
+   `installation` row exists yet when this migration runs).
+3. `AppSetting` carrying no audit fields, flagged as a literal-vs-convention
+   interpretation call — confirmed correct: this matches the established
+   `Vessel`/`Certificate` convention exactly (repository owns audit
+   columns, domain struct doesn't), not a deviation from it.
+4. `update()` never writing `last_alert_toast_date` — confirmed correct and
+   load-bearing: without this, the first threshold save after step 9 ships
+   would silently reset "have I shown today's toast" back to never-shown.
+5. Settings placed last in the sidebar — confirmed correct per spec §6: a
+   utility screen rather than somewhere work happens, so it belongs after
+   the modules, not before or among them.
+6. The certificate list not live-refreshing its already-rendered rows when
+   Settings is saved on another screen, flagged as a possible follow-up —
+   **accepted as shipped, not a defect.** The data itself is never wrong,
+   only the on-screen severity colouring until the next `reload()` trigger
+   (switching vessels, toggling the filter, or closing the add/edit
+   dialog); the Settings screen's own confirmation text already sets that
+   expectation ("Saved. The certificate list uses these the next time it
+   loads."). Revisit only if step 9's alert engine ends up needing a
+   cross-screen "settings changed" signal for its own reasons — the
+   certificate list could piggyback on that rather than this screen
+   inventing its own `vesselsChanged()`-style signal just for itself.
+
+One minor, non-blocking nit found during verification, not a defect: two
+comments — `CertificatesModule::alertProviders()` and a comment in
+`tst_ModuleRegistry.cpp` — still say "the badge arrives in step 8," left
+over from before step 6's build-order renumbering moved Alerts to step 9.
+Purely cosmetic; worth a one-line fix next time either file is touched, not
+worth a separate pass.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -703,6 +820,25 @@ Committed as `33f90b0` and pushed to `origin/main`, alongside this
   may run for any reason, including manual visual verification — see
   `CLAUDE.md` §10.1. A throwaway data directory is required for any manual
   run of the app used to look at something rather than to keep the data.
+- `app_setting` is a fixed-column singleton table, the same shape as
+  `installation`, not a generic key/value table — simpler to read, at the
+  cost of a migration to add each future setting. With exactly one thing to
+  store today, that trade-off favours simplicity.
+- The three alert thresholds must be strictly increasing
+  (`criticalDays < expiringSoonDays < dueSoonDays`), enforced with a
+  friendly named-pair message ahead of the raw database CHECK constraint —
+  not just validated for positivity alone.
+- `AppSetting`/`AppSettingRepository` are core-owned and carry zero
+  dependency on the certificates module; the one-line-per-field translation
+  into the module's own `AlertThresholds` happens inside
+  `CertificateListWidget::reload()`, on the module's side of the
+  architecture boundary, keeping `CLAUDE.md` §4's "dependencies point
+  downward only" rule intact without touching any already-tested step 6
+  code.
+- Settings is visible in both installation modes with no role gating —
+  consistent with the project's stated approach of building role-based
+  access last, on top of already-working functionality, rather than
+  designing around it from the start.
 
 ## Outstanding technical debt
 
@@ -754,6 +890,19 @@ Committed as `33f90b0` and pushed to `origin/main`, alongside this
   properly (rather than just avoiding) if it ever blocks something more
   than a manual visual check, e.g. if a future backup/restore feature needs
   to know the real path reliably.
+- Two stale comments (`CertificatesModule::alertProviders()` and
+  `tst_ModuleRegistry.cpp`) still say "the badge arrives in step 8" from
+  before step 6's build-order renumbering moved Alerts to step 9. Cosmetic
+  only — fix inline next time either file is touched.
+- The certificate list does not live-refresh its already-rendered rows when
+  thresholds are changed on the Settings screen without an intervening
+  `reload()` trigger. Accepted as shipped (see step 8's judgment call 6
+  above); revisit only if step 9's alert engine needs a cross-screen
+  "settings changed" signal for its own reasons, in which case the
+  certificate list can piggyback on it.
+- Step 8's own new/changed files stayed comfortably under the ~300-line
+  guideline (`AppSettingRepository.cpp` ~140 lines, `SettingsPage.cpp` ~170
+  lines) — no new size debt from this step.
 
 ---
 
@@ -793,33 +942,30 @@ were all updated to match.
 
 ## Next step
 
-**Step 8 — Settings & `app_setting`.** The certificate list now shows live
-status, but every severity threshold is still the hardcoded
-`AlertThresholds()` default (30/60/90 days) — every call site
-(`CertificateListWidget::reload()` today, and step 9's alert engine next)
-was deliberately built to take an `AlertThresholds` as a parameter rather
-than a constant, specifically so this step can make it real without
-touching either of them. This step adds:
+**Step 9 — Alerts.** The certificate list now computes and displays live
+status, and the alert thresholds behind it are finally editable rather than
+hardcoded — step 8 built exactly the plumbing this step needs
+(`app_setting.last_alert_toast_date`, unused since step 8, is waiting for
+this step to read and write it). Per `CLAUDE.md` §11, this step adds:
 
-- A new core-owned `app_setting` table (per `CLAUDE.md` §5, core owns things
-  that exist independently of any module) — a small key/value or
-  fixed-columns table, worth a design discussion on which shape fits
-  better given there's currently exactly one thing to store.
-- A Settings screen where the three thresholds (`criticalDays`,
-  `expiringSoonDays`, `dueSoonDays`) become editable, replacing the
-  `AlertThresholds()` default construction at each call site with a read
-  from this table.
-- Daily-toast last-shown tracking, per `CLAUDE.md` §11 — the piece step 9
-  (Alerts) needs to know "have I already told the user about this today,"
-  which belongs in `app_setting` rather than being invented fresh in step 9.
+- A sidebar badge (or similar) showing how many certificates currently need
+  attention, using the same `computeCertificateState()`/`AlertThresholds`
+  machinery the certificate list already uses — no new severity logic, just
+  a new consumer of it.
+- A once-per-day toast/notification summarising what needs attention,
+  tracked via `app_setting.last_alert_toast_date` so it fires at most once
+  per calendar day per installation.
+- A filtered drill-down from the badge/toast straight to the certificate
+  list's existing "needs attention" filter, rather than a separate screen
+  duplicating what that filter already shows.
 
-No implementation spec written yet for step 8 — bring it up here for a
-design discussion first, the same way steps 3–7 went. Worth deciding early:
-whether `app_setting` is a generic key/value table (flexible, but every
-read needs a type cast) or a fixed-column single-row table like
-`installation` (simpler to read, needs a migration to add each new setting
-later) — and whether threshold values should be validated against each
-other (e.g. `criticalDays < expiringSoonDays < dueSoonDays`, so the three
-can't be set into a nonsensical order).
+No implementation spec written yet for step 9 — bring it up here for a
+design discussion first, the same way steps 3–8 went. Worth deciding early:
+where the badge lives in the UI (sidebar item text, a small icon overlay,
+or something else), whether the toast is a native OS notification or an
+in-app one, what "needs attention" means for the badge/toast specifically
+(the same `DisplayStatus != Valid` rule the list's filter already uses, or
+something narrower), and whether the badge count should be per-vessel in
+OFFICE mode or fleet-wide.
 
 Full build order is in `CLAUDE.md` §11.

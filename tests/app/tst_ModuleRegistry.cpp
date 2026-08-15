@@ -1,6 +1,7 @@
 #include "app/IModule.h"
 #include "app/MainWindow.h"
 #include "app/ModuleRegistry.h"
+#include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "core/MigrationRunner.h"
 #include "core/VesselRepository.h"
@@ -27,6 +28,7 @@ private slots:
     void sidebarShowsVesselsPlusEveryModule();
     void officeModeHasAVesselSelectorStartingUnselected();
     void vesselModeHasNoVesselSelector();
+    void settingsEntryIsPresentInVesselModeToo();
 
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
@@ -135,14 +137,18 @@ void TestModuleRegistry::sidebarShowsVesselsPlusEveryModule()
     VesselRepository          vessels(db, context);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, registry);
+    AppSettingRepository appSettings(db);
+    MainWindow window(context, vessels, appSettings, registry);
 
     auto* sidebar = window.findChild<QListWidget*>(QStringLiteral("navigationSidebar"));
     QVERIFY(sidebar != nullptr);
 
-    QCOMPARE(sidebar->count(), 2);
+    // Vessels first, then one row per module, then Settings — both of the
+    // fixed entries are core rather than modules (settings-app-setting-spec §6).
+    QCOMPARE(sidebar->count(), 3);
     QCOMPARE(sidebar->item(0)->text(), QStringLiteral("Vessels"));
     QCOMPARE(sidebar->item(1)->text(), registry.modules().first()->displayName());
+    QCOMPARE(sidebar->item(2)->text(), QStringLiteral("Settings"));
 
     // Vessels is core, not a module, so it is always first and always present.
     QCOMPARE(sidebar->currentRow(), 0);
@@ -158,7 +164,8 @@ void TestModuleRegistry::officeModeHasAVesselSelectorStartingUnselected()
     VesselRepository          vessels(db, context);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, registry);
+    AppSettingRepository appSettings(db);
+    MainWindow window(context, vessels, appSettings, registry);
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY2(selector != nullptr, "the office installation needs a ship selector");
@@ -175,10 +182,31 @@ void TestModuleRegistry::vesselModeHasNoVesselSelector()
     VesselRepository          vessels(db, context);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, registry);
+    AppSettingRepository appSettings(db);
+    MainWindow window(context, vessels, appSettings, registry);
 
     // CLAUDE.md §3: the ship selector is hidden on a vessel installation.
     QVERIFY(window.findChild<QComboBox*>(QStringLiteral("vesselSelector")) == nullptr);
+}
+
+void TestModuleRegistry::settingsEntryIsPresentInVesselModeToo()
+{
+    // settings-app-setting-spec §6: visible in both installation modes, with
+    // no role gating — roles are layered on at the end of the project.
+    seedVessel(QStringLiteral("v1"), QStringLiteral("MV Example"), QStringLiteral("9074729"));
+
+    QSqlDatabase              db      = database();
+    const InstallationContext context = vesselContext(QStringLiteral("v1"));
+    VesselRepository          vessels(db, context);
+    ModuleRegistry            registry(db, context);
+
+    AppSettingRepository appSettings(db);
+    MainWindow           window(context, vessels, appSettings, registry);
+
+    auto* sidebar = window.findChild<QListWidget*>(QStringLiteral("navigationSidebar"));
+    QVERIFY(sidebar != nullptr);
+    QCOMPARE(sidebar->count(), 3);
+    QCOMPARE(sidebar->item(2)->text(), QStringLiteral("Settings"));
 }
 
 QTEST_MAIN(TestModuleRegistry)

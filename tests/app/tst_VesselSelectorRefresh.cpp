@@ -2,6 +2,7 @@
 #include "app/ModuleRegistry.h"
 #include "app/VesselEditForm.h"
 #include "app/VesselListWidget.h"
+#include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "core/MigrationRunner.h"
 #include "core/Vessel.h"
@@ -193,7 +194,8 @@ void TestVesselSelectorRefresh::selectorGainsANewVesselWithoutARestart()
     VesselRepository          vessels(db, context);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, registry);
+    AppSettingRepository appSettings(db);
+    MainWindow window(context, vessels, appSettings, registry);
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY(selector != nullptr);
@@ -224,7 +226,8 @@ void TestVesselSelectorRefresh::selectorKeepsItsSelectionByIdAcrossARefresh()
     VesselRepository          vessels(db, context);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, registry);
+    AppSettingRepository appSettings(db);
+    MainWindow window(context, vessels, appSettings, registry);
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY(selector != nullptr);

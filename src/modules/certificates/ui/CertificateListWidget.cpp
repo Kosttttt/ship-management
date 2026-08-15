@@ -1,5 +1,6 @@
 #include "modules/certificates/ui/CertificateListWidget.h"
 
+#include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
@@ -62,11 +63,13 @@ QString expiryLabel(const Certificate& certificate)
 
 CertificateListWidget::CertificateListWidget(CertificateRepository&     repository,
                                              EndorsementRepository&     endorsements,
+                                             AppSettingRepository&      appSettings,
                                              const InstallationContext& installation,
                                              QWidget*                   parent)
     : QWidget(parent)
     , m_repository(repository)
     , m_endorsements(endorsements)
+    , m_appSettings(appSettings)
 {
     m_addButton = new QPushButton(tr("&Add Certificate"), this);
 
@@ -178,8 +181,25 @@ void CertificateListWidget::reload()
     // "today" is read in this call chain. computeCertificateState() never
     // reads the clock itself — that is what makes it testable — so the screen
     // reads it once here and hands the same value to every row.
-    const QDate           today = QDate::currentDate();
-    const AlertThresholds thresholds; // hardcoded 30/60/90 until step 8
+    const QDate today = QDate::currentDate();
+
+    // settings-app-setting-spec §7: the one place an AppSetting (core)
+    // becomes an AlertThresholds (this module), translated a field at a time
+    // on this side of the boundary. Core knows nothing about AlertThresholds.
+    //
+    // A failed read leaves the hardcoded 30/60/90 defaults in place: a list
+    // that still shows something reasonable beats one that shows nothing,
+    // the same call step 7 made for unreadable endorsements.
+    AppSetting      setting;
+    AlertThresholds thresholds;
+    if (m_appSettings.read(&setting)) {
+        thresholds.criticalDays     = setting.criticalDays;
+        thresholds.expiringSoonDays = setting.expiringSoonDays;
+        thresholds.dueSoonDays      = setting.dueSoonDays;
+    } else {
+        qWarning() << "Could not read alert thresholds, using defaults:"
+                   << m_appSettings.errorString();
+    }
 
     const bool onlyNeedingAttention = m_needsAttentionCheck->isChecked();
 

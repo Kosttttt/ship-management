@@ -1,5 +1,6 @@
 #include "CertificateTestSupport.h"
 
+#include "core/AppSettingRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/ui/CertificateListWidget.h"
@@ -90,7 +91,8 @@ void TestCertificateListWidget::officeWithNoVesselShowsThePromptNotAnEmptyTable(
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
 
     QVERIFY2(showingPrompt(widget),
              "with no vessel chosen the screen must say so, not show an empty table");
@@ -104,7 +106,8 @@ void TestCertificateListWidget::choosingAVesselShowsThatVesselsCertificates()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     QVERIFY(!showingPrompt(widget));
@@ -118,7 +121,8 @@ void TestCertificateListWidget::switchingVesselReloadsForTheNewVessel()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
 
     widget.setVesselId(QStringLiteral("v1"));
     QCOMPARE(rowsShown(widget), 2);
@@ -136,7 +140,8 @@ void TestCertificateListWidget::clearingTheSelectionReturnsToThePrompt()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
     widget.setVesselId(QStringLiteral("v1"));
     QVERIFY(!showingPrompt(widget));
 
@@ -154,7 +159,8 @@ void TestCertificateListWidget::aVesselWithNoCertificatesShowsAnEmptyTableNotThe
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
     widget.setVesselId(QStringLiteral("v-with-nothing"));
 
     QVERIFY(!showingPrompt(widget));
@@ -168,7 +174,8 @@ void TestCertificateListWidget::vesselModeOpensStraightToItsOwnList()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
 
     // No selector exists in VESSEL mode, so the widget must already be scoped.
     QVERIFY2(!showingPrompt(widget), "a vessel installation never sees the prompt");
@@ -197,7 +204,8 @@ void TestCertificateListWidget::defaultSortIsByListNumberNotByName()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     const QStringList expected{QStringLiteral("3"), QStringLiteral("3A"), QStringLiteral("3B"),
@@ -221,7 +229,8 @@ void TestCertificateListWidget::certificatesWithoutAListNumberSortLast()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     const QStringList numbers = columnContents(widget, 0);
@@ -243,7 +252,8 @@ void TestCertificateListWidget::columnsAreNumberNameStatusExpirySurveyDaysLeft()
     CertificateRepository     repository(db, context);
 
     EndorsementRepository endorsements(db, context);
-    CertificateListWidget widget(repository, endorsements, context);
+    AppSettingRepository  appSettings(db);
+    CertificateListWidget widget(repository, endorsements, appSettings, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     // certificate-list-status-spec §3. Issue Date and Category left this

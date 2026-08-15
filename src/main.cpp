@@ -4,6 +4,7 @@
 #include "core/Database.h"
 #include "core/InstallationContext.h"
 #include "core/InstallationRepository.h"
+#include "core/AppSettingRepository.h"
 #include "core/Logger.h"
 #include "core/MigrationRunner.h"
 #include "core/VesselRepository.h"
@@ -146,10 +147,11 @@ int main(int argc, char* argv[])
     // Declared before the window so they outlive every screen holding a
     // reference to them. The registry owns each module, and each module owns
     // its own repositories.
-    VesselRepository vessels(database.connection(), installation);
-    ModuleRegistry   modules(database.connection(), installation);
+    VesselRepository     vessels(database.connection(), installation);
+    AppSettingRepository appSettings(database.connection());
+    ModuleRegistry       modules(database.connection(), installation);
 
-    MainWindow window(installation, vessels, modules);
+    MainWindow window(installation, vessels, appSettings, modules);
     window.show();
 
     const int result = app.exec();

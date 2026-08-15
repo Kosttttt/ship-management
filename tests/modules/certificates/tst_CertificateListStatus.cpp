@@ -1,5 +1,6 @@
 #include "CertificateTestSupport.h"
 
+#include "core/AppSettingRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/ui/CertificateListWidget.h"
@@ -39,6 +40,10 @@ private slots:
     void filterKeepsRowsThatNeedAttention();
     void validRowsCarryNoBackgroundHighlight();
     void urgentRowsCarryABackgroundHighlight();
+
+    // settings-app-setting-spec §8 items 8 and 9.
+    void editedThresholdsChangeWhatTheListShows();
+    void unreadableSettingsFallBackToTheHardcodedDefaults();
 
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
@@ -105,8 +110,9 @@ void TestCertificateListStatus::neverExpiringCertificateShowsValidWithBlankSurve
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(tableOf(widget)->rowCount(), 1);
@@ -133,8 +139,9 @@ void TestCertificateListStatus::upcomingSurveyWindowIsShownLongBeforeItOpens()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Valid));
@@ -162,8 +169,9 @@ void TestCertificateListStatus::missedAnnualSurveyShowsSurveyOverdueWithNegative
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::SurveyOverdue));
@@ -184,8 +192,9 @@ void TestCertificateListStatus::expiredCertificateShowsExpiredWithNegativeDaysLe
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Expired));
@@ -207,8 +216,9 @@ void TestCertificateListStatus::overdueSurveyOutranksAnImminentExpiry()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::SurveyOverdue));
@@ -231,8 +241,9 @@ void TestCertificateListStatus::everyTrackSatisfiedLeavesSurveyColumnsBlank()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(cell(widget, 0, From).isEmpty(), "only the renewal remains, so there is no window");
@@ -256,8 +267,9 @@ void TestCertificateListStatus::filterOnAnAllValidVesselShowsAnEmptyTableNotTheP
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
     QCOMPARE(tableOf(widget)->rowCount(), 2);
 
@@ -280,8 +292,9 @@ void TestCertificateListStatus::filterKeepsRowsThatNeedAttention()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
     QCOMPARE(tableOf(widget)->rowCount(), 2);
 
@@ -316,8 +329,9 @@ void TestCertificateListStatus::statusColumnSortsBySeverityNotAlphabetically()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidget* table = tableOf(widget);
@@ -352,8 +366,9 @@ void TestCertificateListStatus::defaultSortIsStillListNumberAscending()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     // No header clicked: still the company numbering order, not alphabetical
@@ -372,8 +387,9 @@ void TestCertificateListStatus::validRowsCarryNoBackgroundHighlight()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     // "Valid means no highlight" (§4): the cell keeps the default row
@@ -393,14 +409,79 @@ void TestCertificateListStatus::urgentRowsCarryABackgroundHighlight()
     const InstallationContext context = officeContext();
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, context);
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidgetItem* status = tableOf(widget)->item(0, Status);
     QVERIFY(status->background().style() != Qt::NoBrush);
     QCOMPARE(status->background().color(), QColor(QStringLiteral("#F8D7DA")));
     QCOMPARE(status->foreground().color(), QColor(QStringLiteral("#842029")));
+}
+
+void TestCertificateListStatus::editedThresholdsChangeWhatTheListShows()
+{
+    // settings-app-setting-spec §8 item 8. A certificate 10 days from expiry
+    // is Critical under the seeded 30-day default; narrow that to 5 days and
+    // the same certificate is merely Expiring Soon.
+    QSqlDatabase db     = database();
+    const QDate  today  = QDate::currentDate();
+    const QDate  expiry = today.addDays(10);
+    seedCertificateWithSchedule(db, QStringLiteral("c1"), m_vesselId, QStringLiteral("Load Line"),
+                                QStringLiteral("1"), expiry.addYears(-5), expiry, false);
+
+    const InstallationContext context = officeContext();
+    CertificateRepository     certificates(db, context);
+    EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
+
+    {
+        CertificateListWidget widget(certificates, endorsements, appSettings, context);
+        widget.setVesselId(m_vesselId);
+        QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Critical));
+    }
+
+    AppSetting setting;
+    QVERIFY(appSettings.read(&setting));
+    setting.criticalDays = 5; // 10 days out is no longer critical
+    QVERIFY2(appSettings.update(setting), qPrintable(appSettings.errorString()));
+
+    {
+        CertificateListWidget widget(certificates, endorsements, appSettings, context);
+        widget.setVesselId(m_vesselId);
+        QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::ExpiringSoon));
+    }
+}
+
+void TestCertificateListStatus::unreadableSettingsFallBackToTheHardcodedDefaults()
+{
+    // settings-app-setting-spec §8 item 9. A list that still shows something
+    // reasonable beats one that shows nothing.
+    QSqlDatabase db     = database();
+    const QDate  today  = QDate::currentDate();
+    const QDate  expiry = today.addDays(10);
+    seedCertificateWithSchedule(db, QStringLiteral("c1"), m_vesselId, QStringLiteral("Load Line"),
+                                QStringLiteral("1"), expiry.addYears(-5), expiry, false);
+
+    // Remove the settings row so read() genuinely fails.
+    QSqlQuery wipe(db);
+    QVERIFY(wipe.exec(QStringLiteral("DELETE FROM app_setting")));
+
+    const InstallationContext context = officeContext();
+    CertificateRepository     certificates(db, context);
+    EndorsementRepository     endorsements(db, context);
+    AppSettingRepository      appSettings(db);
+
+    AppSetting unused;
+    QVERIFY2(!appSettings.read(&unused), "the row really is gone");
+
+    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    widget.setVesselId(m_vesselId);
+
+    // Still renders, and under the 30-day default 10 days out is Critical.
+    QCOMPARE(tableOf(widget)->rowCount(), 1);
+    QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Critical));
 }
 
 QTEST_MAIN(TestCertificateListStatus)

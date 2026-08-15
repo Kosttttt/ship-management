@@ -25,6 +25,9 @@ add_ship_test(tst_VesselRepositoryScope  core/tst_VesselRepositoryScope.cpp)
 add_ship_test(tst_VesselRepositoryWrites core/tst_VesselRepositoryWrites.cpp)
 add_ship_test(tst_VesselEditForm         app/tst_VesselEditForm.cpp ShipApp)
 
+add_ship_test(tst_AppSettingRepository  core/tst_AppSettingRepository.cpp)
+add_ship_test(tst_SettingsPage          app/tst_SettingsPage.cpp ShipApp)
+
 add_ship_test(tst_ModuleRegistry        app/tst_ModuleRegistry.cpp ShipApp)
 add_ship_test(tst_VesselSelectorRefresh app/tst_VesselSelectorRefresh.cpp ShipApp)
 
@@ -57,6 +60,8 @@ add_ship_test(tst_EndorsementUi
 ship_add_migrations(tst_InstallationRepository)
 ship_add_migrations(tst_VesselRepositoryScope)
 ship_add_migrations(tst_VesselRepositoryWrites)
+ship_add_migrations(tst_AppSettingRepository)
+ship_add_migrations(tst_SettingsPage)
 ship_add_migrations(tst_ModuleRegistry)
 ship_add_migrations(tst_VesselSelectorRefresh)
 ship_add_migrations(tst_CertificateRepositoryScope)

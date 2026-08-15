@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 
+class AppSettingRepository;
 class CertificateListWidget;
 class InstallationContext;
 class ModuleRegistry;
@@ -21,12 +22,14 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(const InstallationContext& installation,
                VesselRepository&          vessels,
+               AppSettingRepository&      appSettings,
                ModuleRegistry&            modules,
                QWidget*                   parent = nullptr);
 
 private:
     void buildSidebar(const InstallationContext& installation,
                       VesselRepository&          vessels,
+                      AppSettingRepository&      appSettings,
                       ModuleRegistry&            modules);
     void buildVesselSelector();
 

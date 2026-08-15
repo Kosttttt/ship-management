@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/IModule.h"
+#include "core/AppSettingRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 
@@ -30,4 +31,7 @@ private:
     const InstallationContext& m_installation;
     CertificateRepository      m_certificates;
     EndorsementRepository      m_endorsements;
+    // Core-owned, but the module reads it: a module depending on core is the
+    // direction dependencies are allowed to point (CLAUDE.md §4).
+    AppSettingRepository m_appSettings;
 };
