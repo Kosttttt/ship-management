@@ -702,6 +702,9 @@ over from before step 6's build-order renumbering moved Alerts to step 9.
 Purely cosmetic; worth a one-line fix next time either file is touched, not
 worth a separate pass.
 
+Committed as `a73a8dd` and pushed to `origin/main` (`ea88f23..a73a8dd`),
+alongside this `PROJECT-STATUS.md` update and `docs/settings-app-setting-spec.md`.
+
 ---
 
 ## Decisions confirmed by the developer
