@@ -102,6 +102,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateListWidget.cpp
     src/modules/certificates/ui/ListNumberItem.h
     src/modules/certificates/ui/ListNumberItem.cpp
+    src/modules/certificates/ui/StatusItem.h
+    src/modules/certificates/ui/StatusItem.cpp
     src/modules/certificates/ui/EndorsementEditForm.h
     src/modules/certificates/ui/EndorsementEditForm.cpp
     src/modules/certificates/ui/EndorsementEditDialog.h

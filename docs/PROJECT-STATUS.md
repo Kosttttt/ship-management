@@ -64,6 +64,28 @@ git add -A
 git commit -m "..."
 ```
 
+A related PowerShell gotcha, hit for the first time in step 6: PowerShell
+does not escape double quotes when handing a string to a native
+executable, so a commit message containing a quoted phrase (e.g. `"not
+before issue"`) gets split into separate arguments and `git commit -m`
+fails with a `pathspec ... did not match any file(s)` error — nothing gets
+committed, but it's a confusing error to hit. Writing the message to a
+temporary file and using `git commit -F <file>` avoids the whole class of
+quoting problem; delete the temp file afterward.
+
+A third one, found the hard way in step 7 (see that step's writeup for the
+full incident): `%APPDATA%\Ship Management\Ship Management System\` — the
+path this file's own table above lists as "App data folder" — and the
+folder the running application actually reads from are **not always the
+same file** on this machine. The app resolves its data folder via
+`QStandardPaths::AppDataLocation`, and something about how it's currently
+launched routes that to a virtualized
+`AppData\Local\Packages\...\LocalCache\Roaming\...` path instead of the
+plain `%APPDATA%` path a PowerShell command sees. **Never run a delete or
+overwrite command against either path** — see `CLAUDE.md` §10.1 for the
+full rule. If the actual data folder in use ever needs confirming, log it
+at startup rather than assuming which of the two it is.
+
 ---
 
 ## Completed steps
@@ -346,6 +368,223 @@ pulls it in transitively, but that's not guaranteed across Qt versions or
 compilers. Worth adding the explicit include next time this file is
 touched; not worth a separate pass for on its own.
 
+### Step 6 — Endorsement model & `computeCertificateState()` ✅
+Full design in `docs/certificate-endorsement-spec.md`, written after a design
+discussion covering five open questions — endorsement fields, where the
+model lives, deferring extensions, hardcoding `AlertThresholds` until
+Settings exists, and a correction to the late-endorsement matching rule
+(below). Built and independently verified file-by-file against the spec —
+migration, every domain file, the repository, both new UI classes,
+`CertificateEditDialog`'s wiring, `CertificatesModule`, `CertificateListWidget`,
+`CMakeLists.txt`, and all new/changed test files — not just from Claude
+Code's own report. That verification caught a real, build-breaking gap; see
+below.
+
+- `migrations/005_create_endorsement.sql` — the `endorsement` table.
+  `survey_type` is `NOT NULL` (not nullable) with a 4-code CHECK
+  (`INITIAL`/`ANNUAL`/`INTERMEDIATE`/`RENEWAL`), the same audit columns as
+  everywhere else, no foreign key to `certificate` — same trade-off as
+  `certificate.vessel_id`, resolved the same way for consistency.
+- `modules/certificates/domain/Endorsement` — a `SurveyType` enum with an
+  `Unset` sentinel (mirrors `CertificateCategory::Unset`), the `Endorsement`
+  struct, and a `SurveyTypeCodes` namespace mirroring `CertificateCodes`.
+- `modules/certificates/domain/CertificateState` — the pure function at the
+  heart of this step. `computeCertificateState(certificate, endorsements,
+  thresholds, today)` takes `today` as a parameter rather than reading
+  `QDate::currentDate()` itself, which is what makes every rule in
+  `certificate-control-spec.md` §4 unit-testable without mocking the clock.
+  Returns `ExpirySeverity`, `SurveySeverity`, a combined `DisplayStatus`,
+  `isValid`, `daysLeft` (negative once overdue), the next outstanding
+  survey and its window, and a human-readable `reason` string (including a
+  note when a survey was completed late).
+- `modules/certificates/domain/SurveySchedule` — split out of
+  `CertificateState.cpp` once that file reached 349 lines and a genuine
+  seam appeared: window/anniversary arithmetic is a distinct concern from
+  severity/display logic. Both files now sit comfortably under the
+  ~300-line guideline. Contains the anniversary and window calculations and
+  the two-pointer greedy matching walk described below.
+- `modules/certificates/data/EndorsementRepository` — mirrors
+  `CertificateRepository`'s shape. Since `endorsement` has no `vessel_id` of
+  its own, VESSEL-mode scope is applied *transitively*: a SQL `JOIN`
+  against `certificate` in `list()`, and a `loadParentCertificate()` lookup
+  in `create()` that does double duty — it enforces scope and supplies the
+  certificate's `issue_date` for the "endorsement can't predate the
+  certificate" check, in one query. Add-only this step, no `update()`/
+  `delete()` — left open deliberately, since how a correction to a
+  compliance record should work is a real design question nothing yet
+  depends on.
+- `modules/certificates/ui/EndorsementEditForm` / `EndorsementEditDialog` —
+  the add screen. When a certificate requires only one kind of survey, the
+  type shows as a fixed label with no combo box at all — one option is not
+  a choice. When it requires both, the combo only ever offers Annual/
+  Intermediate; `INITIAL`/`RENEWAL` are storable in the schema but never
+  offered here.
+- `modules/certificates/ui/CertificateEditDialog` gained an Endorsements
+  section (a table + "Add Endorsement" button), shown only when editing an
+  existing certificate that requires at least one survey type. That
+  visibility decision is made once, from the certificate as saved, not
+  live from the checkboxes as they're being edited — a requirement just
+  ticked but not yet saved has no certificate id for an endorsement to
+  point at.
+- `CertificatesModule` and `CertificateListWidget` now thread an
+  `EndorsementRepository` through to `CertificateEditDialog`, alongside the
+  existing `CertificateRepository`.
+- 245 unit tests total, across 19 suites (was 190/15) — four new suites:
+  `tst_CertificateStateExpiry` and `tst_CertificateStateSurvey` (the
+  pure-function tests, covering every edge case in
+  `certificate-control-spec.md` §4.8 — leap-day anniversary clamping,
+  30-day-month window clamping, short-term certificates with no
+  anniversaries at all, expiry and survey both being wrong at once,
+  REPLACES_ANNUAL vs ADDITIONAL intermediate modes, and the `daysLeft` sign
+  flip), `tst_EndorsementRepository` (scope, validation, audit columns),
+  and `tst_EndorsementUi` (section visibility, fixed-label-vs-combo
+  behaviour).
+
+**The late-endorsement matching rule** — a correction made to the spec,
+not a defect in the build. `certificate-control-spec.md` §4.5's original
+pseudocode required an endorsement to fall *within* its survey window to
+satisfy it, which read literally meant a certificate that ever missed a
+window would show Overdue forever, with no way back to valid even after
+the missed survey actually happened. Caught and fixed in the spec before
+this step was built: an endorsement now satisfies the earliest unsatisfied
+anniversary whose window it falls on or after the opening of, with no
+upper bound at the window's close — a late survey is still a survey, just
+recorded as late in the `reason` string. Implemented in
+`SurveySchedule::evaluateAnnual()`/`evaluateIntermediate()` as a
+two-pointer greedy walk over date-sorted anniversaries and endorsements;
+hand-traced against several examples during review, and covered directly
+by `aSurveyCompletedAfterItsWindowClosedStillSatisfiesIt` /
+`reasonRecordsThatASurveyWasLate` /
+`eachAnniversaryClaimsTheEarliestEndorsementAvailableToIt` in
+`tst_CertificateStateSurvey.cpp`.
+
+Judgment calls made (Claude Code's, all reviewed and confirmed rather than
+changed):
+1. `daysLeft` goes negative once a date has passed, rather than clamping at
+   zero — the natural signed meaning, pinned by a test.
+2. Intermediate survey requires ≥3 anniversaries to exist at all (i.e. a
+   ≥4-year certificate term) — a shorter term has nowhere to anchor the
+   window, so it's reported as not required rather than inventing one.
+3. An endorsement dated before the first window ever opens satisfies
+   nothing — the correct reading of "on or after the opening," not a bug.
+4. The Endorsements section's visibility is decided once at dialog
+   construction, not live — see above.
+5. A certificate with no expiry but with survey flags ticked still gets a
+   sane answer from `computeCertificateState()` (`NotRequired`/`Valid`)
+   even though the repository should already block that combination —
+   cheap defense in depth, not dead code.
+6. The `reason` string is assembled in the domain layer, not the UI, so
+   alerts/tooltips/reports all describe a certificate's status identically
+   without duplicating the logic.
+
+**A verification episode worth recording**, since it nearly produced a
+wrong entry in this file. Claude Code's first report of this step (245/19
+tests passing, clean build) did **not** reflect the actual working tree at
+`D:\dev\ship-management`: `CertificatesModule` and `CertificateListWidget`
+were never updated to thread `EndorsementRepository` through to
+`CertificateEditDialog`, so the code as it stood on disk would not
+compile. This was caught only by reading the actual files via the device
+bridge rather than trusting the summary — exactly the verification step
+this project's process already calls for, and the reason it's worth
+calling for. It took several rounds to pin down cleanly (a stale
+device-bridge cache on the reviewing side briefly pointed suspicion the
+wrong way too, before a plain visual check of the file, opened fresh from
+the real project tree in Qt Creator, settled it) — but the fix itself,
+once correctly identified, was small: four files, each needing
+`EndorsementRepository` threaded through one more layer. Confirmed fixed
+and re-verified line-by-line afterward, then confirmed again with a
+genuinely clean rebuild (deleted build folder, reconfigured, built, ran
+`ctest`) with the raw pass/fail output read directly rather than
+summarized: 100% tests passed, 0 failed, 19 of 19.
+**Takeaway for future steps: always ask for the raw build/test output, not
+a description of it, and don't treat "I built and it passed" as verified
+until the actual files backing that claim have been read.**
+
+Committed as `1695141` and pushed to `origin/main`.
+
+### Step 7 — Certificate list screen: status colours, filters, days-left ✅
+Full design in `docs/certificate-list-status-spec.md`, written after a design
+discussion that settled the column layout, the status colour/label table (the
+developer's own scheme, overriding an earlier draft that grouped some
+statuses together), the Survey From/To blank rules, and the severity-based
+sort for the new Status column. Built and independently verified
+file-by-file against the spec — `StatusItem`, the rewritten
+`CertificateListWidget`, both CMake files, and the new test suite — not just
+from Claude Code's own report.
+
+- `modules/certificates/ui/StatusItem` — the seventh `QTableWidgetItem`
+  subclass pattern in this project (after `ListNumberItem`): a label and
+  background/foreground colour per `DisplayStatus`, sorted by severity via
+  an override of `operator<` rather than alphabetically. The severity rank
+  is simply `static_cast<int>(status)`, since `DisplayStatus` is already
+  declared worst-last in the domain layer — commented in the code as
+  load-bearing, since reordering that enum would silently reorder this
+  column.
+- `modules/certificates/ui/CertificateListWidget` — rebuilt around the new
+  seven-column layout (`No. · Name · Status · Expiry Date · Survey From ·
+  Survey To · Days Left`; `Issue Date` and `Category` moved out, still on
+  the edit dialog). `reload()` now calls `computeCertificateState()` once
+  per certificate, reading `QDate::currentDate()` exactly once per reload
+  and handing the same value to every row — the one legitimate place
+  "today" is read in this whole call chain, since the domain function
+  itself never reads the clock. A new "Show only certificates needing
+  attention" checkbox filters in memory after computing state for every
+  row (severity is a derived value, never stored, so there's nothing to
+  filter on directly in SQL).
+- Colour table exactly as specified by the developer: red for Expired,
+  Survey Overdue, and Critical; orange for Expiring Soon; yellow for Survey
+  Due; light green for Due Soon; Valid carries no background at all rather
+  than a literal white fill, so an unremarkable certificate stays visually
+  unremarkable and the screen doesn't need to change if the app ever gets
+  a dark theme.
+- 259 unit tests total, across 20 suites (was 245/19) — one new suite,
+  `tst_CertificateListStatus`, covering all nine edge cases from spec §9
+  plus three supporting tests (the filter keeping the right rows, Valid
+  rows carrying no highlight, urgent rows carrying the exact specified
+  colour values). The pre-existing column-layout test in
+  `tst_CertificateListWidget.cpp` was updated in place for the new
+  seven-column header row.
+
+Judgment calls made (Claude Code's, all reasonable, no changes needed):
+1. `Days Left` is stored via `Qt::DisplayRole` as an `int`, not as text, so
+   the column sorts numerically (`-7` before `10`) rather than by string
+   comparison. Displays identically either way; only the sort behaves
+   correctly this way.
+2. The test suite seeds every certificate's dates relative to
+   `QDate::currentDate()` rather than fixed calendar dates, since the
+   widget reads the clock itself (by design — the screen is the one place
+   that's supposed to) and a test has no way to inject a fake "today" into
+   it. This keeps every expected status stable no matter which day the
+   suite actually runs.
+3. Header-click sorting is tested via `table->sortByColumn()` directly —
+   what a real click ultimately calls — rather than synthesising a mouse
+   click at a computed header pixel offset.
+
+**A data-loss incident during this step, unrelated to the code above.**
+While taking a screenshot to visually confirm the colours, a PowerShell
+backup-then-delete-then-restore sequence against the application's real
+data folder deleted a populated database (two vessels the developer had
+entered by hand, "test" and "test 2") and did not actually restore it — the
+backup itself was silently taken from the wrong file. Root cause: on this
+machine, `%APPDATA%\Ship Management\...` (where a PowerShell command
+resolves) and the folder the running application actually reads (a
+virtualized `AppData\Local\Packages\...\LocalCache\Roaming\...` path) are
+two different files that look like the same path. No source file, test, or
+committed work was involved — this was purely a side effect of a manual
+verification step gone wrong. The two lost vessels were themselves test
+data created earlier in this same project (during step 5's hands-on
+verification), not real fleet data, so nothing of lasting value was lost —
+but the near-miss was serious enough that a standing rule now exists in
+`CLAUDE.md` §10.1: no command may delete or overwrite anything under the
+real app-data folder, for any reason, and any manual visual check must run
+against a throwaway data directory instead. Reported to the developer
+immediately and directly, with the exact mechanism, rather than being
+smoothed over or discovered later.
+
+Not yet committed as of this entry — pending a clean-build confirmation the
+same way step 6 required one, then commit and push alongside this
+`PROJECT-STATUS.md` update and the `CLAUDE.md` §10.1 safety rule.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -433,6 +672,37 @@ touched; not worth a separate pass for on its own.
   "Certificate 15D") specifically so the full name doesn't have to be
   typed out, so the list needs to read in that order without the user
   having to click anything.
+- Endorsements are add-only for now; editing or deleting a recorded survey
+  is an open design question, deferred until something depends on it.
+- Extensions have no table and no parameter in `computeCertificateState()`
+  yet — deferred to a dedicated build-order step (11, after Renewal)
+  rather than half-building them alongside endorsements.
+- `AlertThresholds` ships with hardcoded 30/60/90-day defaults; every call
+  site takes it as a parameter, never a constant, specifically so a real
+  Settings screen (build-order step 8, before Alerts) can make them
+  editable without touching `computeCertificateState()` itself.
+- `INITIAL` and `RENEWAL` are valid, storable survey types, but
+  `computeCertificateState()` never matches an endorsement of either type
+  against a window — only `ANNUAL` and `INTERMEDIATE` drive the
+  anniversary calculation.
+- The build order (`CLAUDE.md` §11) grew from 13 to 15 steps during step
+  6's design discussion: "Settings & `app_setting`" inserted as step 8
+  (before Alerts), "Extensions" inserted as step 11 (after Renewal),
+  everything after renumbered accordingly.
+- The certificate list's status colour scheme is the developer's own,
+  overriding an earlier draft that grouped Expiring Soon/Survey Due/Survey
+  Overdue away as separate labels: all seven `DisplayStatus` values stay
+  visually distinct as text, with red covering three of them (Expired,
+  Survey Overdue, Critical) rather than red being reserved for only the
+  most severe. Reasoning confirmed directly: severity should escalate
+  through white → light green → yellow → orange → red, and Critical
+  belongs at the same visual urgency as an already-broken certificate
+  since it means action is needed right now, even though the certificate
+  itself hasn't failed yet.
+- No commands that delete or overwrite the application's real data folder
+  may run for any reason, including manual visual verification — see
+  `CLAUDE.md` §10.1. A throwaway data directory is required for any manual
+  run of the app used to look at something rather than to keep the data.
 
 ## Outstanding technical debt
 
@@ -467,6 +737,23 @@ touched; not worth a separate pass for on its own.
 - `MainWindow.cpp` uses `QSignalBlocker` without including
   `<QSignalBlocker>` directly — works today via a transitive include, but
   is fragile. Add the explicit include next time this file is touched.
+- `modules/certificates/data/CertificateRepository.cpp` (~310 lines) and
+  `tests/modules/certificates/tst_CertificateRepositoryValidation.cpp`
+  (~301 lines) are both still over the ~300-line guideline, unchanged
+  since step 5 — step 6 touched neither. Still no obvious seam; still
+  watching, not splitting.
+- Step 6's own new files stayed well under the guideline, including after
+  the `CertificateState.cpp`/`SurveySchedule.cpp` split (each ~175–180
+  lines) — no new size debt from this step.
+- Step 7's new/changed files are all well under the guideline too
+  (`StatusItem.cpp` is under 90 lines; `CertificateListWidget.cpp` grew but
+  stayed under 300). No new size debt from this step either.
+- The exact mechanism behind the `%APPDATA%` vs. virtualized-path split
+  described in the Environment section above is not fully understood — only
+  that it exists and is dangerous to assume around. Worth investigating
+  properly (rather than just avoiding) if it ever blocks something more
+  than a manual visual check, e.g. if a future backup/restore feature needs
+  to know the real path reliably.
 
 ---
 
@@ -506,28 +793,33 @@ were all updated to match.
 
 ## Next step
 
-**Step 6 — Endorsement model and `computeCertificateState()` + unit tests.**
-Certificates can now be entered and edited, but nothing yet reads their
-survey rules to say whether one is valid, due, or overdue — that logic is
-`computeCertificateState()`, specified in
-`docs/certificate-control-spec.md` §4, and it hasn't been built yet, only
-designed. This step also introduces the `endorsement` table: the record of
-each survey actually being carried out, which is what
-`computeCertificateState()` needs to check against to know whether an
-intermediate survey window has been met.
+**Step 8 — Settings & `app_setting`.** The certificate list now shows live
+status, but every severity threshold is still the hardcoded
+`AlertThresholds()` default (30/60/90 days) — every call site
+(`CertificateListWidget::reload()` today, and step 9's alert engine next)
+was deliberately built to take an `AlertThresholds` as a parameter rather
+than a constant, specifically so this step can make it real without
+touching either of them. This step adds:
 
-The developer has already asked for two things the list should eventually
-show — "Survey from / Survey to" and "Days left" / a status colour — and
-both map directly onto what `certificate-control-spec.md` §3.2 and §4
-already designed (`windowOpens`/`windowCloses` per survey, and the
-days-left and status-colour rules in §4.3/§4.4). That wiring is step 7, once
-step 6's engine exists to wire up.
+- A new core-owned `app_setting` table (per `CLAUDE.md` §5, core owns things
+  that exist independently of any module) — a small key/value or
+  fixed-columns table, worth a design discussion on which shape fits
+  better given there's currently exactly one thing to store.
+- A Settings screen where the three thresholds (`criticalDays`,
+  `expiringSoonDays`, `dueSoonDays`) become editable, replacing the
+  `AlertThresholds()` default construction at each call site with a read
+  from this table.
+- Daily-toast last-shown tracking, per `CLAUDE.md` §11 — the piece step 9
+  (Alerts) needs to know "have I already told the user about this today,"
+  which belongs in `app_setting` rather than being invented fresh in step 9.
 
-No implementation spec written yet for step 6 — bring it up here for a
-design discussion first, the same way steps 3, 4 and 5 went. Two things
-worth deciding early: what an endorsement needs to record (survey date,
-surveyor/class society, place — anything else?), and whether an endorsement
-belongs to `modules/certificates/domain` alongside `Certificate`, or gets
-its own repository the way `Certificate` did.
+No implementation spec written yet for step 8 — bring it up here for a
+design discussion first, the same way steps 3–7 went. Worth deciding early:
+whether `app_setting` is a generic key/value table (flexible, but every
+read needs a type cast) or a fixed-column single-row table like
+`installation` (simpler to read, needs a migration to add each new setting
+later) — and whether threshold values should be validated against each
+other (e.g. `criticalDays < expiringSoonDays < dueSoonDays`, so the three
+can't be set into a nonsensical order).
 
 Full build order is in `CLAUDE.md` §11.

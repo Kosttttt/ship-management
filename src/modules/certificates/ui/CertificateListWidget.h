@@ -2,9 +2,13 @@
 
 #include <QWidget>
 
+struct Certificate;
+struct CertificateState;
+
 class CertificateRepository;
 class EndorsementRepository;
 class InstallationContext;
+class QCheckBox;
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
@@ -40,11 +44,16 @@ private:
     void editCertificate(QTableWidgetItem* item);
     void updateVisibleState();
 
+    // Renders one already-computed row. The state is passed in rather than
+    // recomputed so "today" is read exactly once per reload.
+    void fillRow(int row, const Certificate& certificate, const CertificateState& state);
+
     CertificateRepository& m_repository;
     EndorsementRepository& m_endorsements;
     QString                m_vesselId;
 
-    QStackedWidget* m_stack      = nullptr;
-    QTableWidget*   m_table      = nullptr;
-    QPushButton*    m_addButton  = nullptr;
+    QStackedWidget* m_stack               = nullptr;
+    QTableWidget*   m_table               = nullptr;
+    QPushButton*    m_addButton           = nullptr;
+    QCheckBox*      m_needsAttentionCheck = nullptr;
 };

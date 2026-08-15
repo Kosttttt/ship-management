@@ -221,6 +221,32 @@ carefully on C++.
 - Suggest a git commit after each working step.
 - Never change the rules in this file without asking first.
 
+### 10.1 Never run destructive commands against the real app-data folder
+
+Added after step 7, where a visual verification step deleted a real database
+by mistake. Root cause: on this Windows machine, `%APPDATA%` (where a
+PowerShell `Copy-Item`/`Remove-Item` resolves) and the folder the running
+application actually reads (a virtualized `AppData\Local\Packages\...\
+LocalCache\Roaming\...` path) are **two different files with the same-looking
+name**. A "back up, then delete, then restore" sequence backed up the wrong
+one, deleted the real one, and the restore silently succeeded against the
+wrong file too — nothing about the sequence looked broken until the data was
+already gone.
+
+Rules going forward:
+- **Never run a delete, overwrite, or "restore" command against the real
+  `%APPDATA%\Ship Management\...` folder or anything that resolves to it**,
+  for any reason, including a screenshot or a "quick visual check."
+- Any manual run of the application for a visual check must point at a
+  throwaway data directory instead — e.g. a temporary folder passed via
+  whatever mechanism `core/Database` uses to resolve its path, or a copy of
+  the real folder made read-only first. The automated test suite is the tool
+  for verifying behaviour; a manual run is for looking at it, not for
+  generating data worth keeping.
+- If a command's target path was not read back and confirmed immediately
+  before running it, treat that as not yet confirmed — do not assume a path
+  is correct because it looks right or worked last time.
+
 ## 11. Current status
 
 - **Active module:** Certificate Control — see `docs/certificate-control-spec.md`

@@ -113,6 +113,68 @@ inline QString seedCertificate(QSqlDatabase&  db,
     return id;
 }
 
+// Seeds a certificate with dates and survey rules chosen by the caller, for
+// the tests that need a specific computed status rather than a generic row.
+// An invalid expiryDate seeds SQL NULL — "never expires".
+inline QString seedCertificateWithSchedule(QSqlDatabase&  db,
+                                           const QString& id,
+                                           const QString& vesselId,
+                                           const QString& name,
+                                           const QString& listNumber,
+                                           const QDate&   issueDate,
+                                           const QDate&   expiryDate,
+                                           bool           requiresAnnual,
+                                           bool           requiresIntermediate = false)
+{
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral(
+        "INSERT INTO certificate (id, vessel_id, name, category, issue_date, expiry_date,"
+        " list_number, requires_annual_survey, requires_intermediate_survey,"
+        " created_at, created_by, updated_at, updated_by, is_deleted, origin_node, revision)"
+        " VALUES (?, ?, ?, 'STATUTORY', ?, ?, ?, ?, ?,"
+        " '2026-01-01T00:00:00Z', 'SEED', '2026-01-01T00:00:00Z', 'SEED', 0, 'OFFICE', 1)"));
+    query.addBindValue(id);
+    query.addBindValue(vesselId);
+    query.addBindValue(name);
+    query.addBindValue(issueDate.toString(Qt::ISODate));
+    query.addBindValue(expiryDate.isValid() ? QVariant(expiryDate.toString(Qt::ISODate))
+                                            : QVariant(QMetaType(QMetaType::QString)));
+    query.addBindValue(listNumber.isEmpty() ? QVariant(QMetaType(QMetaType::QString))
+                                            : QVariant(listNumber));
+    query.addBindValue(requiresAnnual ? 1 : 0);
+    query.addBindValue(requiresIntermediate ? 1 : 0);
+
+    if (!query.exec()) {
+        qWarning() << "seed failed:" << query.lastError().text();
+        return QString();
+    }
+    return id;
+}
+
+inline QString seedEndorsement(QSqlDatabase&  db,
+                               const QString& id,
+                               const QString& certificateId,
+                               const QString& surveyTypeCode,
+                               const QDate&   date)
+{
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral(
+        "INSERT INTO endorsement (id, certificate_id, survey_type, endorsement_date,"
+        " created_at, created_by, updated_at, updated_by, is_deleted, origin_node, revision)"
+        " VALUES (?, ?, ?, ?,"
+        " '2026-01-01T00:00:00Z', 'SEED', '2026-01-01T00:00:00Z', 'SEED', 0, 'OFFICE', 1)"));
+    query.addBindValue(id);
+    query.addBindValue(certificateId);
+    query.addBindValue(surveyTypeCode);
+    query.addBindValue(date.toString(Qt::ISODate));
+
+    if (!query.exec()) {
+        qWarning() << "endorsement seed failed:" << query.lastError().text();
+        return QString();
+    }
+    return id;
+}
+
 inline int rowCountOf(QSqlDatabase& db, const QString& tableName)
 {
     QSqlQuery query(db);

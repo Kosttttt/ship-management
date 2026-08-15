@@ -29,7 +29,7 @@ private slots:
 
     void defaultSortIsByListNumberNotByName();
     void certificatesWithoutAListNumberSortLast();
-    void columnsAreNumberNameIssueExpiryCategory();
+    void columnsAreNumberNameStatusExpirySurveyDaysLeft();
 
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
@@ -233,7 +233,7 @@ void TestCertificateListWidget::certificatesWithoutAListNumberSortLast()
     QVERIFY(numbers.at(3).isEmpty());
 }
 
-void TestCertificateListWidget::columnsAreNumberNameIssueExpiryCategory()
+void TestCertificateListWidget::columnsAreNumberNameStatusExpirySurveyDaysLeft()
 {
     QSqlDatabase db = database();
     seedCertificate(db, QStringLiteral("s1"), QStringLiteral("vs"), QStringLiteral("Load Line"),
@@ -246,16 +246,18 @@ void TestCertificateListWidget::columnsAreNumberNameIssueExpiryCategory()
     CertificateListWidget widget(repository, endorsements, context);
     widget.setVesselId(QStringLiteral("vs"));
 
+    // certificate-list-status-spec §3. Issue Date and Category left this
+    // screen in step 7; they are still on the edit dialog.
     QTableWidget* table = tableOf(widget);
-    QCOMPARE(table->columnCount(), 5);
+    QCOMPARE(table->columnCount(), 7);
     QCOMPARE(table->horizontalHeaderItem(0)->text(), QStringLiteral("No."));
     QCOMPARE(table->horizontalHeaderItem(1)->text(), QStringLiteral("Name"));
-    QCOMPARE(table->horizontalHeaderItem(2)->text(), QStringLiteral("Issue Date"));
+    QCOMPARE(table->horizontalHeaderItem(2)->text(), QStringLiteral("Status"));
     QCOMPARE(table->horizontalHeaderItem(3)->text(), QStringLiteral("Expiry Date"));
-    QCOMPARE(table->horizontalHeaderItem(4)->text(), QStringLiteral("Category"));
+    QCOMPARE(table->horizontalHeaderItem(4)->text(), QStringLiteral("Survey From"));
+    QCOMPARE(table->horizontalHeaderItem(5)->text(), QStringLiteral("Survey To"));
+    QCOMPARE(table->horizontalHeaderItem(6)->text(), QStringLiteral("Days Left"));
 
-    // The issue date was stored all along; it just was not shown before.
-    QCOMPARE(table->item(0, 2)->text(), QStringLiteral("04 Feb 2026"));
     QCOMPARE(table->item(0, 3)->text(), QStringLiteral("04 Feb 2031"));
 }
 
