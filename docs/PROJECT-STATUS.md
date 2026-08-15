@@ -581,9 +581,9 @@ against a throwaway data directory instead. Reported to the developer
 immediately and directly, with the exact mechanism, rather than being
 smoothed over or discovered later.
 
-Not yet committed as of this entry — pending a clean-build confirmation the
-same way step 6 required one, then commit and push alongside this
-`PROJECT-STATUS.md` update and the `CLAUDE.md` §10.1 safety rule.
+Committed as `33f90b0` and pushed to `origin/main`, alongside this
+`PROJECT-STATUS.md` update, the `CLAUDE.md` §10.1 safety rule, and
+`docs/certificate-list-status-spec.md`.
 
 ---
 
