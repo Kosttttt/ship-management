@@ -817,7 +817,8 @@ and `tst_ModuleRegistry.cpp` both still saying "the badge arrives in step 8")
 are gone as of this step, resolved naturally since both were rewritten for
 real. No separate fix needed — removed from the technical-debt list below.
 
-Committed pending confirmation.
+Committed as `09da662` and pushed to `origin/main` (`9735646..09da662`),
+alongside this `PROJECT-STATUS.md` update and `docs/alerts-spec.md`.
 
 ---
 
