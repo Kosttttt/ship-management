@@ -154,6 +154,11 @@ QString CertificateListWidget::vesselId() const
     return m_vesselId;
 }
 
+void CertificateListWidget::setNeedsAttentionFilter(bool on)
+{
+    m_needsAttentionCheck->setChecked(on);
+}
+
 void CertificateListWidget::updateVisibleState()
 {
     const Page page = m_vesselId.isEmpty() ? Page::Prompt : Page::List;
@@ -166,6 +171,7 @@ void CertificateListWidget::reload()
 
     if (m_vesselId.isEmpty()) {
         m_table->setRowCount(0);
+        emit certificatesChanged();
         return;
     }
 
@@ -238,6 +244,8 @@ void CertificateListWidget::reload()
     }
 
     m_table->setSortingEnabled(true);
+
+    emit certificatesChanged();
 }
 
 void CertificateListWidget::fillRow(int                     row,

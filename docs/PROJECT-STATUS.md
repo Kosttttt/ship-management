@@ -705,6 +705,120 @@ worth a separate pass.
 Committed as `a73a8dd` and pushed to `origin/main` (`ea88f23..a73a8dd`),
 alongside this `PROJECT-STATUS.md` update and `docs/settings-app-setting-spec.md`.
 
+### Step 9 — Alerts ✅
+Full design in `docs/alerts-spec.md`, written after a design discussion that
+settled the badge phrasing (text in the sidebar label, not a painted icon
+overlay), the banner medium (in-app, not a native OS toast — cross-platform
+consistency over polish), the severity rule (identical to the certificate
+list's own "needs attention" filter, so the two can never disagree), and —
+after an early version of the plan turned out to have a real gap — a
+per-vessel banner design: one row per vessel with something outstanding,
+each with its own View button, rather than one ambiguous fleet-wide count
+with nowhere obvious to land when clicked. Built and independently verified
+file-by-file against the spec — both new interface/class pairs, every
+wiring point (`MainWindow`, `CertificatesModule`, `CertificateListWidget`,
+`AppSettingRepository`), both `CMakeLists.txt` files, and the full new test
+suite — not just from Claude Code's own report. **No defects found.**
+
+- `app/AlertProvider.h` — the interface forward-declared since step 5,
+  implemented for the first time. `VesselAttentionCount{vesselId,
+  vesselName, count}` plus one method, `attentionByVessel()`, returning
+  only vessels with something outstanding. Generic by design: nothing
+  about it names certificates, so a second module could implement it later
+  without a redesign — untested today, since only one module exists.
+- `modules/certificates/CertificateAlertProvider` — the certificates
+  module's implementation. Walks every vessel `VesselRepository::list()`
+  returns (already scope-correct: the whole fleet in OFFICE mode, this
+  installation's one vessel in VESSEL mode — nothing extra needed to keep
+  a vessel installation from ever seeing another ship's data), and for
+  each one counts certificates whose `DisplayStatus != Valid` — the exact
+  rule the certificate list's own filter already uses. Same fallback
+  contracts as `CertificateListWidget::reload()` throughout: a failed
+  threshold read leaves the hardcoded 30/60/90 defaults in place; an
+  unreadable endorsement list is treated as "none," not a hard failure.
+  Same N+1-per-vessel shape step 7 already accepted for one vessel, now
+  run across the whole fleet — not batched, deliberately, at this app's
+  target scale.
+- `core/AppSettingRepository::recordAlertToastShown()` — a new, narrow
+  method that writes only `last_alert_toast_date`, kept deliberately
+  separate from `update()` (which still never touches that column, per
+  step 8) so a threshold save can never disturb the toast date and a toast
+  can never disturb the thresholds.
+- `app/AlertBanner` — the dismissible per-vessel panel. One row per
+  `(vessel, module)` pair with something outstanding: vessel name, a
+  sentence built from the count and the owning module's `displayName()`,
+  and a View button. A single dismiss control closes the whole banner. The
+  row sentence reads "certificates needing attention: 2" rather than the
+  spec's suggested "2 certificates need attention" — Claude Code's own
+  call, confirmed correct: the suggested phrasing breaks at a count of 1
+  ("1 certificates need attention") with no generic way to singularise an
+  arbitrary module's display name, so sidestepping subject-verb agreement
+  entirely was the right fix, not a deviation worth reverting.
+- `app/MainWindow` wiring: a `QHash<IModule*, int>` remembers which
+  sidebar row belongs to which module, populated in the same loop that
+  already builds one row per registered module. At startup, after the
+  sidebar and every module screen exist: `showDailyAlertBanner()` combines
+  every module's `AlertProvider` output, shows the banner and records
+  today's date only if something is outstanding **and** it has not
+  already been shown today (checked via `AppSettingRepository::read()`,
+  with a failed read treated as "never shown," the same fallback contract
+  as everywhere else this repository is read); `refreshAlertBadges()`
+  rewrites each module's sidebar row with its live count regardless of
+  whether the banner showed. A View click (`showAttentionFor()`) sets the
+  target screen's "needs attention" filter before switching the vessel
+  selector to the row's vessel, so only the filter's own reload and the
+  vessel switch's reload happen — no third, redundant one — then switches
+  the sidebar to that row. Written generically by `IModule*`, not by
+  name, so a second per-vessel module would not require changing this
+  method, only adding a sibling to the one `qobject_cast` inside it — the
+  same "one piece of direct wiring, generalise once a second module
+  exists" precedent `MainWindow` already documents for the vessel
+  selector's own link to the certificates screen.
+- `CertificateListWidget` gained `setNeedsAttentionFilter(bool)` (the
+  banner's drill-down target; a no-op if the filter is already in the
+  requested state, since `QCheckBox::setChecked()` only emits `toggled`
+  on an actual change) and a new `certificatesChanged()` signal, emitted
+  at the end of a successful `reload()`, that `MainWindow` uses to keep
+  the sidebar badge live within a session without needing a restart.
+- `CertificatesModule` gained a `VesselRepository` and a
+  `CertificateAlertProvider` member (declared last, since it holds
+  references to the four repositories before it); `alertProviders()`
+  (previously `{}`) now returns the one non-owning pointer.
+- 23 unit tests suites (was 22) — one new suite, `tst_Alerts.cpp`, covering
+  all nine edge cases from spec §9 (nothing outstanding → no banner, no
+  badge; one vessel outstanding plus the full drill-down; multiple vessels
+  each getting their own row, and acting on one leaving the others alone;
+  VESSEL mode seeing only its own vessel, including a second vessel's row
+  deliberately left in the database to prove the provider ignores it;
+  the once-a-day gate, and the badge staying live independently of it;
+  the toast date being left untouched when nothing was actually shown;
+  the toast date being recorded the moment the banner is shown, verified
+  by constructing a second `MainWindow` in the same session and confirming
+  it stays silent; a failed threshold read still producing counts; and the
+  badge following `certificatesChanged()` without a restart) — plus the
+  now-updated `tst_ModuleRegistry` assertion for `alertProviders()`.
+
+**A process note, self-caught and disclosed, not a defect.** Claude Code's
+first "clean rebuild" attempt silently was not clean: an earlier `cd` into
+`build` for `ctest` had left the shell's working directory inside the
+folder `Remove-Item` was trying to delete, which failed with "being used
+by another process" — but because the output was piped, that failure
+wasn't obviously visible, and the build that followed looked fine. Caught
+by checking "deleted; present: True" rather than trusting the delete had
+worked, before pasting anything here. Redone correctly (moved the shell
+out first, killed lingering `tst_*.exe` processes, confirmed the folder was
+genuinely gone) and the real clean output — 100% tests passed, 0 failed,
+23 of 23 — is what's recorded above. Worth noting since this is exactly
+the failure shape step 6's own verification episode warned about, caught
+this time by the person building it rather than by review after the fact.
+
+Two stale comments flagged as technical debt after step 8 (`CertificatesModule::alertProviders()`
+and `tst_ModuleRegistry.cpp` both still saying "the badge arrives in step 8")
+are gone as of this step, resolved naturally since both were rewritten for
+real. No separate fix needed — removed from the technical-debt list below.
+
+Committed pending confirmation.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -842,6 +956,22 @@ alongside this `PROJECT-STATUS.md` update and `docs/settings-app-setting-spec.md
   consistent with the project's stated approach of building role-based
   access last, on top of already-working functionality, rather than
   designing around it from the start.
+- The alert banner shows one row per vessel with something outstanding,
+  each with its own View button, rather than a single fleet-wide count —
+  settled after the simpler version turned out to have a real gap: with
+  one ambiguous count, a click had nowhere honest to land in OFFICE mode
+  once more than one vessel could be responsible for it. VESSEL mode
+  reuses the identical row logic; it simply never has more than one row.
+- Native OS toast notifications are out for now in favour of an in-app
+  banner — cross-platform behaviour for `QSystemTrayIcon` varies too much
+  across Windows/macOS/Linux (notably macOS's notarization requirement) to
+  be predictable for a beginner-maintained cross-platform build. Revisit
+  once the app is actually being built and tested on all three platforms.
+- The sidebar badge and the alert banner use the identical severity rule
+  the certificate list's own "needs attention" filter already uses
+  (`DisplayStatus != Valid`) — deliberately one definition of "needing
+  attention" across the whole app, not three that could quietly drift
+  apart.
 
 ## Outstanding technical debt
 
@@ -893,19 +1023,32 @@ alongside this `PROJECT-STATUS.md` update and `docs/settings-app-setting-spec.md
   properly (rather than just avoiding) if it ever blocks something more
   than a manual visual check, e.g. if a future backup/restore feature needs
   to know the real path reliably.
-- Two stale comments (`CertificatesModule::alertProviders()` and
-  `tst_ModuleRegistry.cpp`) still say "the badge arrives in step 8" from
-  before step 6's build-order renumbering moved Alerts to step 9. Cosmetic
-  only — fix inline next time either file is touched.
 - The certificate list does not live-refresh its already-rendered rows when
   thresholds are changed on the Settings screen without an intervening
   `reload()` trigger. Accepted as shipped (see step 8's judgment call 6
-  above); revisit only if step 9's alert engine needs a cross-screen
-  "settings changed" signal for its own reasons, in which case the
-  certificate list can piggyback on it.
+  above) — resolved as a non-issue by step 9, which turned out not to need
+  a cross-screen "settings changed" signal after all: the badge/banner
+  recompute independently from their own repository reads rather than
+  listening for one.
 - Step 8's own new/changed files stayed comfortably under the ~300-line
   guideline (`AppSettingRepository.cpp` ~140 lines, `SettingsPage.cpp` ~170
   lines) — no new size debt from this step.
+- `CertificateAlertProvider::attentionByVessel()` runs its full
+  N+1-per-vessel sweep twice at every startup (once for the banner check,
+  once for `refreshAlertBadges()`), and again on every
+  `certificatesChanged()` emission. Accepted at this app's target fleet
+  size, same call as the per-vessel N+1 pattern itself; first thing to
+  look at if startup or a reload ever feels slow.
+- The alert banner is a startup snapshot and does not live-update its own
+  rows if the underlying data changes while it's still showing (only the
+  sidebar badge stays live within a session). Accepted as shipped — the
+  banner already reflected the truth at the moment it was shown; revisit
+  only if a long-running session without a restart turns out to be a real
+  usage pattern worth the extra complexity.
+- Step 9's own new/changed files stayed under the ~300-line guideline
+  (`CertificateAlertProvider.cpp` ~90 lines, `AlertBanner.cpp` ~115 lines,
+  `MainWindow.cpp` grew but stayed comfortably under 300) — no new size
+  debt from this step.
 
 ---
 
@@ -945,30 +1088,25 @@ were all updated to match.
 
 ## Next step
 
-**Step 9 — Alerts.** The certificate list now computes and displays live
-status, and the alert thresholds behind it are finally editable rather than
-hardcoded — step 8 built exactly the plumbing this step needs
-(`app_setting.last_alert_toast_date`, unused since step 8, is waiting for
-this step to read and write it). Per `CLAUDE.md` §11, this step adds:
+**Step 10 — Renewal workflow.** The certificate list now shows live status,
+editable thresholds, and a fleet-wide alert badge/banner pointing straight
+at whatever needs attention. Per `CLAUDE.md` §11, this step is about acting
+on an expiring certificate rather than just being told about one — turning
+"Certificate X needs attention" into an actual renewal: presumably a
+guided flow that creates the new certificate's record, links it back to
+the one it replaces (`certificate.previous_certificate_id`, deliberately
+left absent since step 5 for exactly this reason — nothing could populate
+it before now), and retires the old one without losing its history.
 
-- A sidebar badge (or similar) showing how many certificates currently need
-  attention, using the same `computeCertificateState()`/`AlertThresholds`
-  machinery the certificate list already uses — no new severity logic, just
-  a new consumer of it.
-- A once-per-day toast/notification summarising what needs attention,
-  tracked via `app_setting.last_alert_toast_date` so it fires at most once
-  per calendar day per installation.
-- A filtered drill-down from the badge/toast straight to the certificate
-  list's existing "needs attention" filter, rather than a separate screen
-  duplicating what that filter already shows.
-
-No implementation spec written yet for step 9 — bring it up here for a
-design discussion first, the same way steps 3–8 went. Worth deciding early:
-where the badge lives in the UI (sidebar item text, a small icon overlay,
-or something else), whether the toast is a native OS notification or an
-in-app one, what "needs attention" means for the badge/toast specifically
-(the same `DisplayStatus != Valid` rule the list's filter already uses, or
-something narrower), and whether the badge count should be per-vessel in
-OFFICE mode or fleet-wide.
+No implementation spec written yet, and no design discussion held — bring
+it up here first, the same way every step since step 3 has gone. Worth
+deciding early: what "renew" actually creates (a brand-new certificate row
+copying the old one's category/survey-rule fields as a starting point, vs.
+some other shape), what happens to the old certificate's row once replaced
+(soft-deleted like everything else, or kept visible with a distinct status
+so its history stays browsable), whether endorsements recorded against the
+old certificate need to carry forward or stay put, and whether this is a
+dedicated screen/dialog or an action reachable from the existing certificate
+list/edit dialog.
 
 Full build order is in `CLAUDE.md` §11.

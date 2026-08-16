@@ -136,6 +136,28 @@ bool AppSettingRepository::update(const AppSetting& setting)
     return true;
 }
 
+bool AppSettingRepository::recordAlertToastShown(const QDate& shownOn)
+{
+    m_errorString.clear();
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE app_setting SET"
+        "  last_alert_toast_date = ?, updated_at = ?, updated_by = ?,"
+        "  revision = revision + 1"
+        " WHERE is_deleted = 0"));
+    query.addBindValue(shownOn.toString(Qt::ISODate));
+    query.addBindValue(nowUtc());
+    query.addBindValue(kSystemUser);
+
+    if (!query.exec()) {
+        m_errorString = QStringLiteral("Could not record that the alert banner was shown:\n%1")
+                            .arg(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
 QString AppSettingRepository::errorString() const
 {
     return m_errorString;

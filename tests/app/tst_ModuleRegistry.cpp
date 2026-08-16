@@ -124,10 +124,19 @@ void TestModuleRegistry::theModuleContributesNoMigrationsOrAlertsYet()
     ModuleRegistry            registry(db, context);
 
     IModule* module = registry.modules().first();
-    // migrations/ stays one flat folder for now, and the badge arrives in
-    // step 8 — both deliberately empty (certificate-crud-spec §3).
+
+    // migrations/ stays one flat, globally numbered folder, so a module still
+    // contributes none of its own (certificate-crud-spec §3).
     QVERIFY(module->migrations().isEmpty());
-    QVERIFY(module->alertProviders().isEmpty());
+
+    // alertProviders() was empty until step 9; it now reports exactly one,
+    // and the pointer is non-owning — the module owns the instance
+    // (alerts-spec.md §3).
+    QCOMPARE(module->alertProviders().size(), 1);
+    QVERIFY(module->alertProviders().first() != nullptr);
+
+    // Asking twice returns the same instance rather than building a new one.
+    QCOMPARE(module->alertProviders().first(), module->alertProviders().first());
 }
 
 void TestModuleRegistry::sidebarShowsVesselsPlusEveryModule()

@@ -1,8 +1,11 @@
 #include "app/MainWindow.h"
 
+#include "app/AlertBanner.h"
+#include "app/AlertProvider.h"
 #include "app/IModule.h"
 #include "app/ModuleRegistry.h"
 #include "app/SettingsPage.h"
+#include "core/AppSettingRepository.h"
 #include "app/VesselDetailPage.h"
 #include "app/VesselListWidget.h"
 #include "core/InstallationContext.h"
@@ -17,6 +20,7 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QVBoxLayout>
 
 namespace {
 
@@ -54,6 +58,14 @@ MainWindow::MainWindow(const InstallationContext& installation,
         buildVesselSelector();
     }
 
+    // alerts-spec.md §8: the banner is a startup snapshot, decided after the
+    // sidebar and every module screen exist.
+    showDailyAlertBanner(appSettings);
+
+    // Regardless of whether the banner showed, the sidebar count reflects the
+    // live situation.
+    refreshAlertBadges();
+
     statusBar()->showMessage(tr("Node: %1").arg(installation.nodeId()));
 }
 
@@ -84,6 +96,10 @@ void MainWindow::buildSidebar(const InstallationContext& installation,
         auto* item = new QListWidgetItem(module->icon(), module->displayName());
         m_sidebar->addItem(item);
 
+        // Remember which row is this module's, so its badge can be rewritten
+        // and the banner's drill-down can find its page.
+        m_moduleSidebarRows.insert(module, m_sidebar->count() - 1);
+
         QWidget* screen = module->createMainWidget(this);
         m_pages->addWidget(screen);
 
@@ -91,6 +107,10 @@ void MainWindow::buildSidebar(const InstallationContext& installation,
         // certificates screen so the vessel selector can rescope it.
         if (auto* certificates = qobject_cast<CertificateListWidget*>(screen)) {
             m_certificates = certificates;
+
+            // The badge follows anything that could have changed the count.
+            connect(certificates, &CertificateListWidget::certificatesChanged, this,
+                    &MainWindow::refreshAlertBadges);
         }
     }
 
@@ -108,7 +128,115 @@ void MainWindow::buildSidebar(const InstallationContext& installation,
     splitter->addWidget(m_sidebar);
     splitter->addWidget(m_pages);
     splitter->setStretchFactor(1, 1);
-    setCentralWidget(splitter);
+
+    // alerts-spec.md §7: the banner sits above the whole sidebar/pages split,
+    // so it spans the window rather than hanging over one screen. Hidden
+    // until populate() has something to show.
+    m_alertBanner = new AlertBanner(this);
+    connect(m_alertBanner, &AlertBanner::dismissed, m_alertBanner, &QWidget::hide);
+    connect(m_alertBanner, &AlertBanner::viewRequested, this, &MainWindow::showAttentionFor);
+
+    auto* wrapper       = new QWidget(this);
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(m_alertBanner);
+    wrapperLayout->addWidget(splitter, 1);
+    setCentralWidget(wrapper);
+}
+
+void MainWindow::showDailyAlertBanner(AppSettingRepository& appSettings)
+{
+    QList<AlertBannerEntry> entries;
+    for (auto it = m_moduleSidebarRows.constBegin(); it != m_moduleSidebarRows.constEnd(); ++it) {
+        IModule* module = it.key();
+        for (AlertProvider* provider : module->alertProviders()) {
+            if (provider == nullptr) {
+                continue;
+            }
+            for (const VesselAttentionCount& vessel : provider->attentionByVessel()) {
+                entries.append({module, vessel.vesselId, vessel.vesselName, vessel.count});
+            }
+        }
+    }
+
+    if (entries.isEmpty()) {
+        return; // nothing outstanding, so nothing to show and nothing to record
+    }
+
+    // A failed read is treated as "never shown", the same fallback contract
+    // every other reader of this repository follows.
+    AppSetting setting;
+    if (!appSettings.read(&setting)) {
+        qWarning() << "Could not read the alert toast date, treating it as never shown:"
+                   << appSettings.errorString();
+    }
+
+    if (setting.lastAlertToastDate == QDate::currentDate()) {
+        return; // already shown today
+    }
+
+    m_alertBanner->populate(entries);
+
+    // Recorded the moment it is shown, not on dismiss: dismissing without
+    // reading it still counts as having been shown for the day. A failure
+    // here is logged and never surfaced — worst case the banner appears
+    // again, which is a nuisance rather than a problem.
+    if (!appSettings.recordAlertToastShown(QDate::currentDate())) {
+        qWarning() << "Could not record that the alert banner was shown:"
+                   << appSettings.errorString();
+    }
+}
+
+void MainWindow::refreshAlertBadges()
+{
+    for (auto it = m_moduleSidebarRows.constBegin(); it != m_moduleSidebarRows.constEnd(); ++it) {
+        IModule*  module = it.key();
+        const int row    = it.value();
+
+        QListWidgetItem* item = m_sidebar->item(row);
+        if (item == nullptr) {
+            continue;
+        }
+
+        int total = 0;
+        for (AlertProvider* provider : module->alertProviders()) {
+            if (provider == nullptr) {
+                continue;
+            }
+            for (const VesselAttentionCount& vessel : provider->attentionByVessel()) {
+                total += vessel.count;
+            }
+        }
+
+        // Zero stays plain: no "(0)" hanging off a healthy fleet.
+        item->setText(total > 0 ? tr("%1 (%2)").arg(module->displayName()).arg(total)
+                                : module->displayName());
+    }
+}
+
+void MainWindow::showAttentionFor(IModule* module, const QString& vesselId)
+{
+    const int row = m_moduleSidebarRows.value(module, -1);
+    if (row < 0) {
+        return;
+    }
+
+    // Set the filter before switching vessels, so only one reload() happens
+    // instead of one for the vessel switch and a second for the filter.
+    if (auto* certificates = qobject_cast<CertificateListWidget*>(m_pages->widget(row))) {
+        certificates->setNeedsAttentionFilter(true);
+    }
+
+    // No selector at all in VESSEL mode — there is only ever one vessel, and
+    // the widget above is already scoped to it.
+    if (m_vesselSelector != nullptr) {
+        const int index = m_vesselSelector->findData(vesselId);
+        if (index >= 0) {
+            m_vesselSelector->setCurrentIndex(index);
+        }
+    }
+
+    m_sidebar->setCurrentRow(row);
 }
 
 void MainWindow::buildVesselSelector()

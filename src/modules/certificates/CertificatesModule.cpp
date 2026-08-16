@@ -10,6 +10,8 @@ CertificatesModule::CertificatesModule(QSqlDatabase&              database,
     , m_certificates(database, installation)
     , m_endorsements(database, installation)
     , m_appSettings(database)
+    , m_vessels(database, installation)
+    , m_alertProvider(m_vessels, m_certificates, m_endorsements, m_appSettings, installation)
 {
 }
 
@@ -46,7 +48,7 @@ QList<Migration> CertificatesModule::migrations() const
 
 QList<AlertProvider*> CertificatesModule::alertProviders()
 {
-    // Nothing to report until computeCertificateState() exists in step 6 and
-    // the badge arrives in step 8.
-    return {};
+    // Non-owning: this module owns the provider for its own lifetime, the
+    // same way it owns its repositories (alerts-spec.md §3).
+    return {&m_alertProvider};
 }

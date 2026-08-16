@@ -85,6 +85,8 @@ target_link_libraries(ShipCore PUBLIC Qt6::Core Qt6::Sql)
 qt_add_library(ShipCertificates STATIC
     src/modules/certificates/CertificatesModule.h
     src/modules/certificates/CertificatesModule.cpp
+    src/modules/certificates/CertificateAlertProvider.h
+    src/modules/certificates/CertificateAlertProvider.cpp
     src/modules/certificates/domain/Certificate.h
     src/modules/certificates/domain/Certificate.cpp
     src/modules/certificates/domain/Endorsement.h
@@ -124,6 +126,8 @@ target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets)
 qt_add_library(ShipApp STATIC
     src/app/IModule.h
     src/app/Migration.h
+    src/app/AlertProvider.h
+    src/app/AlertBanner.h            src/app/AlertBanner.cpp
     src/app/ModuleRegistry.h        src/app/ModuleRegistry.cpp
     src/app/MainWindow.h           src/app/MainWindow.cpp
     src/app/FirstRunWizard.h       src/app/FirstRunWizard.cpp

@@ -1,9 +1,12 @@
 #pragma once
 
+#include <QHash>
 #include <QMainWindow>
 
+class AlertBanner;
 class AppSettingRepository;
 class CertificateListWidget;
+class IModule;
 class InstallationContext;
 class ModuleRegistry;
 class VesselListWidget;
@@ -38,6 +41,18 @@ private:
     // where the others sit alphabetically (certificate-crud-spec §8.1).
     void refreshVesselSelector();
 
+    // alerts-spec.md §8. Shows the banner only if something is outstanding
+    // and it has not already been shown today.
+    void showDailyAlertBanner(AppSettingRepository& appSettings);
+
+    // alerts-spec.md §6. Rewrites each module's sidebar row with its current
+    // count, or plain displayName() when nothing is outstanding.
+    void refreshAlertBadges();
+
+    // The banner's View button: switch to that module's screen, scoped and
+    // filtered to the vessel in question.
+    void showAttentionFor(IModule* module, const QString& vesselId);
+
     VesselRepository* m_vesselRepository = nullptr;
 
     QListWidget*    m_sidebar        = nullptr;
@@ -54,4 +69,10 @@ private:
     // does not exist yet (certificate-crud-spec §3). The moment a second one
     // appears, this is the line to generalise.
     CertificateListWidget* m_certificates = nullptr;
+
+    AlertBanner* m_alertBanner = nullptr;
+
+    // Which sidebar row belongs to which module, so a badge can be rewritten
+    // and a drill-down can find the right page later (alerts-spec.md §6).
+    QHash<IModule*, int> m_moduleSidebarRows;
 };

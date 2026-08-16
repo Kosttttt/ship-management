@@ -39,7 +39,21 @@ public:
 
     QString vesselId() const;
 
+    // Turns the "needs attention" filter on or off from outside — the banner's
+    // drill-down uses it (alerts-spec.md §8). QCheckBox::setChecked() only
+    // emits toggled when the value actually changes, so this is a no-op when
+    // the filter is already in the requested state, and reload() does not run
+    // twice.
+    void setNeedsAttentionFilter(bool on);
+
     void reload();
+
+signals:
+    // Emitted at the end of a successful reload(), so the sidebar badge can
+    // follow anything that could plausibly have changed the count — a vessel
+    // switch, the filter toggling, or a certificate or endorsement dialog
+    // closing (alerts-spec.md §6).
+    void certificatesChanged();
 
 private:
     void addCertificate();

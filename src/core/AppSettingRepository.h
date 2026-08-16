@@ -24,7 +24,14 @@ public:
 
     // Validates before writing, bumps revision, and touches only
     // updated_at/updated_by — the same shape as every other update() here.
+    // Deliberately never writes last_alert_toast_date.
     bool update(const AppSetting& setting);
+
+    // Records that today's alert banner was shown (alerts-spec.md §5). A
+    // separate, narrow method precisely because update() leaves that column
+    // alone: saving thresholds must not disturb the toast date, and recording
+    // the toast must not disturb the thresholds.
+    bool recordAlertToastShown(const QDate& shownOn);
 
     // No create(): the row is seeded by the migration, never at runtime.
 
