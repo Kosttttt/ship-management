@@ -820,6 +820,117 @@ real. No separate fix needed — removed from the technical-debt list below.
 Committed as `09da662` and pushed to `origin/main` (`9735646..09da662`),
 alongside this `PROJECT-STATUS.md` update and `docs/alerts-spec.md`.
 
+### Step 10 — Certificate renewal ✅
+Full design in `docs/certificate-renewal-spec.md`, written after a design
+discussion that corrected the plan this file's own "Next step" section had
+sketched. The original assumption — a new certificate row, linked back to
+the old one via `certificate.previous_certificate_id` — was wrong: renewal
+edits the **same** row in place, no new row is ever created, and that
+column stays permanently unused. The discussion also exposed a factual
+error of the reviewer's own, not a bug in the code: a claim that survey
+windows were calculated from `issue_date` rather than `expiry_date` was
+challenged by the developer and found wrong on re-reading
+`SurveySchedule.cpp` — the code was already correct and needed no change.
+File/document attachment ("new file, old one archived") was confirmed out
+of scope, since no file storage exists anywhere in the app yet; deferred to
+the future Document Management module. Built and independently verified
+file-by-file against the spec — both `EndorsementRepository` files, both
+`CertificateEditDialog` files, both `CertificateListWidget` files, the new
+test suite, and `tests/CMakeLists.txt` — not just from Claude Code's own
+report. **No defects found.**
+
+- `modules/certificates/data/EndorsementRepository::deleteAllForCertificate()`
+  — a new soft-delete method, scoped to one certificate's endorsements by
+  `certificate_id`. Affecting zero rows is treated as success, not failure
+  — a certificate with nothing recorded yet is a normal case, not an error.
+- `modules/certificates/ui/CertificateEditDialog` gained a trailing
+  `bool isRenewal = false` constructor parameter, guarded as
+  `m_isRenewal(isRenewal && existing.has_value())` so renewal mode can never
+  be true without an existing certificate to renew. In renewal mode: the
+  title becomes "Renew — <name>", the OK button reads "Renew", and the
+  Endorsements section is never shown — a stamp added there would belong to
+  neither the old cycle (about to be cleared) nor the new one (no
+  anniversaries exist until the new dates are saved). A successful save
+  also calls `deleteAllForCertificate()`; if that call itself fails, the
+  dialog still accepts rather than trapping the user with data already
+  written, surfacing a separate warning instead — a sensible call beyond
+  what the spec explicitly asked for, confirmed correct on review.
+- `modules/certificates/ui/CertificateListWidget` gained a **Renew** button,
+  separate from the existing double-click-to-edit action, enabled only when
+  a row is selected **and** that certificate actually expires (a
+  `kNeverExpiresRole` data flag on the row avoids a second database round
+  trip to check). Clicking it loads the certificate's endorsement count,
+  asks a confirmation naming what will be lost ("Renew '<name>'?" with
+  nothing to lose; "Renewing '<name>' will clear its N recorded survey(s).
+  Continue?" otherwise), then opens `CertificateEditDialog` in renewal mode.
+  `addCertificate()`/`editCertificate()` both now pass `/*isRenewal=*/false`
+  explicitly — see the defect avoided, below.
+- Deliberately **not** one database transaction: the certificate update and
+  the endorsement-clear are both simple unconditional single-table UPDATEs
+  against a local SQLite file, and the bounded consequence of an unlikely
+  half-failure (stale endorsements left behind, which the next state
+  computation would simply treat as predating the new cycle and ignore)
+  didn't justify the extra complexity.
+- 24 unit test suites total (was 23) — one new suite, `tst_CertificateRenewal`,
+  with 11 test cases: all nine edge cases from spec §7 (successful renewal;
+  cancelling the confirmation; cancelling the edit dialog itself;
+  Renew disabled with no selection; Renew disabled for a certificate that
+  never expires; the confirmation wording with zero vs. some endorsements;
+  the Endorsements section never appearing in renewal mode; an end-to-end
+  check that a renewed certificate reads Valid afterward; double-click still
+  opening the ordinary, non-destructive edit) plus two supporting tests for
+  `deleteAllForCertificate()` itself (scoped to the right certificate only;
+  zero rows affected is still success).
+
+**A constructor-parameter footgun, caught and fixed by Claude Code before
+it shipped, not a defect found on review.** Inserting `isRenewal` before
+the existing trailing `QWidget* parent` meant the two pre-existing call
+sites (`addCertificate()`, `editCertificate()`), which passed `this`
+positionally as the dialog's fifth argument, would have silently compiled
+with `this` implicitly converted to `bool true` — meaning every ordinary
+Add or Edit would have secretly wiped the certificate's endorsements.
+Caught during Claude Code's own review and fixed at both call sites before
+reporting the step complete; confirmed correctly applied on independent
+re-read.
+
+**Three test-writing bugs, also self-caught and fixed during Claude Code's
+own debugging cycle, not defects in production code:** a missing include; a
+wrong test expectation that a certificate 20 days from expiry with one
+endorsement would read Critical rather than the correct Survey Overdue
+(unsatisfied later anniversaries outrank a merely-critical expiry, per the
+existing step-6 rule); and `QMessageBox::done()` leaving `clickedButton()`
+null, which made a simulated "Yes" read back as no button at all — fixed by
+clicking the real button (`box->button(...)->click()`) instead. The final
+test file, read in full during verification, reflects all three fixes
+correctly, including a polling timer (rather than a zero-shot) to catch the
+edit dialog once it exists.
+
+Judgment calls made (Claude Code's, all reviewed and confirmed rather than
+changed):
+1. `selectedRow()` uses `m_table->selectionModel()->selectedRows()` rather
+   than the spec's literal sample code (`QTableWidget::currentRow()`) —
+   confirmed correct and a genuine improvement: `currentRow()` is Qt's focus
+   cell, which can be set with nothing visibly selected, while the spec's
+   own prose asked for "enabled only when the table has a selection." The
+   deviation matches the spec's intent even though it doesn't match the
+   exact code sample.
+2. A failed `deleteAllForCertificate()` during renewal still lets the dialog
+   accept — see above.
+
+**New outstanding technical debt found during verification, not introduced
+by this step but not previously flagged:** `CertificateListWidget.cpp` is
+now 434 lines, well past the ~300-line guideline in `CLAUDE.md` §9. It grew
+past that line sometime across steps 7–9 without being caught — step 7's
+own note said it "grew but stayed under 300." Not split now: the file reads
+as clearly separated methods (`reload()`, `fillRow()`, the renewal trio,
+`addCertificate()`/`editCertificate()`), with no single obvious seam to
+extract the way the statement splitter was pulled out of `MigrationRunner`
+in step 3. Worth watching closely, since step 11 (Extensions) is likely to
+touch this same file next.
+
+Committed as `8ba1347` and pushed to `origin/main`, alongside this
+`PROJECT-STATUS.md` update and `docs/certificate-renewal-spec.md`.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -973,6 +1084,26 @@ alongside this `PROJECT-STATUS.md` update and `docs/alerts-spec.md`.
   (`DisplayStatus != Valid`) — deliberately one definition of "needing
   attention" across the whole app, not three that could quietly drift
   apart.
+- Renewal edits the same certificate row in place. There is no new row, no
+  link between an old and new certificate, and `previous_certificate_id`
+  (left absent since step 5 "for exactly this reason") turned out to have
+  no reason after all — it stays permanently unused. The module's job is
+  tracking current certificates, not preserving a history of past ones.
+- A renewal clears all of the certificate's recorded endorsements. This is
+  not required for correctness — `SurveySchedule::anniversariesOf()` was
+  already correctly anchored to `expiryDate`, not `issueDate`, since step 6,
+  so a fresh schedule is computed automatically the moment new dates are
+  saved, and old endorsements would simply be ignored as predating the new
+  cycle's first window either way. The clear happens purely because the
+  developer doesn't want old survey history kept once a certificate has
+  moved on to its next cycle.
+- File/document attachment during renewal (adding a new file, archiving the
+  old one) is explicitly out of scope for step 10 — no file storage exists
+  anywhere in the app yet. Deferred to the future Document Management
+  module.
+- Renewal is reached through a dedicated **Renew** button, kept separate
+  from the existing double-click-to-edit action, so an ordinary edit can
+  never accidentally trigger the endorsement-clearing side effect.
 
 ## Outstanding technical debt
 
@@ -1050,6 +1181,20 @@ alongside this `PROJECT-STATUS.md` update and `docs/alerts-spec.md`.
   (`CertificateAlertProvider.cpp` ~90 lines, `AlertBanner.cpp` ~115 lines,
   `MainWindow.cpp` grew but stayed comfortably under 300) — no new size
   debt from this step.
+- `modules/certificates/ui/CertificateListWidget.cpp` is now 434 lines,
+  well past the ~300-line guideline — found during step 10's verification,
+  not introduced by it. It crossed that line sometime across steps 7–9
+  without being caught (step 7's own note said it "grew but stayed under
+  300"). Not split now: the methods inside it are already clearly
+  separated (`reload()`, `fillRow()`, the renewal trio, `addCertificate()`/
+  `editCertificate()`), with no single obvious seam the way the statement
+  splitter was pulled out of `MigrationRunner` in step 3. Worth watching
+  closely — step 11 (Extensions) is likely to touch this same file next,
+  which would be the natural point to look for a real seam.
+- Step 10's own new/changed files otherwise stayed well under the
+  guideline (`EndorsementRepository.cpp` grew by ~15 lines,
+  `CertificateEditDialog.cpp` is 227 lines) — the size debt above is
+  pre-existing, not new.
 
 ---
 
@@ -1089,25 +1234,25 @@ were all updated to match.
 
 ## Next step
 
-**Step 10 — Renewal workflow.** The certificate list now shows live status,
-editable thresholds, and a fleet-wide alert badge/banner pointing straight
-at whatever needs attention. Per `CLAUDE.md` §11, this step is about acting
-on an expiring certificate rather than just being told about one — turning
-"Certificate X needs attention" into an actual renewal: presumably a
-guided flow that creates the new certificate's record, links it back to
-the one it replaces (`certificate.previous_certificate_id`, deliberately
-left absent since step 5 for exactly this reason — nothing could populate
-it before now), and retires the old one without losing its history.
+**Step 11 — Extensions.** The certificate list now has a full lifecycle:
+live status, editable thresholds, a fleet-wide alert badge/banner, and a
+Renew action that moves a certificate into its next cycle cleanly. Per
+`CLAUDE.md` §11, this step is about short-term extensions — a class or
+flag-state authority granting a certificate a few extra months beyond its
+printed expiry, a real and fairly common event this module hasn't had any
+way to represent yet.
 
 No implementation spec written yet, and no design discussion held — bring
 it up here first, the same way every step since step 3 has gone. Worth
-deciding early: what "renew" actually creates (a brand-new certificate row
-copying the old one's category/survey-rule fields as a starting point, vs.
-some other shape), what happens to the old certificate's row once replaced
-(soft-deleted like everything else, or kept visible with a distinct status
-so its history stays browsable), whether endorsements recorded against the
-old certificate need to carry forward or stay put, and whether this is a
-dedicated screen/dialog or an action reachable from the existing certificate
-list/edit dialog.
+deciding early: what an extension actually changes (a new column on
+`certificate` holding an extended expiry date, separate from the original
+printed one, vs. something else), whether `computeCertificateState()` needs
+a new parameter or can take the extended date in place of the original
+without changing its signature, whether survey anniversaries should still
+anchor to the original expiry or shift with the extension, how an extension
+interacts with the Renew button built in step 10 (an extended certificate
+still needs to renew eventually), and whether this is a dedicated
+screen/dialog or an action reachable from the existing certificate list/
+edit dialog, the same question step 10 answered for renewal.
 
 Full build order is in `CLAUDE.md` §11.
