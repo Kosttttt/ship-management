@@ -29,7 +29,13 @@ public:
     // query. Refuses with a message rather than silently: this is a write.
     bool create(const Endorsement& endorsement, QString* newId = nullptr);
 
-    // No update() or delete() this step. An endorsement is a compliance
+    // Soft-deletes every endorsement recorded against one certificate, used
+    // when it is renewed: the completed cycle's surveys do not describe the
+    // new one (certificate-renewal-spec §4). Affecting zero rows is success,
+    // not failure — a certificate with nothing recorded is a normal case.
+    bool deleteAllForCertificate(const QString& certificateId);
+
+    // Still no update() or single delete(). An endorsement is a compliance
     // record, and how a correction should work is a real design question
     // nothing here depends on (certificate-endorsement-spec §6).
 

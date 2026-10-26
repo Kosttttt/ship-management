@@ -22,11 +22,16 @@ class CertificateEditDialog : public QDialog
     Q_OBJECT
 
 public:
+    // isRenewal defaults to false, so every existing call site keeps today's
+    // behaviour. In renewal mode the title says so, the Endorsements section
+    // is not shown, and a successful Save also clears the certificate's
+    // recorded surveys (certificate-renewal-spec §6).
     CertificateEditDialog(CertificateRepository&            repository,
                           EndorsementRepository&            endorsements,
                           const QString&                    vesselId,
                           const std::optional<Certificate>& existing,
-                          QWidget*                          parent = nullptr);
+                          bool                              isRenewal = false,
+                          QWidget*                          parent    = nullptr);
 
 protected:
     // The write happens here so a failure can keep the dialog open with the
@@ -51,6 +56,7 @@ private:
     CertificateEditForm* m_form      = nullptr;
     QPushButton*         m_okButton  = nullptr;
     bool                 m_isEditing = false;
+    bool                 m_isRenewal = false;
 
     QString    m_certificateId;
     bool       m_requiresAnnual       = false;

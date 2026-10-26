@@ -47,6 +47,8 @@ add_ship_test(tst_CertificateListWidget
     modules/certificates/tst_CertificateListWidget.cpp ShipCertificates)
 add_ship_test(tst_CertificateListStatus
     modules/certificates/tst_CertificateListStatus.cpp ShipCertificates)
+add_ship_test(tst_CertificateRenewal
+    modules/certificates/tst_CertificateRenewal.cpp ShipCertificates)
 
 add_ship_test(tst_CertificateStateExpiry
     modules/certificates/tst_CertificateStateExpiry.cpp ShipCertificates)
@@ -71,5 +73,6 @@ ship_add_migrations(tst_CertificateRepositoryValidation)
 ship_add_migrations(tst_CertificateRepositoryWrites)
 ship_add_migrations(tst_CertificateListWidget)
 ship_add_migrations(tst_CertificateListStatus)
+ship_add_migrations(tst_CertificateRenewal)
 ship_add_migrations(tst_EndorsementRepository)
 ship_add_migrations(tst_EndorsementUi)

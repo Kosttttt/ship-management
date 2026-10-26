@@ -58,6 +58,23 @@ signals:
 private:
     void addCertificate();
     void editCertificate(QTableWidgetItem* item);
+
+    // certificate-renewal-spec §5. Reachable only from the Renew button, so
+    // double-clicking a row keeps opening the ordinary, non-destructive edit.
+    void renewCertificate();
+
+    // Renew targets one certificate, so it needs a selection — and one that
+    // actually expires.
+    void updateRenewButtonState();
+
+    // The selected row, or -1. Based on the selection rather than the
+    // "current" focus cell, which Qt can set without anything appearing
+    // selected.
+    int selectedRow() const;
+
+    // The id on the row currently selected, or empty when there is none.
+    QString selectedCertificateId() const;
+
     void updateVisibleState();
 
     // Renders one already-computed row. The state is passed in rather than
@@ -72,5 +89,6 @@ private:
     QStackedWidget* m_stack               = nullptr;
     QTableWidget*   m_table               = nullptr;
     QPushButton*    m_addButton           = nullptr;
+    QPushButton*    m_renewButton         = nullptr;
     QCheckBox*      m_needsAttentionCheck = nullptr;
 };

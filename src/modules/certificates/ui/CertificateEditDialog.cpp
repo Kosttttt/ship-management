@@ -38,13 +38,21 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
                                              EndorsementRepository&            endorsements,
                                              const QString&                    vesselId,
                                              const std::optional<Certificate>& existing,
+                                             bool                              isRenewal,
                                              QWidget*                          parent)
     : QDialog(parent)
     , m_repository(repository)
     , m_endorsements(endorsements)
     , m_isEditing(existing.has_value())
+    , m_isRenewal(isRenewal && existing.has_value())
 {
-    setWindowTitle(m_isEditing ? tr("Edit Certificate") : tr("Add Certificate"));
+    // Naming the certificate in the renewal title so the two modes can never
+    // be confused — one of them clears the survey history.
+    if (m_isRenewal) {
+        setWindowTitle(tr("Renew — %1").arg(existing->name));
+    } else {
+        setWindowTitle(m_isEditing ? tr("Edit Certificate") : tr("Add Certificate"));
+    }
     setModal(true);
 
     m_form = new CertificateEditForm(this);
@@ -63,7 +71,7 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_okButton    = buttons->button(QDialogButtonBox::Ok);
-    m_okButton->setText(m_isEditing ? tr("Save") : tr("Add"));
+    m_okButton->setText(m_isRenewal ? tr("Renew") : (m_isEditing ? tr("Save") : tr("Add")));
 
     auto* layout = new QVBoxLayout(this);
     // Stretch 1: the scrolling form takes the surplus height, so the
@@ -73,7 +81,12 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
     // The section decides once, from the saved certificate, not from the
     // checkboxes as they are being edited: a requirement the user has just
     // ticked but not yet saved has nothing to attach an endorsement to.
-    if (m_isEditing && (m_requiresAnnual || m_requiresIntermediate)) {
+    //
+    // Never shown during a renewal: a survey stamp added here would belong to
+    // neither cycle — not the old one, which is about to be cleared, and not
+    // the new one, which has no anniversaries until the new dates are saved
+    // (certificate-renewal-spec §6).
+    if (m_isEditing && !m_isRenewal && (m_requiresAnnual || m_requiresIntermediate)) {
         layout->addWidget(buildEndorsementsSection(*existing), 0);
     }
 
@@ -185,6 +198,29 @@ void CertificateEditDialog::accept()
                                 "again.\n\n%1")
                                  .arg(m_repository.errorString()));
         return; // stay open, data intact
+    }
+
+    // certificate-renewal-spec §4: the completed cycle's surveys do not
+    // describe the new one, so they are cleared once the new dates are
+    // safely stored.
+    //
+    // Deliberately not one transaction with the update above: both are single
+    // unconditional UPDATEs against a local file, and the consequence of the
+    // unlikely half-failure is bounded — the certificate is correctly
+    // renewed, and endorsements predating the new cycle's first window are
+    // skipped by the matching rule anyway. The error is reported rather than
+    // swallowed.
+    if (m_isRenewal && !m_endorsements.deleteAllForCertificate(m_certificateId)) {
+        qWarning() << "Renewal could not clear recorded surveys:"
+                   << m_endorsements.errorString();
+        QMessageBox::warning(
+            this,
+            tr("Renewed, but surveys were not cleared"),
+            tr("The certificate's new dates were saved, but its recorded surveys could not "
+               "be cleared.\n\n%1")
+                .arg(m_endorsements.errorString()));
+        // Still accept: the renewal itself succeeded, and leaving the dialog
+        // open would invite a second update of data already written.
     }
 
     QDialog::accept();

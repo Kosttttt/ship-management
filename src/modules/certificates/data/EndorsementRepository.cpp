@@ -207,6 +207,30 @@ bool EndorsementRepository::create(const Endorsement& endorsement, QString* newI
     return true;
 }
 
+bool EndorsementRepository::deleteAllForCertificate(const QString& certificateId)
+{
+    m_errorString.clear();
+
+    // Soft delete, never a hard DELETE — CLAUDE.md §6.4. A deletion has to
+    // replicate to the other side, and the audit trail has to survive it.
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE endorsement SET"
+        "  is_deleted = 1, updated_at = ?, updated_by = ?, revision = revision + 1"
+        " WHERE certificate_id = ? AND is_deleted = 0"));
+    query.addBindValue(nowUtc());
+    query.addBindValue(kSystemUser);
+    query.addBindValue(certificateId);
+
+    if (!query.exec()) {
+        m_errorString = QStringLiteral("Could not clear the certificate's recorded surveys:\n%1")
+                            .arg(query.lastError().text());
+        return false;
+    }
+
+    return true; // affecting zero rows (nothing to clear) is not a failure
+}
+
 QString EndorsementRepository::errorString() const
 {
     return m_errorString;
