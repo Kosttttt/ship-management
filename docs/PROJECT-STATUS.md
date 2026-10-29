@@ -1118,6 +1118,45 @@ Committed as `73aed92` and pushed to `origin/main` (`7572a11..73aed92`),
 alongside this `PROJECT-STATUS.md` update, `docs/certificate-extension-spec.md`,
 and the rest of the 22-file change.
 
+### `CertificateListActions` refactor ✅
+Not a build-order step — a pure, no-behaviour-change split, planned at
+the end of step 11 once `CertificateListWidget.cpp` crossed 566 lines.
+`src/modules/certificates/ui/CertificateListActions.h/.cpp` now own the
+two selection-driven buttons (Renew and the short-term extension
+Start/Resolve) and everything that decides their enablement and labels;
+`CertificateListWidget` keeps the table, `reload()`, and `fillRow()`.
+A new `CertificateListRow.h` holds the three `Qt::UserRole` data-role
+constants that used to be private to the widget's `.cpp` — they had to
+become shared once one class writes them (`fillRow()`) and another reads
+them back (every button-state check), with a `static_assert` in the
+widget's `.cpp` tying the shared `kDataColumn` constant to the real
+`Column::ListNumber` enum value, since the two are now declared in
+different files.
+
+Verified independently: `CertificateListRow.h`, both widget files, both
+actions files, and the `CMakeLists.txt` registration all read exactly as
+reported, object names are untouched (`renewCertificateButton`,
+`certificateExtensionButton`, `certificateTable`, etc. — this is what
+lets `MainWindow` and every existing test keep finding them by name),
+and `git diff --stat -- tests/` being empty was independently confirmed
+rather than taken on trust. **No defects found.** One small correction to
+the write-up, not a problem: the two buttons are constructed with the
+widget as their Qt parent, not with `CertificateListActions` itself — "it
+owns its two buttons" is slightly loose, though harmless, since
+`QBoxLayout::addWidget()` would reparent them to the widget regardless of
+where they started.
+
+`CertificateListWidget.cpp` came down from 566 to **396 lines** — still
+over the ~300-line guideline, but the remaining bulk (`reload()` at
+~105 lines, the constructor at ~90) doesn't have the same kind of clean,
+single-purpose seam the selection-driven actions did. Accepted as shipped
+rather than chased further for now; revisit only if either piece grows
+into something with a real boundary of its own, the same "watch, don't
+split without an obvious seam" call this file has gotten at every prior
+size check.
+
+Committed as `95ae54d` and pushed to `origin/main` (`ab2c0b6..95ae54d`).
+
 ---
 
 ## Decisions confirmed by the developer
@@ -1385,17 +1424,12 @@ and the rest of the 22-file change.
   (`CertificateAlertProvider.cpp` ~90 lines, `AlertBanner.cpp` ~115 lines,
   `MainWindow.cpp` grew but stayed comfortably under 300) — no new size
   debt from this step.
-- `modules/certificates/ui/CertificateListWidget.cpp` is now **566
-  lines** (was 434 after step 10, 433 after step 9) — well past the
-  ~300-line guideline, and grown three steps running. There is now an
-  obvious seam, unlike the earlier "watch it" calls: the three
-  selection-driven actions (Renew, the extension button, and their
-  shared button-state logic) are a cohesive, extractable piece. **Plan:**
-  pull them into a `CertificateListActions`-style collaborator as a
-  dedicated, no-behaviour-change refactor, verified by the existing test
-  suite passing unchanged, before starting step 12 — not bundled into a
-  feature step, and not deferred again now that step 12 (Attachments) is
-  likely to want to add to this same file too.
+- `modules/certificates/ui/CertificateListWidget.cpp` grew past the
+  ~300-line guideline across steps 9–11 (433 → 434 → 566), and was split
+  immediately after step 11 — see "`CertificateListActions` refactor"
+  above. Now **396 lines**, still over guideline but with no remaining
+  seam as clean as the one already pulled out; accepted as shipped.
+  Worth a fresh look if step 12 (Attachments) pushes it further.
 - Step 10's and step 11's own new/changed files otherwise stayed well
   under the guideline (`EndorsementRepository.cpp` grew by ~15 lines,
   `CertificateEditDialog.cpp` is 227 lines, `CertificateExtensionRepository.cpp`
@@ -1458,13 +1492,6 @@ catalogue + seed data") is gone. Step 5 is now Certificate CRUD directly
 were all updated to match.
 
 ## Next step
-
-**A pure refactor before step 12.** `CertificateListWidget.cpp` is at 566
-lines (see "Outstanding technical debt" above) — split the three
-selection-driven actions (Renew, the extension button, their shared
-button-state logic) into a dedicated collaborator, no behaviour change,
-verified by the existing test suite passing exactly as it does today.
-Its own small commit, separate from any feature work.
 
 **Step 12 — Attachments.** The certificate module now covers the full
 lifecycle a working certificate goes through: tracking, alerting,
