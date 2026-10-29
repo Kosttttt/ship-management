@@ -54,6 +54,52 @@ that warning is a false alarm (the executable is MinGW-built; the earlier
 `libstdc++-6.dll` error proves it). Ctrl+R works. Revisit when a real need
 arises.
 
+## Producing a Release build
+
+Not a build-order step — tooling, done once the developer wanted an app
+that opens by double-clicking rather than through Qt Creator every time.
+
+```powershell
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:/Qt/6.11.1/mingw_64"
+cmake --build build-release
+```
+
+The target CMake produces is `ShipManagement` (declared at `CMakeLists.txt`
+line 149, top level — not under `src/app/`), built to
+`build-release\ShipManagement.exe`.
+
+`dist\ShipManagement\` is where the standalone, shareable copy lives —
+**not** `build-release\` itself, which also holds all 24 test executables.
+`dist\` is a plain copy, not a build output: rebuilding `build-release\`
+does **not** update it automatically. Before every redeploy, copy the
+freshly built exe over the one already in `dist\ShipManagement\`, *then*
+run:
+
+```powershell
+windeployqt --release --compiler-runtime dist\ShipManagement\ShipManagement.exe
+```
+
+This was missed once already — a redeploy that skipped the copy would have
+bundled fresh DLLs around a stale exe, with a perfectly clean build log
+giving no hint anything was wrong.
+
+The console window is gated by build config in `CMakeLists.txt`
+(`WIN32_EXECUTABLE`/`MACOSX_BUNDLE` set to `$<CONFIG:Release>`): Debug
+keeps it, with `qInfo()`/`qDebug()` visible live; a Release build hides it
+entirely, so diagnosing a Release build means reading the rotating log file
+under `%APPDATA%\Ship Management\Ship Management System\logs` instead —
+that file captures everything regardless of which build produced it.
+
+`build-release/` and `dist/` are both in `.gitignore`, alongside the
+pre-existing `build/` — added specifically because this project's `git add
+-A` commit habit would otherwise have staged the entire Release build and
+~40 Qt DLLs into git history on the next commit.
+
+The console-window gate and the `.gitignore` update (plus
+`docs/manual-test-checklist.md`, which had been sitting uncommitted since
+it was written) were committed as `281ec62` and pushed to `origin/main`
+(`6cb55f9..281ec62`).
+
 The developer's shell is Windows PowerShell, where `&&` does not chain
 commands the way it does in bash/PowerShell 7+ (`The token '&&' is not a
 valid statement separator in this version`). Any suggested commit command
@@ -1195,6 +1241,24 @@ Committed as `8ba1347` and pushed to `origin/main`, alongside this
   guideline (`EndorsementRepository.cpp` grew by ~15 lines,
   `CertificateEditDialog.cpp` is 227 lines) — the size debt above is
   pre-existing, not new.
+- `MACOSX_BUNDLE $<CONFIG:Release>` (see "Producing a Release build"
+  above) is not documented as a CMake-supported use of that property the
+  way `WIN32_EXECUTABLE` is — it's read at configure time to decide the
+  target's bundle layout. Inert on Windows today, so nothing is broken;
+  on macOS it will likely be treated as an always-truthy non-empty string,
+  making *every* config a bundle rather than gating by Release. Fix when
+  someone first builds on a Mac: either an `if(APPLE)` block reading
+  `CMAKE_BUILD_TYPE` directly, or simply leaving `MACOSX_BUNDLE` always
+  `TRUE` — a bundle is the normal shipping form on macOS regardless of
+  config, so that may turn out to be the right answer anyway, not a
+  workaround.
+- `main()` has no way to point the database at anywhere but the real
+  `%APPDATA%` folder — it always calls `Database::defaultPath()`. This is
+  why `CLAUDE.md` §10.1's "point any manual run at a throwaway data
+  directory" has no mechanism behind it today. A `--data-dir` argument
+  would give it one, and would also let a future verification pass check a
+  screen without going near the real fleet data. Worth adding next time
+  `main.cpp`/startup is touched for another reason.
 
 ---
 
