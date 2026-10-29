@@ -1,11 +1,13 @@
 #pragma once
 
+#include <QDate>
 #include <QWidget>
 
 struct Certificate;
 struct CertificateState;
 
 class AppSettingRepository;
+class CertificateExtensionRepository;
 class CertificateRepository;
 class EndorsementRepository;
 class InstallationContext;
@@ -26,11 +28,12 @@ class CertificateListWidget : public QWidget
     Q_OBJECT
 
 public:
-    CertificateListWidget(CertificateRepository&     repository,
-                          EndorsementRepository&     endorsements,
-                          AppSettingRepository&      appSettings,
-                          const InstallationContext& installation,
-                          QWidget*                   parent = nullptr);
+    CertificateListWidget(CertificateRepository&          repository,
+                          EndorsementRepository&          endorsements,
+                          CertificateExtensionRepository& extensions,
+                          AppSettingRepository&           appSettings,
+                          const InstallationContext&      installation,
+                          QWidget*                        parent = nullptr);
 
     // OFFICE: called by MainWindow when the toolbar selector changes. An empty
     // id returns the screen to the "select a vessel" prompt.
@@ -63,9 +66,27 @@ private:
     // double-clicking a row keeps opening the ordinary, non-destructive edit.
     void renewCertificate();
 
+    // certificate-extension-spec §7. One button for both directions: it
+    // starts an extension when there is none, and resolves the active one
+    // when there is, because those are never both available at once.
+    void startOrResolveExtension();
+
+    // Both selection-driven buttons at once, so a selection change and a
+    // reload can never update one and forget the other.
+    void updateActionButtonStates();
+
     // Renew targets one certificate, so it needs a selection — and one that
-    // actually expires.
+    // actually expires, and no extension in force (certificate-extension-spec
+    // §7).
     void updateRenewButtonState();
+
+    // Label and enablement both depend on whether the selected row currently
+    // has an active extension.
+    void updateExtensionButtonState();
+
+    // The active extension's expiry on the selected row, or an invalid date
+    // when there is no selection or no extension.
+    QDate selectedExtensionExpiry() const;
 
     // The selected row, or -1. Based on the selection rather than the
     // "current" focus cell, which Qt can set without anything appearing
@@ -81,14 +102,16 @@ private:
     // recomputed so "today" is read exactly once per reload.
     void fillRow(int row, const Certificate& certificate, const CertificateState& state);
 
-    CertificateRepository& m_repository;
-    EndorsementRepository& m_endorsements;
-    AppSettingRepository&  m_appSettings;
-    QString                m_vesselId;
+    CertificateRepository&          m_repository;
+    EndorsementRepository&          m_endorsements;
+    CertificateExtensionRepository& m_extensions;
+    AppSettingRepository&           m_appSettings;
+    QString                         m_vesselId;
 
     QStackedWidget* m_stack               = nullptr;
     QTableWidget*   m_table               = nullptr;
     QPushButton*    m_addButton           = nullptr;
     QPushButton*    m_renewButton         = nullptr;
+    QPushButton*    m_extensionButton     = nullptr;
     QCheckBox*      m_needsAttentionCheck = nullptr;
 };

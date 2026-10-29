@@ -8,6 +8,7 @@
 #include "core/MigrationRunner.h"
 #include "core/VesselRepository.h"
 #include "modules/certificates/CertificateAlertProvider.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/ui/CertificateListWidget.h"
@@ -454,13 +455,14 @@ void TestAlerts::unreadableThresholdsStillProduceCounts()
     const InstallationContext context = officeContext();
     VesselRepository          vessels(db, context);
     CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
     AppSetting unused;
     QVERIFY2(!appSettings.read(&unused), "the settings row really is gone");
 
-    CertificateAlertProvider provider(vessels, certificates, endorsements, appSettings, context);
+    CertificateAlertProvider provider(vessels, certificates, endorsements, extensions, appSettings, context);
     const QList<VesselAttentionCount> counts = provider.attentionByVessel();
 
     QCOMPARE(counts.size(), 1);

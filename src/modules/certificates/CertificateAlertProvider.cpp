@@ -4,20 +4,23 @@
 #include "core/InstallationContext.h"
 #include "core/Vessel.h"
 #include "core/VesselRepository.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/CertificateState.h"
 
 #include <QDate>
 
-CertificateAlertProvider::CertificateAlertProvider(VesselRepository&          vessels,
-                                                   CertificateRepository&     certificates,
-                                                   EndorsementRepository&     endorsements,
-                                                   AppSettingRepository&      appSettings,
-                                                   const InstallationContext& installation)
+CertificateAlertProvider::CertificateAlertProvider(VesselRepository&               vessels,
+                                                   CertificateRepository&          certificates,
+                                                   EndorsementRepository&          endorsements,
+                                                   CertificateExtensionRepository& extensions,
+                                                   AppSettingRepository&           appSettings,
+                                                   const InstallationContext&      installation)
     : m_vessels(vessels)
     , m_certificates(certificates)
     , m_endorsements(endorsements)
+    , m_extensions(extensions)
     , m_appSettings(appSettings)
     , m_installation(installation)
 {
@@ -72,8 +75,26 @@ QList<VesselAttentionCount> CertificateAlertProvider::attentionByVessel() const
                            << certificate.name << ":" << m_endorsements.errorString();
             }
 
-            const CertificateState state =
-                computeCertificateState(certificate, endorsements, thresholds, today);
+            // certificate-extension-spec §3: the same lookup the certificate
+            // list does, applied here too. A certificate under an active
+            // short-term extension is judged on the extension's date with its
+            // survey schedule suppressed, so the badge cannot keep flagging a
+            // survey window that is deliberately paused.
+            //
+            // An unreadable extension counts as none, matching both the
+            // endorsement fallback above and reload()'s own judgment.
+            std::optional<CertificateExtension> extension;
+            if (!m_extensions.findActiveFor(certificate.id, &extension)) {
+                qWarning() << "Alert provider could not read the short-term extension for"
+                           << certificate.name << ":" << m_extensions.errorString();
+            }
+
+            const std::optional<QDate> extensionExpiry =
+                extension.has_value() ? std::optional<QDate>(extension->expiryDate) : std::nullopt;
+
+            const CertificateState state = computeCertificateState(certificate, endorsements,
+                                                                   thresholds, today,
+                                                                   extensionExpiry);
 
             if (state.display != DisplayStatus::Valid) {
                 ++count;

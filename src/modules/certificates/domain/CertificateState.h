@@ -7,6 +7,8 @@
 #include <QList>
 #include <QString>
 
+#include <optional>
+
 // The state calculation (certificate-control-spec.md §4) — the heart of the
 // module, and a pure function: no database, no widgets, no clock of its own.
 //
@@ -74,11 +76,28 @@ struct CertificateState {
     // Human-readable, for alerts and tooltips. Also where a survey completed
     // late is recorded (§4.5), rather than on a field of its own.
     QString reason;
+
+    // certificate-extension-spec §6: a plain passthrough of the parameter of
+    // the same name, so the list can tell whether a row is under an active
+    // short-term extension — and which date to show — without looking the
+    // extension up a second time.
+    std::optional<QDate> activeExtensionExpiry;
 };
 
 // `today` is a parameter, never QDate::currentDate() inside the function.
 // That is what makes every rule testable.
-CertificateState computeCertificateState(const Certificate&        certificate,
-                                         const QList<Endorsement>& endorsements,
-                                         const AlertThresholds&    thresholds,
-                                         QDate                     today);
+//
+// activeExtensionExpiry is the expiry date of the certificate's active
+// short-term extension, when it has one (certificate-extension-spec §6). Just
+// the date, not the whole CertificateExtension: that keeps this function's
+// dependencies exactly as narrow as they were. The caller — the list widget or
+// the alert provider — is the one that knows how to look an extension up.
+//
+// Omitting it reproduces the behaviour from before step 11 exactly, which is
+// what keeps this a pure addition for every call site that has not changed.
+CertificateState computeCertificateState(const Certificate&          certificate,
+                                         const QList<Endorsement>&   endorsements,
+                                         const AlertThresholds&      thresholds,
+                                         QDate                       today,
+                                         const std::optional<QDate>& activeExtensionExpiry
+                                         = std::nullopt);

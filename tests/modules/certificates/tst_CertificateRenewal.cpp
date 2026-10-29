@@ -1,6 +1,7 @@
 #include "CertificateTestSupport.h"
 
 #include "core/AppSettingRepository.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
@@ -180,11 +181,12 @@ void TestCertificateRenewal::successfulRenewalMovesDatesAndClearsSurveys()
                     today.addYears(-3));
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -214,11 +216,12 @@ void TestCertificateRenewal::cancellingTheConfirmationChangesNothing()
                     today.addYears(-4));
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -246,11 +249,12 @@ void TestCertificateRenewal::cancellingTheEditDialogChangesNothing()
                     today.addYears(-4));
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -275,11 +279,12 @@ void TestCertificateRenewal::renewIsDisabledWithNoSelection()
                                 QStringLiteral("1"), today.addYears(-5), today.addDays(20), true);
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(!renewButtonOf(widget)->isEnabled(), "nothing selected, so nothing to renew");
@@ -305,11 +310,12 @@ void TestCertificateRenewal::renewIsDisabledForACertificateThatNeverExpires()
                                 QStringLiteral("2"), today.addYears(-5), today.addDays(20), true);
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     // Row 0 is "1" (Tonnage, never expires); row 1 is "2" (Load Line).
@@ -329,11 +335,12 @@ void TestCertificateRenewal::confirmationNamesTheSurveyCountOnlyWhenThereAreSome
                                 QStringLiteral("1"), today.addYears(-5), today.addDays(20), true);
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -414,11 +421,12 @@ void TestCertificateRenewal::renewedCertificateComesBackAsValid()
                     today.addYears(-4));
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidget* table = tableOf(widget);
@@ -453,11 +461,12 @@ void TestCertificateRenewal::doubleClickStillOpensTheOrdinaryEditDialog()
                     today.addYears(-4));
 
     const InstallationContext context = officeContext();
-    CertificateRepository     certificates(db, context);
-    EndorsementRepository     endorsements(db, context);
-    AppSettingRepository      appSettings(db);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, appSettings, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QString capturedTitle;

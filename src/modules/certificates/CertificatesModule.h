@@ -4,6 +4,7 @@
 #include "core/AppSettingRepository.h"
 #include "core/VesselRepository.h"
 #include "modules/certificates/CertificateAlertProvider.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 
@@ -30,15 +31,16 @@ public:
     QList<AlertProvider*> alertProviders() override;
 
 private:
-    const InstallationContext& m_installation;
-    CertificateRepository      m_certificates;
-    EndorsementRepository      m_endorsements;
+    const InstallationContext&     m_installation;
+    CertificateRepository          m_certificates;
+    EndorsementRepository          m_endorsements;
+    CertificateExtensionRepository m_extensions;
     // Core-owned, but the module reads them: a module depending on core is
     // the direction dependencies are allowed to point (CLAUDE.md §4).
     AppSettingRepository m_appSettings;
     VesselRepository     m_vessels;
 
-    // Declared last: it holds references to the four above, so they must
+    // Declared last: it holds references to the five above, so they must
     // already be constructed when it is built.
     CertificateAlertProvider m_alertProvider;
 };

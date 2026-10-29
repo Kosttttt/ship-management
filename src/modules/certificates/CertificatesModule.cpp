@@ -9,9 +9,11 @@ CertificatesModule::CertificatesModule(QSqlDatabase&              database,
     : m_installation(installation)
     , m_certificates(database, installation)
     , m_endorsements(database, installation)
+    , m_extensions(database, installation)
     , m_appSettings(database)
     , m_vessels(database, installation)
-    , m_alertProvider(m_vessels, m_certificates, m_endorsements, m_appSettings, installation)
+    , m_alertProvider(m_vessels, m_certificates, m_endorsements, m_extensions, m_appSettings,
+                      installation)
 {
 }
 
@@ -34,7 +36,7 @@ QIcon CertificatesModule::icon() const
 
 QWidget* CertificatesModule::createMainWidget(QWidget* parent)
 {
-    return new CertificateListWidget(m_certificates, m_endorsements, m_appSettings,
+    return new CertificateListWidget(m_certificates, m_endorsements, m_extensions, m_appSettings,
                                      m_installation, parent);
 }
 

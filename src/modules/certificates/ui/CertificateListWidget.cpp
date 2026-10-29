@@ -2,10 +2,12 @@
 
 #include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/CertificateState.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
+#include "modules/certificates/ui/CertificateExtensionDialog.h"
 #include "modules/certificates/ui/ListNumberItem.h"
 #include "modules/certificates/ui/StatusItem.h"
 
@@ -30,6 +32,13 @@ constexpr int kCertificateIdRole = Qt::UserRole + 1;
 // Shares a numeric value with StatusItem::kSeverityRole, which is harmless:
 // the two live on different cells of the row.
 constexpr int kNeverExpiresRole = Qt::UserRole + 2;
+
+// The active short-term extension's expiry date, or an invalid QDate when the
+// certificate has none (certificate-extension-spec §7). Carried on the row for
+// the same reason kNeverExpiresRole is: the two selection-driven buttons can
+// then answer "is an extension in force here?" without a database round trip
+// on every selection change.
+constexpr int kActiveExtensionRole = Qt::UserRole + 3;
 
 // certificate-list-status-spec §3:
 // No. · Name · Status · Expiry Date · Survey From · Survey To · Days Left.
@@ -57,8 +66,16 @@ enum class Page {
 
 const QString kDateFormat = QStringLiteral("dd MMM yyyy");
 
-QString expiryLabel(const Certificate& certificate)
+QString expiryLabel(const Certificate& certificate, const CertificateState& state)
 {
+    // certificate-extension-spec §7: an active extension takes the cell over,
+    // with a short suffix so it is obvious at a glance that the date shown is
+    // not the certificate's own. No new column — every existing sort and
+    // filter behaviour stays exactly as it was.
+    if (state.activeExtensionExpiry.has_value()) {
+        return CertificateListWidget::tr("%1 — Short Term")
+            .arg(state.activeExtensionExpiry->toString(kDateFormat));
+    }
     if (certificate.neverExpires()) {
         return CertificateListWidget::tr("Does not expire");
     }
@@ -67,14 +84,16 @@ QString expiryLabel(const Certificate& certificate)
 
 } // namespace
 
-CertificateListWidget::CertificateListWidget(CertificateRepository&     repository,
-                                             EndorsementRepository&     endorsements,
-                                             AppSettingRepository&      appSettings,
-                                             const InstallationContext& installation,
-                                             QWidget*                   parent)
+CertificateListWidget::CertificateListWidget(CertificateRepository&          repository,
+                                             EndorsementRepository&          endorsements,
+                                             CertificateExtensionRepository& extensions,
+                                             AppSettingRepository&           appSettings,
+                                             const InstallationContext&      installation,
+                                             QWidget*                        parent)
     : QWidget(parent)
     , m_repository(repository)
     , m_endorsements(endorsements)
+    , m_extensions(extensions)
     , m_appSettings(appSettings)
 {
     m_addButton = new QPushButton(tr("&Add Certificate"), this);
@@ -84,6 +103,13 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&     reposito
     m_renewButton = new QPushButton(tr("&Renew…"), this);
     m_renewButton->setObjectName(QStringLiteral("renewCertificateButton"));
     m_renewButton->setEnabled(false);
+
+    // Both directions on one button (certificate-extension-spec §7). Its text
+    // is set by updateExtensionButtonState(); the label here is only what it
+    // reads while nothing is selected.
+    m_extensionButton = new QPushButton(tr("Start Short-Term &Extension…"), this);
+    m_extensionButton->setObjectName(QStringLiteral("certificateExtensionButton"));
+    m_extensionButton->setEnabled(false);
 
     m_table = new QTableWidget(this);
     m_table->setObjectName(QStringLiteral("certificateTable"));
@@ -115,6 +141,7 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&     reposito
     controlRow->setContentsMargins(0, 0, 0, 0);
     controlRow->addWidget(m_addButton);
     controlRow->addWidget(m_renewButton);
+    controlRow->addWidget(m_extensionButton);
     controlRow->addStretch();
     controlRow->addWidget(m_needsAttentionCheck);
 
@@ -142,10 +169,12 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&     reposito
 
     connect(m_addButton, &QPushButton::clicked, this, &CertificateListWidget::addCertificate);
     connect(m_renewButton, &QPushButton::clicked, this, &CertificateListWidget::renewCertificate);
+    connect(m_extensionButton, &QPushButton::clicked, this,
+            &CertificateListWidget::startOrResolveExtension);
     connect(m_table, &QTableWidget::itemDoubleClicked, this,
             &CertificateListWidget::editCertificate);
     connect(m_table, &QTableWidget::itemSelectionChanged, this,
-            &CertificateListWidget::updateRenewButtonState);
+            &CertificateListWidget::updateActionButtonStates);
     // The filter works on computed severity, which is never stored, so it can
     // only be applied by recomputing and rebuilding the rows (§7).
     connect(m_needsAttentionCheck, &QCheckBox::toggled, this, &CertificateListWidget::reload);
@@ -239,8 +268,26 @@ void CertificateListWidget::reload()
                        << m_endorsements.errorString();
         }
 
+        // certificate-extension-spec §3/§6: this screen is one of exactly two
+        // places that must look an active extension up and hand its date to
+        // the state calculation — CertificateAlertProvider is the other, and
+        // the two have to agree or the badge and the list will disagree about
+        // the same certificate.
+        //
+        // An unreadable extension is treated as "none", the same judgment
+        // already made for an unreadable endorsement list: a row that still
+        // shows the certificate's own dates beats a screen with a hole in it.
+        std::optional<CertificateExtension> extension;
+        if (!m_extensions.findActiveFor(certificate.id, &extension)) {
+            qWarning() << "Could not load the short-term extension for" << certificate.name << ":"
+                       << m_extensions.errorString();
+        }
+
+        const std::optional<QDate> extensionExpiry =
+            extension.has_value() ? std::optional<QDate>(extension->expiryDate) : std::nullopt;
+
         const CertificateState state =
-            computeCertificateState(certificate, endorsements, thresholds, today);
+            computeCertificateState(certificate, endorsements, thresholds, today, extensionExpiry);
 
         if (onlyNeedingAttention && state.display == DisplayStatus::Valid) {
             continue;
@@ -262,8 +309,9 @@ void CertificateListWidget::reload()
     m_table->setSortingEnabled(true);
 
     // reload() can clear the selection, which would otherwise leave Renew
-    // enabled with nothing selected.
-    updateRenewButtonState();
+    // enabled with nothing selected. It is also what refreshes the extension
+    // button's label after one has just been started or resolved.
+    updateActionButtonStates();
 
     emit certificatesChanged();
 }
@@ -278,6 +326,23 @@ int CertificateListWidget::selectedRow() const
     return selected.isEmpty() ? -1 : selected.first().row();
 }
 
+void CertificateListWidget::updateActionButtonStates()
+{
+    updateRenewButtonState();
+    updateExtensionButtonState();
+}
+
+QDate CertificateListWidget::selectedExtensionExpiry() const
+{
+    const int row = selectedRow();
+    if (row < 0) {
+        return QDate();
+    }
+
+    QTableWidgetItem* numberItem = m_table->item(row, static_cast<int>(Column::ListNumber));
+    return numberItem == nullptr ? QDate() : numberItem->data(kActiveExtensionRole).toDate();
+}
+
 void CertificateListWidget::updateRenewButtonState()
 {
     const int row = selectedRow();
@@ -289,8 +354,35 @@ void CertificateListWidget::updateRenewButtonState()
     // A certificate that never expires cannot be renewed — that corresponds
     // to nothing in real life (certificate-renewal-spec §5).
     QTableWidgetItem* numberItem = m_table->item(row, static_cast<int>(Column::ListNumber));
-    m_renewButton->setEnabled(numberItem != nullptr
-                              && !numberItem->data(kNeverExpiresRole).toBool());
+    if (numberItem == nullptr || numberItem->data(kNeverExpiresRole).toBool()) {
+        m_renewButton->setEnabled(false);
+        return;
+    }
+
+    // certificate-extension-spec §7: not while a short-term extension is in
+    // force. Renewing clears the survey history and starts a fresh cycle,
+    // which does not fit while the problem the extension bridges is still
+    // open.
+    m_renewButton->setEnabled(!selectedExtensionExpiry().isValid());
+}
+
+void CertificateListWidget::updateExtensionButtonState()
+{
+    const int row = selectedRow();
+
+    QTableWidgetItem* numberItem =
+        row < 0 ? nullptr : m_table->item(row, static_cast<int>(Column::ListNumber));
+
+    // Same rule Renew applies: a short-term extension to something that never
+    // expires is not a real concept either (certificate-extension-spec §7).
+    const bool usable = numberItem != nullptr && !numberItem->data(kNeverExpiresRole).toBool();
+    m_extensionButton->setEnabled(usable);
+
+    // The label carries the mode, so there is never a second button that is
+    // disabled most of the time.
+    const bool active = usable && selectedExtensionExpiry().isValid();
+    m_extensionButton->setText(active ? tr("Short-Term Active — &Resolve")
+                                      : tr("Start Short-Term &Extension…"));
 }
 
 QString CertificateListWidget::selectedCertificateId() const
@@ -343,6 +435,38 @@ void CertificateListWidget::renewCertificate()
     }
 }
 
+void CertificateListWidget::startOrResolveExtension()
+{
+    const QString id = selectedCertificateId();
+    if (id.isEmpty()) {
+        return;
+    }
+
+    // Resolving: no confirmation dialog, because nothing is destroyed that
+    // cannot simply be started again, and the row itself survives as history
+    // (certificate-extension-spec §7).
+    if (selectedExtensionExpiry().isValid()) {
+        if (!m_extensions.resolve(id)) {
+            QMessageBox::warning(this, tr("Could not resolve the extension"),
+                                 m_extensions.errorString());
+            return;
+        }
+        reload();
+        return;
+    }
+
+    std::optional<Certificate> certificate;
+    if (!m_repository.findById(id, &certificate) || !certificate.has_value()) {
+        QMessageBox::warning(this, tr("Could not open certificate"), m_repository.errorString());
+        return;
+    }
+
+    CertificateExtensionDialog dialog(m_extensions, id, certificate->name, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        reload();
+    }
+}
+
 void CertificateListWidget::fillRow(int                     row,
                                     const Certificate&      certificate,
                                     const CertificateState& state)
@@ -352,12 +476,18 @@ void CertificateListWidget::fillRow(int                     row,
     auto* numberItem = new ListNumberItem(certificate.listNumber);
     numberItem->setData(kCertificateIdRole, certificate.id);
     numberItem->setData(kNeverExpiresRole, certificate.neverExpires());
+    // An invalid QDate when there is no extension, which is what both buttons
+    // test for (certificate-extension-spec §7).
+    numberItem->setData(kActiveExtensionRole,
+                        state.activeExtensionExpiry.has_value()
+                            ? *state.activeExtensionExpiry
+                            : QDate());
 
     m_table->setItem(row, static_cast<int>(Column::ListNumber), numberItem);
     m_table->setItem(row, static_cast<int>(Column::Name), new QTableWidgetItem(certificate.name));
     m_table->setItem(row, static_cast<int>(Column::Status), new StatusItem(state.display));
     m_table->setItem(row, static_cast<int>(Column::Expiry),
-                     new QTableWidgetItem(expiryLabel(certificate)));
+                     new QTableWidgetItem(expiryLabel(certificate, state)));
 
     // §5: blank unless there is an outstanding survey window to show. The two
     // dates are asked directly whether they are valid, rather than inferring
@@ -375,7 +505,10 @@ void CertificateListWidget::fillRow(int                     row,
     // never expires has no meaningful count, and a bare 0 would read as "due
     // today", so that cell is left blank instead.
     auto* daysItem = new QTableWidgetItem;
-    if (certificate.expiryDate.isValid()) {
+    // An active extension supplies a date to count to even for a certificate
+    // that has none of its own, so the cell is driven by whether the state
+    // actually counted to something rather than by the certificate alone.
+    if (certificate.expiryDate.isValid() || state.activeExtensionExpiry.has_value()) {
         // Stored as a number, not text, so the column sorts numerically
         // rather than putting "-7" after "10".
         daysItem->setData(Qt::DisplayRole, state.daysLeft);

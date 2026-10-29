@@ -101,12 +101,55 @@ QString describe(const CertificateState& state, const Certificate& certificate, 
 
 } // namespace
 
-CertificateState computeCertificateState(const Certificate&        certificate,
-                                         const QList<Endorsement>& endorsements,
-                                         const AlertThresholds&    thresholds,
-                                         QDate                     today)
+CertificateState computeCertificateState(const Certificate&          certificate,
+                                         const QList<Endorsement>&   endorsements,
+                                         const AlertThresholds&      thresholds,
+                                         QDate                       today,
+                                         const std::optional<QDate>& activeExtensionExpiry)
 {
     CertificateState state;
+
+    // A plain passthrough, set whether or not there is one, so the UI can ask
+    // this one question instead of looking the extension up again
+    // (certificate-extension-spec §6).
+    state.activeExtensionExpiry = activeExtensionExpiry;
+
+    // certificate-extension-spec §2: while a short-term extension is active it
+    // takes over what the list shows and alerts on, and the certificate's own
+    // dates are left completely alone — not read here, not written anywhere.
+    //
+    // Checked before the neverExpires() guard below, so that an extension
+    // always governs when one exists. The UI will not start an extension
+    // against a certificate that never expires (§7) and start() has no reason
+    // to care, but if such a row ever arrives — a future sync, a direct write
+    // — honouring it is the reading §2 asks for: the extension is the document
+    // in force right now.
+    if (activeExtensionExpiry.has_value()) {
+        const QDate extensionExpiry = *activeExtensionExpiry;
+
+        // The same threshold logic the certificate's own expiry goes through,
+        // against the extension's date instead. No new severity tier (§2).
+        state.expiry = expirySeverityFor(extensionExpiry, today, thresholds);
+
+        // Survey evaluation is genuinely suppressed, not merely hidden: this
+        // is the identical path a certificate with no survey requirement
+        // already takes, so no new SurveySeverity value is needed. The window
+        // dates stay invalid, which the list already renders as blank cells.
+        state.survey         = SurveySeverity::NotRequired;
+        state.nextSurveyType = SurveyType::Renewal;
+        state.daysLeft       = today.daysTo(extensionExpiry);
+
+        state.display = displayFor(state.expiry, state.survey);
+        state.isValid = state.expiry != ExpirySeverity::Expired;
+
+        state.reason = (state.expiry == ExpirySeverity::Expired)
+                           ? tr("Short-term extension expired on %1.")
+                                 .arg(formatDate(extensionExpiry))
+                           : tr("Short-term extension active until %1, in %2 days.")
+                                 .arg(formatDate(extensionExpiry))
+                                 .arg(state.daysLeft);
+        return state;
+    }
 
     // §4: a certificate with no expiry has no anniversaries to schedule a
     // survey against, so the calculation stops here without touching §4.5.
