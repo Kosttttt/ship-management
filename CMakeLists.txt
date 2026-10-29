@@ -151,12 +151,12 @@ qt_add_executable(ShipManagement src/main.cpp)
 target_link_libraries(ShipManagement PRIVATE ShipApp)
 ship_add_migrations(ShipManagement)
 
-# While developing, the console window stays open next to the application so
-# diagnostic output is visible. Before shipping a release, set WIN32_EXECUTABLE
-# and MACOSX_BUNDLE to TRUE here to hide it.
+# The console window shows diagnostic output in a Debug build. A Release
+# build hides it automatically — gated by config so nobody has to remember
+# to flip this by hand before shipping.
 set_target_properties(ShipManagement PROPERTIES
-    WIN32_EXECUTABLE FALSE
-    MACOSX_BUNDLE    FALSE
+    WIN32_EXECUTABLE $<CONFIG:Release>
+    MACOSX_BUNDLE    $<CONFIG:Release>
 )
 
 # ---------------------------------------------------------------------------
