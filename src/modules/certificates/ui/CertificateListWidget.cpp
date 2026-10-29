@@ -7,7 +7,8 @@
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/CertificateState.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
-#include "modules/certificates/ui/CertificateExtensionDialog.h"
+#include "modules/certificates/ui/CertificateListActions.h"
+#include "modules/certificates/ui/CertificateListRow.h"
 #include "modules/certificates/ui/ListNumberItem.h"
 #include "modules/certificates/ui/StatusItem.h"
 
@@ -22,23 +23,6 @@
 #include <QVBoxLayout>
 
 namespace {
-
-// The certificate id is carried on the row's first cell, so an edit knows
-// which row it is editing without showing a UUID to the user.
-constexpr int kCertificateIdRole = Qt::UserRole + 1;
-
-// Whether that certificate never expires, so the Renew button can rule itself
-// out without another database round trip (certificate-renewal-spec §5).
-// Shares a numeric value with StatusItem::kSeverityRole, which is harmless:
-// the two live on different cells of the row.
-constexpr int kNeverExpiresRole = Qt::UserRole + 2;
-
-// The active short-term extension's expiry date, or an invalid QDate when the
-// certificate has none (certificate-extension-spec §7). Carried on the row for
-// the same reason kNeverExpiresRole is: the two selection-driven buttons can
-// then answer "is an extension in force here?" without a database round trip
-// on every selection change.
-constexpr int kActiveExtensionRole = Qt::UserRole + 3;
 
 // certificate-list-status-spec §3:
 // No. · Name · Status · Expiry Date · Survey From · Survey To · Days Left.
@@ -56,6 +40,11 @@ enum class Column {
 };
 
 constexpr int kColumnCount = 7;
+
+// The row data in CertificateListRow.h rides on the first cell, which is this
+// column. Asserted rather than assumed, since the two are declared apart.
+static_assert(static_cast<int>(Column::ListNumber) == CertificateRow::kDataColumn,
+              "row data must live on the column fillRow() writes it to");
 
 // Which page of the internal stack is showing. Named so the tests can assert
 // the prompt state rather than guessing from an empty table.
@@ -98,19 +87,6 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
 {
     m_addButton = new QPushButton(tr("&Add Certificate"), this);
 
-    // Unlike Add, Renew targets one selected certificate — and only one that
-    // actually expires (certificate-renewal-spec §5).
-    m_renewButton = new QPushButton(tr("&Renew…"), this);
-    m_renewButton->setObjectName(QStringLiteral("renewCertificateButton"));
-    m_renewButton->setEnabled(false);
-
-    // Both directions on one button (certificate-extension-spec §7). Its text
-    // is set by updateExtensionButtonState(); the label here is only what it
-    // reads while nothing is selected.
-    m_extensionButton = new QPushButton(tr("Start Short-Term &Extension…"), this);
-    m_extensionButton->setObjectName(QStringLiteral("certificateExtensionButton"));
-    m_extensionButton->setEnabled(false);
-
     m_table = new QTableWidget(this);
     m_table->setObjectName(QStringLiteral("certificateTable"));
     m_table->setColumnCount(kColumnCount);
@@ -129,6 +105,11 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
                                                       QHeaderView::ResizeToContents);
     m_table->sortByColumn(static_cast<int>(Column::ListNumber), Qt::AscendingOrder);
 
+    // After the table, which it watches for selection changes. It owns the
+    // Renew and extension buttons; this widget only places them.
+    m_actions = new CertificateListActions(m_repository, m_endorsements, m_extensions, m_table,
+                                           this);
+
     auto* hint = new QLabel(tr("Double-click a certificate to edit it."), this);
     hint->setEnabled(false); // renders as secondary text
 
@@ -140,8 +121,8 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     auto* controlRow = new QHBoxLayout;
     controlRow->setContentsMargins(0, 0, 0, 0);
     controlRow->addWidget(m_addButton);
-    controlRow->addWidget(m_renewButton);
-    controlRow->addWidget(m_extensionButton);
+    controlRow->addWidget(m_actions->renewButton());
+    controlRow->addWidget(m_actions->extensionButton());
     controlRow->addStretch();
     controlRow->addWidget(m_needsAttentionCheck);
 
@@ -168,13 +149,12 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     layout->addWidget(m_stack);
 
     connect(m_addButton, &QPushButton::clicked, this, &CertificateListWidget::addCertificate);
-    connect(m_renewButton, &QPushButton::clicked, this, &CertificateListWidget::renewCertificate);
-    connect(m_extensionButton, &QPushButton::clicked, this,
-            &CertificateListWidget::startOrResolveExtension);
     connect(m_table, &QTableWidget::itemDoubleClicked, this,
             &CertificateListWidget::editCertificate);
-    connect(m_table, &QTableWidget::itemSelectionChanged, this,
-            &CertificateListWidget::updateActionButtonStates);
+    // The actions own the button clicks and the selection watching; all this
+    // widget has to know is that something changed and the list is now stale.
+    connect(m_actions, &CertificateListActions::listChanged, this,
+            &CertificateListWidget::reload);
     // The filter works on computed severity, which is never stored, so it can
     // only be applied by recomputing and rebuilding the rows (§7).
     connect(m_needsAttentionCheck, &QCheckBox::toggled, this, &CertificateListWidget::reload);
@@ -191,6 +171,7 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
 void CertificateListWidget::setVesselId(const QString& vesselId)
 {
     m_vesselId = vesselId;
+    m_actions->setVesselId(vesselId);
     reload();
 }
 
@@ -311,160 +292,9 @@ void CertificateListWidget::reload()
     // reload() can clear the selection, which would otherwise leave Renew
     // enabled with nothing selected. It is also what refreshes the extension
     // button's label after one has just been started or resolved.
-    updateActionButtonStates();
+    m_actions->updateButtonStates();
 
     emit certificatesChanged();
-}
-
-// The row the user has actually selected, or -1. Deliberately the selection
-// rather than QTableWidget::currentRow(): "current" is the focus cell, which
-// Qt can set without anything looking selected on screen, and Renew must only
-// light up when there is a visibly chosen certificate.
-int CertificateListWidget::selectedRow() const
-{
-    const QModelIndexList selected = m_table->selectionModel()->selectedRows();
-    return selected.isEmpty() ? -1 : selected.first().row();
-}
-
-void CertificateListWidget::updateActionButtonStates()
-{
-    updateRenewButtonState();
-    updateExtensionButtonState();
-}
-
-QDate CertificateListWidget::selectedExtensionExpiry() const
-{
-    const int row = selectedRow();
-    if (row < 0) {
-        return QDate();
-    }
-
-    QTableWidgetItem* numberItem = m_table->item(row, static_cast<int>(Column::ListNumber));
-    return numberItem == nullptr ? QDate() : numberItem->data(kActiveExtensionRole).toDate();
-}
-
-void CertificateListWidget::updateRenewButtonState()
-{
-    const int row = selectedRow();
-    if (row < 0) {
-        m_renewButton->setEnabled(false);
-        return;
-    }
-
-    // A certificate that never expires cannot be renewed — that corresponds
-    // to nothing in real life (certificate-renewal-spec §5).
-    QTableWidgetItem* numberItem = m_table->item(row, static_cast<int>(Column::ListNumber));
-    if (numberItem == nullptr || numberItem->data(kNeverExpiresRole).toBool()) {
-        m_renewButton->setEnabled(false);
-        return;
-    }
-
-    // certificate-extension-spec §7: not while a short-term extension is in
-    // force. Renewing clears the survey history and starts a fresh cycle,
-    // which does not fit while the problem the extension bridges is still
-    // open.
-    m_renewButton->setEnabled(!selectedExtensionExpiry().isValid());
-}
-
-void CertificateListWidget::updateExtensionButtonState()
-{
-    const int row = selectedRow();
-
-    QTableWidgetItem* numberItem =
-        row < 0 ? nullptr : m_table->item(row, static_cast<int>(Column::ListNumber));
-
-    // Same rule Renew applies: a short-term extension to something that never
-    // expires is not a real concept either (certificate-extension-spec §7).
-    const bool usable = numberItem != nullptr && !numberItem->data(kNeverExpiresRole).toBool();
-    m_extensionButton->setEnabled(usable);
-
-    // The label carries the mode, so there is never a second button that is
-    // disabled most of the time.
-    const bool active = usable && selectedExtensionExpiry().isValid();
-    m_extensionButton->setText(active ? tr("Short-Term Active — &Resolve")
-                                      : tr("Start Short-Term &Extension…"));
-}
-
-QString CertificateListWidget::selectedCertificateId() const
-{
-    const int row = selectedRow();
-    if (row < 0) {
-        return QString();
-    }
-
-    QTableWidgetItem* numberItem = m_table->item(row, static_cast<int>(Column::ListNumber));
-    return numberItem == nullptr ? QString() : numberItem->data(kCertificateIdRole).toString();
-}
-
-void CertificateListWidget::renewCertificate()
-{
-    const QString id = selectedCertificateId();
-    if (id.isEmpty()) {
-        return;
-    }
-
-    std::optional<Certificate> certificate;
-    if (!m_repository.findById(id, &certificate) || !certificate.has_value()) {
-        QMessageBox::warning(this, tr("Could not open certificate"), m_repository.errorString());
-        return;
-    }
-
-    // Best-effort count for the message: an unreadable list should not block
-    // a renewal, it just makes the question less specific.
-    QList<Endorsement> endorsements;
-    m_endorsements.list(id, &endorsements);
-
-    // Naming what will be lost, because renewal is the one action here that
-    // discards recorded data.
-    const auto answer = QMessageBox::question(
-        this, tr("Renew certificate"),
-        endorsements.isEmpty()
-            ? tr("Renew '%1'?").arg(certificate->name)
-            : tr("Renewing '%1' will clear its %2 recorded survey(s). Continue?")
-                  .arg(certificate->name)
-                  .arg(endorsements.size()));
-
-    if (answer != QMessageBox::Yes) {
-        return; // nothing has happened at all
-    }
-
-    CertificateEditDialog dialog(m_repository, m_endorsements, m_vesselId, certificate,
-                                 /*isRenewal=*/true, this);
-    if (dialog.exec() == QDialog::Accepted) {
-        reload();
-    }
-}
-
-void CertificateListWidget::startOrResolveExtension()
-{
-    const QString id = selectedCertificateId();
-    if (id.isEmpty()) {
-        return;
-    }
-
-    // Resolving: no confirmation dialog, because nothing is destroyed that
-    // cannot simply be started again, and the row itself survives as history
-    // (certificate-extension-spec §7).
-    if (selectedExtensionExpiry().isValid()) {
-        if (!m_extensions.resolve(id)) {
-            QMessageBox::warning(this, tr("Could not resolve the extension"),
-                                 m_extensions.errorString());
-            return;
-        }
-        reload();
-        return;
-    }
-
-    std::optional<Certificate> certificate;
-    if (!m_repository.findById(id, &certificate) || !certificate.has_value()) {
-        QMessageBox::warning(this, tr("Could not open certificate"), m_repository.errorString());
-        return;
-    }
-
-    CertificateExtensionDialog dialog(m_extensions, id, certificate->name, this);
-    if (dialog.exec() == QDialog::Accepted) {
-        reload();
-    }
 }
 
 void CertificateListWidget::fillRow(int                     row,
@@ -474,11 +304,11 @@ void CertificateListWidget::fillRow(int                     row,
     // The id rides on the first cell, so an edit knows which row it is
     // editing without a UUID ever being shown.
     auto* numberItem = new ListNumberItem(certificate.listNumber);
-    numberItem->setData(kCertificateIdRole, certificate.id);
-    numberItem->setData(kNeverExpiresRole, certificate.neverExpires());
+    numberItem->setData(CertificateRow::kCertificateIdRole, certificate.id);
+    numberItem->setData(CertificateRow::kNeverExpiresRole, certificate.neverExpires());
     // An invalid QDate when there is no extension, which is what both buttons
     // test for (certificate-extension-spec §7).
-    numberItem->setData(kActiveExtensionRole,
+    numberItem->setData(CertificateRow::kActiveExtensionRole,
                         state.activeExtensionExpiry.has_value()
                             ? *state.activeExtensionExpiry
                             : QDate());
@@ -542,7 +372,7 @@ void CertificateListWidget::editCertificate(QTableWidgetItem* item)
     if (numberItem == nullptr) {
         return;
     }
-    const QString id = numberItem->data(kCertificateIdRole).toString();
+    const QString id = numberItem->data(CertificateRow::kCertificateIdRole).toString();
 
     std::optional<Certificate> certificate;
     if (!m_repository.findById(id, &certificate)) {

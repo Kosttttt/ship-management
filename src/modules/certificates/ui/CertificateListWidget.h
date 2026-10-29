@@ -1,6 +1,5 @@
 #pragma once
 
-#include <QDate>
 #include <QWidget>
 
 struct Certificate;
@@ -8,6 +7,7 @@ struct CertificateState;
 
 class AppSettingRepository;
 class CertificateExtensionRepository;
+class CertificateListActions;
 class CertificateRepository;
 class EndorsementRepository;
 class InstallationContext;
@@ -23,6 +23,11 @@ class QTableWidgetItem;
 // vessel in VESSEL mode is inherently singular; its certificates are not — one
 // ship carries dozens. So both modes use this same widget, and the only
 // difference is whether MainWindow puts a vessel selector above it.
+//
+// This class owns the table and everything that fills it. The two
+// selection-driven actions — Renew and the short-term extension button — live
+// in CertificateListActions, which owns their buttons and asks for a reload
+// when it has changed something.
 class CertificateListWidget : public QWidget
 {
     Q_OBJECT
@@ -59,42 +64,11 @@ signals:
     void certificatesChanged();
 
 private:
+    // Add is not selection-driven — it needs only a vessel — and a
+    // double-click carries the row it was aimed at, so neither of these
+    // belongs with the selection-driven actions.
     void addCertificate();
     void editCertificate(QTableWidgetItem* item);
-
-    // certificate-renewal-spec §5. Reachable only from the Renew button, so
-    // double-clicking a row keeps opening the ordinary, non-destructive edit.
-    void renewCertificate();
-
-    // certificate-extension-spec §7. One button for both directions: it
-    // starts an extension when there is none, and resolves the active one
-    // when there is, because those are never both available at once.
-    void startOrResolveExtension();
-
-    // Both selection-driven buttons at once, so a selection change and a
-    // reload can never update one and forget the other.
-    void updateActionButtonStates();
-
-    // Renew targets one certificate, so it needs a selection — and one that
-    // actually expires, and no extension in force (certificate-extension-spec
-    // §7).
-    void updateRenewButtonState();
-
-    // Label and enablement both depend on whether the selected row currently
-    // has an active extension.
-    void updateExtensionButtonState();
-
-    // The active extension's expiry on the selected row, or an invalid date
-    // when there is no selection or no extension.
-    QDate selectedExtensionExpiry() const;
-
-    // The selected row, or -1. Based on the selection rather than the
-    // "current" focus cell, which Qt can set without anything appearing
-    // selected.
-    int selectedRow() const;
-
-    // The id on the row currently selected, or empty when there is none.
-    QString selectedCertificateId() const;
 
     void updateVisibleState();
 
@@ -108,10 +82,13 @@ private:
     AppSettingRepository&           m_appSettings;
     QString                         m_vesselId;
 
+    // A QObject child of this widget, so Qt's parent-child ownership deletes
+    // it (CLAUDE.md §9) — and it must be constructed after m_table, which it
+    // watches for selection changes.
+    CertificateListActions* m_actions = nullptr;
+
     QStackedWidget* m_stack               = nullptr;
     QTableWidget*   m_table               = nullptr;
     QPushButton*    m_addButton           = nullptr;
-    QPushButton*    m_renewButton         = nullptr;
-    QPushButton*    m_extensionButton     = nullptr;
     QCheckBox*      m_needsAttentionCheck = nullptr;
 };
