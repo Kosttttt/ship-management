@@ -977,6 +977,147 @@ touch this same file next.
 Committed as `8ba1347` and pushed to `origin/main`, alongside this
 `PROJECT-STATUS.md` update and `docs/certificate-renewal-spec.md`.
 
+### Step 11 — Certificate short-term extensions ✅
+Full design in `docs/certificate-extension-spec.md`, written after the
+developer's own framing of the real-world event this step needed to
+represent: sometimes class or flag issues a genuine short-term
+certificate — a separate document — while a problem with the real
+certificate's cycle is sorted out, and the original certificate is never
+touched; once the problem is resolved, it simply continues being the
+valid certificate it always was. That's a meaningfully different shape
+from step 10's renewal, which edits the certificate's own row in place —
+an extension changes nothing about the certificate itself. Built and
+independently verified file-by-file against the spec — the migration, the
+domain struct, both repository files, both dialog files, `CertificateState`,
+both `CertificateListWidget` files, both `CertificateAlertProvider` files,
+`CertificatesModule`, both `CMakeLists.txt` files, and the new test suite —
+not just from Claude Code's own report. For the ~33 mechanical call-site
+updates across four other test files, verification relied on the
+compiler rather than re-deriving each one by hand: a missing
+`CertificateExtensionRepository&` reference is a hard compile error, not
+a silent behaviour change (unlike step 10's `bool isRenewal` footgun), and
+the clean rebuild came back 193/193 build steps with zero errors. One
+file's nine call sites were also spot-checked directly and all threaded
+the new repository correctly. **No defects found.**
+
+- `migrations/007_create_certificate_extension.sql` — the
+  `certificate_extension` table. `expiry_date` is `NOT NULL`, unlike the
+  certificate's own — a short-term certificate with no expiry isn't a
+  meaningful concept, so there's no "does not expire" case to support
+  here. No foreign key to `certificate`, the same trade-off as
+  `endorsement.certificate_id`, resolved the same way for consistency. An
+  index on `(certificate_id, is_deleted)` supports the one query shape
+  this table is ever read by: "the active extension of one certificate."
+- `modules/certificates/domain/CertificateExtension` — a plain struct,
+  the same shape as `Endorsement`: `id`, `certificateId`, `expiryDate`,
+  an optional `note`.
+- `modules/certificates/data/CertificateExtensionRepository` — mirrors
+  `EndorsementRepository`'s shape, including scope applied transitively
+  through the parent certificate. `findActiveFor()` orders
+  `created_at DESC LIMIT 1` even though `start()` already guarantees at
+  most one active row — a defensive measure against a future sync merge,
+  not a bug it's currently fixing. `start()` refuses a second active
+  extension or a missing expiry date with a friendly message before any
+  raw constraint. `resolve()` soft-deletes the active extension for a
+  certificate (affecting zero rows is success, not failure) and — a
+  detail the spec's prose under-specified but its edge-case list required
+  — checks scope first, so resolving another vessel's certificate is
+  refused with a message rather than silently affecting zero rows and
+  reporting success.
+- `modules/certificates/domain/CertificateState` gained a new optional
+  parameter, `const std::optional<QDate>& activeExtensionExpiry`,
+  defaulted to `std::nullopt` so every pre-existing call site is
+  unaffected — confirmed by a dedicated test asserting omitting it is
+  byte-identical to passing `std::nullopt` explicitly. When present, it
+  takes over expiry-severity calculation through the exact same threshold
+  logic already used for a certificate's own expiry, and survey
+  evaluation is genuinely suppressed via the same "nothing to evaluate"
+  path a certificate with no survey requirement already takes — no new
+  `SurveySeverity` or `DisplayStatus` value was needed on either axis.
+  The branch is checked **before** the `neverExpires()` guard, so an
+  extension governs even in the (UI-prevented, but not repository-
+  prevented) case of one somehow existing against a never-expiring
+  certificate — confirmed correct: the alternative would silently discard
+  a real document from an outside authority. `CertificateState` gained
+  one new field, `activeExtensionExpiry`, a plain passthrough so the UI
+  can ask this one question without a second lookup.
+- `modules/certificates/ui/CertificateExtensionDialog` — a small dialog,
+  its two fields (expiry date, optional note) built in directly rather
+  than in a separate `*EditForm` widget, since nothing else needs to embed
+  them. Defaults the expiry to three months out, with no date-range
+  constraint — a plausible bridge-period starting point the user will
+  usually overwrite with the date on the actual document.
+- `modules/certificates/ui/CertificateListWidget` gained one button that
+  does both directions of the action: "Start Short-Term Extension…" when
+  nothing is active, "Short-Term Active — Resolve" when something is —
+  resolving takes no confirmation dialog, since nothing is destroyed that
+  couldn't simply be started again, and the row survives as history
+  either way. Disabled with no selection or for a certificate that never
+  expires, the same rule Renew already applies. **Renew is now also
+  disabled while an extension is active** — renewing starts a fresh
+  cycle, which doesn't fit while the real problem the extension bridges
+  is still open; re-enabled the moment the extension is resolved. The
+  Expiry Date cell shows the extension's date with a "— Short Term"
+  suffix while one is active, with no new column, so every existing
+  sort/filter behaviour stays untouched. Days Left now fills in for an
+  extended certificate even when the certificate itself never expires,
+  since the extension supplies a date to count to that the certificate
+  alone does not.
+- `modules/certificates/CertificateAlertProvider` — the second of exactly
+  two places (`CertificateListWidget::reload()` is the other) that must
+  look up a certificate's active extension and pass its date into
+  `computeCertificateState()`, or the sidebar badge and daily banner
+  would keep alerting on a paused survey schedule and disagree with what
+  the list itself shows. Verified not just by reading the code but by
+  Claude Code's own self-check: they temporarily reverted this one call
+  site to prove the new test actually fails on exactly that gap, then
+  restored it — the same discipline step 10's constructor-footgun catch
+  showed, applied proactively this time rather than caught after the
+  fact.
+- `CertificatesModule` gained a `CertificateExtensionRepository` member,
+  threaded into both `CertificateListWidget` and `CertificateAlertProvider`.
+- 25 unit test suites total (was 24) — one new suite,
+  `tst_CertificateExtension`, with 9 test functions covering spec §8's
+  nine edge cases (starting an extension and seeing it on the list;
+  refusing a second active one; the button disabled for a never-expiring
+  certificate; resolving reverting the list to the certificate's own
+  expiry; survey evaluation genuinely suppressed, not just hidden, proven
+  against a certificate that would otherwise read Survey Overdue; Renew
+  disabled while active and re-enabled once resolved; a resolved
+  extension surviving as a soft-deleted row rather than vanishing;
+  VESSEL-mode scope refusing another vessel's certificate for both start
+  and resolve; and the alert provider genuinely excluding a
+  paused-survey certificate, the self-checked case above) plus 4
+  supporting functions (reading with nothing active or an empty id;
+  refusing a missing expiry date or a nonexistent certificate; resolving
+  with nothing active succeeding; and the "omitting the parameter changes
+  nothing" guarantee). Call-site updates (not new test cases) ran to
+  roughly 33 constructions across `tst_CertificateListStatus.cpp`,
+  `tst_CertificateListWidget.cpp`, `tst_CertificateRenewal.cpp`, and one
+  provider construction in `tst_Alerts.cpp`.
+
+Judgment calls made (Claude Code's, all reviewed and confirmed rather
+than changed):
+1. The extension branch governing before the `neverExpires()` guard —
+   confirmed correct, see above.
+2. `resolve()` checking scope, which the spec's §5 prose didn't
+   explicitly require but §8's edge-case list did — confirmed correct;
+   the two sections of the spec genuinely pulled in different directions
+   here, and resolving in favour of the edge case was the right call.
+3. `findActiveFor()`'s defensive `ORDER BY created_at DESC` — confirmed
+   reasonable, costs nothing today and protects against a future sync
+   scenario the single-user case can't otherwise trigger.
+4. No separate `*EditForm` widget for the extension dialog — confirmed
+   correct; the spec only asked for the dialog files, and two fields
+   don't justify a second class.
+5. The three-month default with no date-range constraint — confirmed
+   fine as a starting point, same convention as every other form's
+   defaults in this app.
+
+Committed as `73aed92` and pushed to `origin/main` (`7572a11..73aed92`),
+alongside this `PROJECT-STATUS.md` update, `docs/certificate-extension-spec.md`,
+and the rest of the 22-file change.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -1150,6 +1291,23 @@ Committed as `8ba1347` and pushed to `origin/main`, alongside this
 - Renewal is reached through a dedicated **Renew** button, kept separate
   from the existing double-click-to-edit action, so an ordinary edit can
   never accidentally trigger the endorsement-clearing side effect.
+- A short-term extension is a **separate record**, not an edit to the
+  certificate — the opposite shape from renewal. The certificate's own
+  `issue_date`/`expiry_date` are never read from or written to by
+  anything in the extension flow; only the extension's own expiry date
+  governs what the list shows and what the alert system counts while one
+  is active.
+- While an extension is active, the certificate's own survey schedule is
+  genuinely suppressed, not just hidden — a short-term certificate is
+  assumed to always be too short-lived to have its own annual/intermediate
+  cycle, so there is nothing real to evaluate during that window.
+- Renew is disabled while an extension is active, since renewing starts a
+  fresh cycle and that doesn't fit while the problem the extension bridges
+  is still open.
+- Resolving an extension **soft-deletes** it rather than clearing it like
+  an endorsement on renewal — unlike an internal survey stamp, this is a
+  real document from an outside authority, worth keeping even though no
+  screen browses that history yet.
 
 ## Outstanding technical debt
 
@@ -1227,20 +1385,23 @@ Committed as `8ba1347` and pushed to `origin/main`, alongside this
   (`CertificateAlertProvider.cpp` ~90 lines, `AlertBanner.cpp` ~115 lines,
   `MainWindow.cpp` grew but stayed comfortably under 300) — no new size
   debt from this step.
-- `modules/certificates/ui/CertificateListWidget.cpp` is now 434 lines,
-  well past the ~300-line guideline — found during step 10's verification,
-  not introduced by it. It crossed that line sometime across steps 7–9
-  without being caught (step 7's own note said it "grew but stayed under
-  300"). Not split now: the methods inside it are already clearly
-  separated (`reload()`, `fillRow()`, the renewal trio, `addCertificate()`/
-  `editCertificate()`), with no single obvious seam the way the statement
-  splitter was pulled out of `MigrationRunner` in step 3. Worth watching
-  closely — step 11 (Extensions) is likely to touch this same file next,
-  which would be the natural point to look for a real seam.
-- Step 10's own new/changed files otherwise stayed well under the
-  guideline (`EndorsementRepository.cpp` grew by ~15 lines,
-  `CertificateEditDialog.cpp` is 227 lines) — the size debt above is
-  pre-existing, not new.
+- `modules/certificates/ui/CertificateListWidget.cpp` is now **566
+  lines** (was 434 after step 10, 433 after step 9) — well past the
+  ~300-line guideline, and grown three steps running. There is now an
+  obvious seam, unlike the earlier "watch it" calls: the three
+  selection-driven actions (Renew, the extension button, and their
+  shared button-state logic) are a cohesive, extractable piece. **Plan:**
+  pull them into a `CertificateListActions`-style collaborator as a
+  dedicated, no-behaviour-change refactor, verified by the existing test
+  suite passing unchanged, before starting step 12 — not bundled into a
+  feature step, and not deferred again now that step 12 (Attachments) is
+  likely to want to add to this same file too.
+- Step 10's and step 11's own new/changed files otherwise stayed well
+  under the guideline (`EndorsementRepository.cpp` grew by ~15 lines,
+  `CertificateEditDialog.cpp` is 227 lines, `CertificateExtensionRepository.cpp`
+  is 246 lines, `CertificateExtensionDialog.cpp` is 98 lines,
+  `CertificateState.cpp` is 215 lines) — the size debt above is
+  concentrated entirely in `CertificateListWidget.cpp`.
 - `MACOSX_BUNDLE $<CONFIG:Release>` (see "Producing a Release build"
   above) is not documented as a CMake-supported use of that property the
   way `WIN32_EXECUTABLE` is — it's read at configure time to decide the
@@ -1298,25 +1459,30 @@ were all updated to match.
 
 ## Next step
 
-**Step 11 — Extensions.** The certificate list now has a full lifecycle:
-live status, editable thresholds, a fleet-wide alert badge/banner, and a
-Renew action that moves a certificate into its next cycle cleanly. Per
-`CLAUDE.md` §11, this step is about short-term extensions — a class or
-flag-state authority granting a certificate a few extra months beyond its
-printed expiry, a real and fairly common event this module hasn't had any
-way to represent yet.
+**A pure refactor before step 12.** `CertificateListWidget.cpp` is at 566
+lines (see "Outstanding technical debt" above) — split the three
+selection-driven actions (Renew, the extension button, their shared
+button-state logic) into a dedicated collaborator, no behaviour change,
+verified by the existing test suite passing exactly as it does today.
+Its own small commit, separate from any feature work.
+
+**Step 12 — Attachments.** The certificate module now covers the full
+lifecycle a working certificate goes through: tracking, alerting,
+renewing, and bridging a short-term gap. Per `CLAUDE.md` §11, this step
+is the first time the app stores an actual file — attaching a scanned
+document to a certificate (and, per the renewal and extension specs, to
+a renewal or a short-term extension too, both of which explicitly
+deferred "the file" to this step).
 
 No implementation spec written yet, and no design discussion held — bring
 it up here first, the same way every step since step 3 has gone. Worth
-deciding early: what an extension actually changes (a new column on
-`certificate` holding an extended expiry date, separate from the original
-printed one, vs. something else), whether `computeCertificateState()` needs
-a new parameter or can take the extended date in place of the original
-without changing its signature, whether survey anniversaries should still
-anchor to the original expiry or shift with the extension, how an extension
-interacts with the Renew button built in step 10 (an extended certificate
-still needs to renew eventually), and whether this is a dedicated
-screen/dialog or an action reachable from the existing certificate list/
-edit dialog, the same question step 10 answered for renewal.
+deciding early: where files actually live on disk (copied into the app's
+data folder vs. referencing the original location), what happens to a
+certificate's old file once it's renewed or an extension is resolved
+("archived," per the developer's own step-10 framing, rather than simply
+replaced), whether this needs its own small file-storage abstraction in
+`core/` given cross-platform paths are a hard requirement, and how this
+interacts with the eventual ship-to-shore sync feature — a file is a very
+different kind of payload to sync than a database row.
 
 Full build order is in `CLAUDE.md` §11.
