@@ -1157,6 +1157,198 @@ size check.
 
 Committed as `95ae54d` and pushed to `origin/main` (`ab2c0b6..95ae54d`).
 
+### Step 12 — Certificate attachments ✅
+Full design in `docs/certificate-attachment-spec.md`, reached only after
+correcting two of my own first proposals: initially suggesting the
+certificate's attachment slot be shared with an active extension's
+document (rejected — the developer's own framing, mirroring step 11's
+"an extension never touches the certificate's own data," applies here
+too: the real document must stay untouched by an extension exactly like
+the real dates do), and initially not accounting for the developer's
+requirement to attach a whole folder of files, not just one. The
+approved design has **two independent mechanisms**, not one: the
+certificate's own attachment (one active row at a time in the new
+`certificate_attachment` table, replace-and-archive, the same shape as
+`certificate_extension`) and an extension's own document (a single
+nullable `attachment_path` column directly on `certificate_extension` —
+no archiving needed, since an extension row is already an immutable
+historical record the moment it's resolved). Attaching works identically
+for a single file or a whole folder; no file-type restriction
+(explicitly declined by the developer). Built and independently verified
+file-by-file against the spec — both migrations, the new
+`core/ManagedFileStore`, the domain struct and naming function, both
+repository/storage files in `data/`, the new `service/` layer (the
+project's first real use of that folder), both new UI helper classes,
+every changed dialog and widget file, `CertificatesModule`, both
+`CMakeLists.txt` files, the shared test fixture, and both new test
+files — not just from Claude Code's own report. One batch of the
+mechanical call-site updates was also spot-checked directly (15 sites in
+one file, all correctly threading the new service reference). **No
+defects found.**
+
+- `migrations/008_create_certificate_attachment.sql` — the
+  `certificate_attachment` table: `id`, `certificate_id` (no FK, the same
+  trade-off already made for `endorsement` and `certificate_extension`),
+  `relative_path`, standard audit columns, an index on
+  `(certificate_id, is_deleted)` supporting the one query shape this is
+  ever read by.
+- `migrations/009_add_certificate_extension_attachment_path.sql` — one
+  nullable `ALTER TABLE` on the already-committed `certificate_extension`
+  table, the same shape migration 004 used to add `list_number`.
+- `core/ManagedFileStore` (new, in `core/` rather than the certificates
+  module, deliberately — any future module needing file storage, the
+  Document Management module on this project's own roadmap included,
+  should use this directly rather than reinventing it). **The single most
+  important correctness requirement in the whole step**:
+  `ManagedFileStore::rootPath()` derives the managed data folder from
+  `QFileInfo(Database::defaultFilePath()).absolutePath())`, never an
+  independent `QStandardPaths` call — directly preventing a repeat of the
+  step-7 incident recorded in `CLAUDE.md` §10.1, where two different
+  resolutions of "the same" folder on the developer's machine were
+  actually different files. Read in full and confirmed exactly correct.
+  Claude Code's own addition beyond my spec: `setRootPathOverride()`, a
+  process-wide override used by both the test fixture (a `QTemporaryDir`
+  standing in for the managed folder) and `CLAUDE.md` §10.1's throwaway
+  data directory — confirmed a sound, justified addition, not scope
+  creep. Includes `copyInto()` (file-or-folder uniform, numeric suffix
+  only on an actual collision, placed before the extension so the file
+  stays openable), `moveToArchive()` (rename, not copy-then-delete, with
+  a UTC-timestamp suffix), and `resolveAbsolute()` (an empty input
+  returns empty, never the root folder itself — "no attachment" must
+  never accidentally open the whole data folder).
+- `modules/certificates/domain/AttachmentNaming::buildName()` — the pure
+  naming function behind `<No.>_<Name>_<expiry date>`, e.g.
+  `15D_Safety_Construction_2027-06-01`, with `_ShortTerm_` inserted before
+  the date for an extension's own document. Assembled only from the parts
+  actually present (a missing list number or a never-expiring
+  certificate simply contributes nothing, rather than a stray
+  underscore), sanitised against the Windows-legal filename character
+  set (strictest of the three platforms, so one generated name is legal
+  everywhere), with a dull "attachment" fallback for the edge case of no
+  usable characters at all.
+- `modules/certificates/data/CertificateAttachmentRepository` — SQL only,
+  never touches the filesystem. `findActiveFor()` mirrors the extension
+  repository's scope-filtering join and defensive `ORDER BY created_at
+  DESC LIMIT 1`. `attach()` is one call doing both halves of a replace
+  (soft-delete the active row, insert the new one) in a single
+  transaction — simpler than the extension's separate `start()`/
+  `resolve()`, because "replace" is the only operation this table ever
+  needs. Refuses an absolute `relativePath` outright, rather than quietly
+  storing one that would be wrong on the other side of a sync.
+- `modules/certificates/data/CertificateAttachmentStorage` — the
+  module's own file-layout convention
+  (`attachments/<certificateId>/`, `.../archive/`, `.../extensions/`),
+  written down in exactly one place on top of the generic
+  `ManagedFileStore`, so the layout can't drift across call sites.
+- `modules/certificates/service/CertificateAttachmentService` (new —
+  not in my original spec, Claude Code's own addition, confirmed sound):
+  the archive-then-copy-then-record sequence lives here because its
+  *order* is the rule, and two screens (the list's Attachment menu and
+  the renewal dialog) need to run it identically. Filesystem work happens
+  before the database write, deliberately — a failure's bounded fallout
+  is an orphaned file copy, never a database row pointing at nothing.
+- `ui/AttachmentChooser` and `ui/AttachmentSourceField` (new, not in my
+  original spec) — the file/folder picker and the reusable "choose a
+  document" form field folded into both the renewal dialog and the
+  extension dialog, so the two places offering this control behave
+  identically rather than two hand-built copies drifting apart.
+- `CertificateListActions` gained the Attachment button: one button with
+  a three-entry menu (Open Current Attachment, shown only when something
+  is actually attached rather than shown disabled; Attach File; Attach
+  Folder) rather than three permanent buttons, since attaching is
+  occasional and a row of mostly-disabled buttons reads as broken.
+- `CertificateExtensionDialog` now takes the whole `Certificate` rather
+  than its id and name, since the generated filename needs the
+  certificate's number and name. Its document is copied in **before**
+  `start()` is called — an accepted orphan-file risk on a failed
+  `start()`, consistent with the "filesystem first" failure-direction
+  rule above, since nothing has been written to the database yet for the
+  dialog to roll back.
+- `CertificateEditDialog` (renewal mode only) gained an optional
+  attachment section, worded so that leaving it alone is obviously safe
+  ("the document already attached stays as it is") — the renewal is the
+  moment a new physical document actually arrives, so replacing it
+  happens in the same motion, using the certificate's *new* expiry date
+  for the generated filename.
+- `CertificatesModule` now owns the attachment trio in dependency order
+  (repository → storage → service) and hands only the service to the UI.
+- 27 unit test suites total (was 25) — two new suites. `tst_ManagedFileStore`
+  (12 real test functions) exercises the class with no database and no
+  certificate involved at all, including the single most load-bearing
+  assertion in the step (`rootPath()` really does come from
+  `Database::defaultFilePath()`) and a same-relative-path-different-root
+  test proving `CLAUDE.md` §6.9 in practice. `tst_CertificateAttachment`
+  (16 real test functions) covers all nine of the spec's edge cases —
+  first attach, replace-archives-the-old-one, folder attachment, file
+  replaced by folder and back, resolving for both kinds, an extension's
+  document being completely independent of the certificate's own
+  (confirmed: starting or resolving an extension touches zero rows of
+  `certificate_attachment`), VESSEL-scope refusal, the replaced row
+  surviving soft-deleted, and the relative-path/different-root proof —
+  plus the naming function's rules and the list button's enablement/menu
+  states. Call-site updates ran across the certificate test suites that
+  build a `CertificateListWidget`; one file's 15 sites were spot-checked
+  directly and all correctly pass the new `CertificateAttachmentService&`.
+  Clean rebuild confirmed: 0 errors, 0 warnings, 211/211 build steps;
+  ctest 100% passed.
+
+Judgment calls made (Claude Code's, all reviewed and a decision given
+rather than silently accepted):
+1. The two additions beyond my literal spec —
+   `ManagedFileStore::setRootPathOverride()` and the whole
+   `service/CertificateAttachmentService` layer — confirmed sound and
+   kept exactly as built.
+2. **Scope is checked only at the database-write step, after the file
+   has already been copied to disk** (`CertificateAttachmentRepository::
+   findActiveFor()` treats an out-of-scope certificate as "nothing
+   found" rather than an error, giving the service no earlier signal).
+   Claude Code proposed adding an `isInScope()` check as a new first step
+   and left the decision to me. **Decision: accepted as-is, not fixed.**
+   The real UI can never trigger this — every screen loads the
+   certificate through `CertificateRepository::findById()` first, which
+   already scope-filters before the attachment flow is ever offered.
+   Adding a defensive check for a caller that doesn't exist yet is
+   speculative generality for a module with exactly one caller today.
+   Revisit if a second caller of the service ever appears — a future
+   CSV import or the sync engine writing attachments directly, for
+   example.
+3. `CertificateListActions.cpp` grew to 319 lines, 19 over the
+   ~300-line guideline, in the very step after it was extracted for
+   exactly that reason. **Decision: left as shipped, not split again.**
+   Forcing a second split for 19 lines right after the first one would
+   be churn for its own sake; revisit only if this file is touched for
+   an unrelated reason and the seam looks real at that point.
+
+Committed as `04ab243` and pushed to `origin/main` (`6e4907d..04ab243`),
+41 files, alongside this `PROJECT-STATUS.md` update, the `CLAUDE.md` §5
+naming correction, and `docs/certificate-attachment-spec.md`. Later
+amended in place to **`fdf2e22`** (tree hash unchanged, `git diff --stat`
+against `04ab243` empty — only the commit message bytes changed) once
+the BOM below was fixed, and force-pushed before anything else was built
+on top of it.
+
+**One real defect this round, caught after the fact rather than during
+verification, and taking two tries to actually fix**: the commit subject
+originally carried a leading UTF-8 BOM (`EF BB BF`), invisible in the
+terminal but a real stray character in `git log`/GitHub/editors. I had
+two wrong explanations in a row for it before the real one: back at
+step 10 I said `git commit -F` strips a leading BOM from the message
+file (wrong — confirmed by reading the actual bytes of `8ba1347`, which
+still has one); then last turn I said piping the message into
+`git commit -F -` was the reliable fix (also wrong — the developer's
+first attempt at exactly that, `2074fc8`, still came out with the BOM,
+and was caught and never pushed). The actual source is somewhere in how
+PowerShell 5.1 writes a native command's stdin, not `Out-File` and not
+the pipe — not fully root-caused, deliberately: the developer stopped
+digging once a fix that provably works was in hand, which was the right
+call. **What actually works**: write the message file explicitly with
+`[System.IO.File]::WriteAllText($path, $msg, (New-Object
+System.Text.UTF8Encoding $false))` — the BOM-less overload — verify the
+file's own first bytes are `53 74 65 70` ("Step", no `EF BB BF`) before
+handing it to git, then `git commit -F $msgFile` as usual. That
+file-bytes check is now the thing to actually rely on; neither of my
+two "should be fine" claims survived contact with the real bytes.
+
 ---
 
 ## Decisions confirmed by the developer
@@ -1347,6 +1539,23 @@ Committed as `95ae54d` and pushed to `origin/main` (`ab2c0b6..95ae54d`).
   an endorsement on renewal — unlike an internal survey stamp, this is a
   real document from an outside authority, worth keeping even though no
   screen browses that history yet.
+- A certificate's own attachment and an extension's own document are
+  **two independent mechanisms**, never shared — correcting my own first
+  proposal to merge them. An extension never touches the certificate's
+  real document, mirroring step 11's "an extension never touches the
+  certificate's own dates."
+- Attaching a whole folder works identically to attaching a single file
+  (same naming, same archive-on-replace, same "open" action) — the
+  folder itself is renamed to the generated name; files inside it keep
+  their own names untouched.
+- No file-type restriction on attachments, and no plan to add one —
+  explicitly declined by the developer as unnecessary complication.
+- An attachment is reachable from both the certificate list (a
+  standalone Attachment button) and folded into the renewal and
+  extension dialogs, rather than only one of the two.
+- There is no "remove attachment entirely" action — every path is
+  "replace," never "clear to empty." Deferred, not rejected; see
+  `certificate-attachment-spec.md` §10.
 
 ## Outstanding technical debt
 
@@ -1452,8 +1661,42 @@ Committed as `95ae54d` and pushed to `origin/main` (`ab2c0b6..95ae54d`).
   why `CLAUDE.md` §10.1's "point any manual run at a throwaway data
   directory" has no mechanism behind it today. A `--data-dir` argument
   would give it one, and would also let a future verification pass check a
-  screen without going near the real fleet data. Worth adding next time
-  `main.cpp`/startup is touched for another reason.
+  screen without going near the real fleet data. **Still open as of step
+  12** — step 12's `ManagedFileStore::setRootPathOverride()` only
+  redirects where *attachments* go; it has no effect on
+  `Database::defaultFilePath()` itself, so a manual run still writes its
+  database to the real folder even with the override in place. The two
+  are separate gaps that happen to share a root cause. Worth adding next
+  time `main.cpp`/startup is touched for another reason.
+- Step 12's new/changed files mostly stayed well under the ~300-line
+  guideline (`ManagedFileStore.cpp` 259 lines, `CertificateAttachmentRepository.cpp`
+  228 lines, `CertificateEditDialog.cpp` 286 lines). The one exception:
+  `CertificateListActions.cpp` grew to 319 lines in the step right after
+  it was extracted from `CertificateListWidget.cpp` for being too long —
+  accepted as shipped (see step 12's judgment call 3 above), not split
+  again for 19 lines.
+- The service-layer scope-check-after-file-copy ordering in
+  `CertificateAttachmentService::replaceCurrent()` — accepted as a
+  documented gap, not fixed; full reasoning under step 12's judgment
+  call 2 above. Revisit if a second caller of the service (outside the
+  UI) ever appears.
+- **Resolved for step 12.** Commit `04ab243`'s leading UTF-8 BOM was
+  amended away in place (new hash `fdf2e22`, tree identical, pushed with
+  `--force-with-lease` before anything was built on top of it). Step 10's
+  `8ba1347` still carries its own BOM and stays that way — nine commits
+  back, fixing it needs an interactive rebase of everything after it,
+  not worth the risk for a cosmetic character. The real cause was never
+  fully root-caused (something in how PowerShell 5.1 feeds a native
+  command's stdin, not `Out-File` and not a plain pipe — both were tried
+  and both still produced a BOM), but the working fix doesn't depend on
+  knowing why: write the message file with
+  `[System.IO.File]::WriteAllText($path, $msg, (New-Object
+  System.Text.UTF8Encoding $false))`, check the file's own first bytes
+  are `53 74 65 70` before handing it to git, then `git commit -F
+  $msgFile`. That file-bytes check — not "this approach should be
+  fine" — is the thing to trust from now on; two different
+  should-be-fine claims (mine, both times) turned out wrong before this
+  one was actually verified against the raw bytes.
 
 ---
 
@@ -1493,23 +1736,24 @@ were all updated to match.
 
 ## Next step
 
-**Step 12 — Attachments.** The certificate module now covers the full
-lifecycle a working certificate goes through: tracking, alerting,
-renewing, and bridging a short-term gap. Per `CLAUDE.md` §11, this step
-is the first time the app stores an actual file — attaching a scanned
-document to a certificate (and, per the renewal and extension specs, to
-a renewal or a short-term extension too, both of which explicitly
-deferred "the file" to this step).
+**Step 13 — CSV import/export.** The certificate module now covers the
+full lifecycle a working certificate goes through: tracking, alerting,
+renewing, bridging a short-term gap, and attaching its real paperwork.
+Per `CLAUDE.md` §11, this step adds bulk tabular I/O — importing a fleet
+or a vessel's certificates from a CSV file, and exporting the current
+list back out to one.
 
-No implementation spec written yet, and no design discussion held — bring
-it up here first, the same way every step since step 3 has gone. Worth
-deciding early: where files actually live on disk (copied into the app's
-data folder vs. referencing the original location), what happens to a
-certificate's old file once it's renewed or an extension is resolved
-("archived," per the developer's own step-10 framing, rather than simply
-replaced), whether this needs its own small file-storage abstraction in
-`core/` given cross-platform paths are a hard requirement, and how this
-interacts with the eventual ship-to-shore sync feature — a file is a very
-different kind of payload to sync than a database row.
+No implementation spec written yet, and no design discussion held —
+bring it up here first, the same way every step since step 3 has gone.
+Worth deciding early: what a CSV row maps to (one certificate per row,
+presumably, but endorsements/extensions/attachments are a separate
+question), how validation failures are reported for a bulk operation
+rather than the single friendly-message-per-field pattern every dialog
+here uses today, whether import is add-only or can also update existing
+certificates (and if so, matched by what — there's no natural external
+key), and the technical-debt note above about `certificate.vessel_id`
+having no foreign key: CSV import is the first write path that doesn't
+go through a dialog, so this is the moment that trade-off was flagged to
+be revisited.
 
 Full build order is in `CLAUDE.md` §11.
