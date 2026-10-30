@@ -23,4 +23,14 @@ struct CertificateExtension
     QDate expiryDate;
 
     QString note; // optional; may be empty
+
+    // The short-term certificate's own paperwork, relative to the managed data
+    // folder; empty when none was attached (certificate-attachment-spec §2).
+    //
+    // One plain column rather than a second attachment table, because an
+    // extension row is already a complete, immutable historical record the
+    // moment it exists: nothing ever edits one in place, so this file needs no
+    // archiving and no "active" flag. It simply stays where it was put, tied to
+    // this row. Resolving the extension does nothing to it at all.
+    QString attachmentPath;
 };

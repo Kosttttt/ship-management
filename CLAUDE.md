@@ -96,8 +96,12 @@ database.
 
 - **Core owns things that exist independently of any module:** `installation`,
   `vessel`, `audit_log`, `app_setting`, `schema_version`.
-- **The certificates module owns:** `certificate`, `endorsement`, `extension`,
-  `attachment`. There is deliberately no `certificate_type` table — see
+- **The certificates module owns:** `certificate`, `endorsement`,
+  `certificate_extension`, `certificate_attachment` (named with the
+  `certificate_` prefix, unlike `endorsement`, on purpose: this is one
+  module among several the project plans to build, and the prefix keeps
+  the name unambiguous once other modules have tables of their own).
+  There is deliberately no `certificate_type` table — see
   `docs/certificate-control-spec.md` §5 for why.
 
 There is **no equipment registry in this project**. Equipment and planned

@@ -2,6 +2,8 @@
 
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
+#include "modules/certificates/service/CertificateAttachmentService.h"
+#include "modules/certificates/ui/AttachmentSourceField.h"
 #include "modules/certificates/ui/CertificateEditForm.h"
 #include "modules/certificates/ui/EndorsementEditDialog.h"
 
@@ -36,6 +38,7 @@ QString surveyTypeLabel(SurveyType type)
 
 CertificateEditDialog::CertificateEditDialog(CertificateRepository&            repository,
                                              EndorsementRepository&            endorsements,
+                                             CertificateAttachmentService&     attachments,
                                              const QString&                    vesselId,
                                              const std::optional<Certificate>& existing,
                                              bool                              isRenewal,
@@ -43,6 +46,7 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
     : QDialog(parent)
     , m_repository(repository)
     , m_endorsements(endorsements)
+    , m_attachments(attachments)
     , m_isEditing(existing.has_value())
     , m_isRenewal(isRenewal && existing.has_value())
 {
@@ -88,6 +92,12 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
     // (certificate-renewal-spec §6).
     if (m_isEditing && !m_isRenewal && (m_requiresAnnual || m_requiresIntermediate)) {
         layout->addWidget(buildEndorsementsSection(*existing), 0);
+    }
+
+    // certificate-attachment-spec §8: the renewal is where a new document
+    // physically arrives, so replacing it happens in the same motion.
+    if (m_isRenewal) {
+        layout->addWidget(buildAttachmentSection(), 0);
     }
 
     layout->addWidget(buttons);
@@ -143,6 +153,47 @@ QGroupBox* CertificateEditDialog::buildEndorsementsSection(const Certificate& ce
 
     reloadEndorsements();
     return group;
+}
+
+QGroupBox* CertificateEditDialog::buildAttachmentSection()
+{
+    auto* group = new QGroupBox(tr("Attached document"), this);
+    group->setObjectName(QStringLiteral("attachmentSection"));
+
+    // Worded so that doing nothing is obviously safe: the commonest renewal is
+    // one where the scan arrives later, and the dialog must not imply that
+    // skipping this loses the existing document.
+    m_attachmentSource =
+        new AttachmentSourceField(tr("The document already attached stays as it is."), group);
+
+    auto* groupLayout = new QVBoxLayout(group);
+    groupLayout->addWidget(m_attachmentSource);
+
+    return group;
+}
+
+void CertificateEditDialog::replaceAttachmentIfChosen(const Certificate& renewed)
+{
+    if (m_attachmentSource == nullptr || m_attachmentSource->sourcePath().isEmpty()) {
+        return; // left alone: nothing about the attachment changes
+    }
+
+    // The new expiry date, not the old one (§8): the stored filename describes
+    // the document that has just replaced the previous one.
+    if (!m_attachments.replaceCurrent(renewed, renewed.expiryDate,
+                                      m_attachmentSource->sourcePath(),
+                                      m_attachmentSource->sourceIsFolder())) {
+        qWarning() << "Renewal could not replace the attached document:"
+                   << m_attachments.errorString();
+        QMessageBox::warning(
+            this, tr("Renewed, but the document was not replaced"),
+            tr("The certificate was renewed, but its attached document could not be "
+               "replaced.\n\n%1")
+                .arg(m_attachments.errorString()));
+        // Still accept, exactly as a failed survey clear does: the renewal
+        // itself succeeded, and keeping the dialog open would invite a second
+        // update of data already written.
+    }
 }
 
 void CertificateEditDialog::reloadEndorsements()
@@ -221,6 +272,13 @@ void CertificateEditDialog::accept()
                 .arg(m_endorsements.errorString()));
         // Still accept: the renewal itself succeeded, and leaving the dialog
         // open would invite a second update of data already written.
+    }
+
+    // After the update, per §8: the filesystem work is not worth doing if the
+    // new dates never made it into the database. `edited` carries the id the
+    // form was loaded with, so it names the certificate that was just renewed.
+    if (m_isRenewal) {
+        replaceAttachmentIfChosen(edited);
     }
 
     QDialog::accept();

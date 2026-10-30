@@ -2,6 +2,8 @@
 
 #include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/domain/CertificateExtension.h"
+#include "modules/certificates/service/CertificateAttachmentService.h"
+#include "modules/certificates/ui/AttachmentSourceField.h"
 
 #include <QDateEdit>
 #include <QDialogButtonBox>
@@ -24,12 +26,13 @@ constexpr int kDefaultMonths = 3;
 
 CertificateExtensionDialog::CertificateExtensionDialog(
     CertificateExtensionRepository& repository,
-    const QString&                  certificateId,
-    const QString&                  certificateName,
+    CertificateAttachmentService&   attachments,
+    const Certificate&              certificate,
     QWidget*                        parent)
     : QDialog(parent)
     , m_repository(repository)
-    , m_certificateId(certificateId)
+    , m_attachments(attachments)
+    , m_certificate(certificate)
 {
     setObjectName(QStringLiteral("certificateExtensionDialog"));
     setWindowTitle(tr("Start Short-Term Extension"));
@@ -37,7 +40,8 @@ CertificateExtensionDialog::CertificateExtensionDialog(
 
     // Naming the certificate, because this dialog is reached from a selection
     // in a list and nothing else on it would say which row was selected.
-    auto* heading = new QLabel(tr("Short-term extension for '%1'.").arg(certificateName), this);
+    auto* heading =
+        new QLabel(tr("Short-term extension for '%1'.").arg(m_certificate.name), this);
     heading->setWordWrap(true);
 
     m_expiryEdit = new QDateEdit(this);
@@ -50,9 +54,15 @@ CertificateExtensionDialog::CertificateExtensionDialog(
     m_noteEdit->setObjectName(QStringLiteral("extensionNoteEdit"));
     m_noteEdit->setPlaceholderText(tr("Optional — e.g. why it was issued"));
 
+    // certificate-attachment-spec §8: the short-term certificate's own
+    // paperwork, which is a different document from the certificate's and is
+    // never archived — the extension row is its own historical record (§2).
+    m_attachmentSource = new AttachmentSourceField(tr("No document attached."), this);
+
     auto* form = new QFormLayout;
     form->addRow(tr("Extension expires"), m_expiryEdit);
     form->addRow(tr("Note"), m_noteEdit);
+    form->addRow(tr("Document"), m_attachmentSource);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_okButton    = buttons->button(QDialogButtonBox::Ok);
@@ -77,9 +87,31 @@ CertificateExtensionDialog::CertificateExtensionDialog(
 void CertificateExtensionDialog::accept()
 {
     CertificateExtension extension;
-    extension.certificateId = m_certificateId;
+    extension.certificateId = m_certificate.id;
     extension.expiryDate    = m_expiryEdit->date();
     extension.note          = m_noteEdit->text();
+
+    // The file is copied in before the row is inserted, which is the order
+    // certificate-attachment-spec §7 requires: the path has to be known to be
+    // stored on the row. A failure here stops the whole thing, because unlike
+    // the renewal case nothing has been written yet — so this is still the
+    // "correct it and try again" state the dialog is built around.
+    if (!m_attachmentSource->sourcePath().isEmpty()) {
+        QString relativePath;
+        if (!m_attachments.addExtensionDocument(m_certificate, m_expiryEdit->date(),
+                                                m_attachmentSource->sourcePath(),
+                                                m_attachmentSource->sourceIsFolder(),
+                                                &relativePath)) {
+            qWarning() << "Extension document could not be stored:"
+                       << m_attachments.errorString();
+            QMessageBox::warning(this, tr("Could not attach the document"),
+                                 tr("Nothing has been recorded, so you can correct this and try "
+                                    "again.\n\n%1")
+                                     .arg(m_attachments.errorString()));
+            return; // stay open, data intact
+        }
+        extension.attachmentPath = relativePath;
+    }
 
     // The repository is the one that refuses a second active extension (§5),
     // so the dialog stays open on failure with everything typed still intact

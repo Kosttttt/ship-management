@@ -28,7 +28,8 @@ CertificateExtension extensionFromRow(const QSqlQuery& query)
     extension.id            = query.value(0).toString();
     extension.certificateId = query.value(1).toString();
     extension.expiryDate    = QDate::fromString(query.value(2).toString(), Qt::ISODate);
-    extension.note          = query.value(3).toString();
+    extension.note           = query.value(3).toString();
+    extension.attachmentPath = query.value(4).toString();
     return extension;
 }
 
@@ -60,7 +61,7 @@ bool CertificateExtensionRepository::findActiveFor(const QString&               
     // certificate belongs to is the only thing that says whether this
     // installation may see its extensions.
     QString sql = QStringLiteral(
-        "SELECT x.id, x.certificate_id, x.expiry_date, x.note"
+        "SELECT x.id, x.certificate_id, x.expiry_date, x.note, x.attachment_path"
         "  FROM certificate_extension x"
         "  JOIN certificate c ON c.id = x.certificate_id"
         " WHERE x.certificate_id = ? AND x.is_deleted = 0 AND c.is_deleted = 0");
@@ -177,9 +178,9 @@ bool CertificateExtensionRepository::start(const CertificateExtension& extension
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
         "INSERT INTO certificate_extension"
-        " (id, certificate_id, expiry_date, note,"
+        " (id, certificate_id, expiry_date, note, attachment_path,"
         "  created_at, created_by, updated_at, updated_by, is_deleted, origin_node, revision)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1)"));
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1)"));
     query.addBindValue(id);
     query.addBindValue(extension.certificateId);
     // A calendar date, YYYY-MM-DD (CLAUDE.md §6.3). Bound unconditionally,
@@ -187,6 +188,11 @@ bool CertificateExtensionRepository::start(const CertificateExtension& extension
     // invalid one, and the column is NOT NULL.
     query.addBindValue(extension.expiryDate.toString(Qt::ISODate));
     query.addBindValue(nullableText(extension.note.trimmed()));
+    // Stored exactly the way note is — optional, NULL when absent. The file it
+    // names has already been copied in by the time this runs
+    // (certificate-attachment-spec §7), so there is nothing to validate here
+    // beyond "empty means none".
+    query.addBindValue(nullableText(extension.attachmentPath));
     query.addBindValue(now);
     query.addBindValue(kSystemUser);
     query.addBindValue(now);

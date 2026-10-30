@@ -1,12 +1,17 @@
 #pragma once
 
 #include "core/InstallationContext.h"
+#include "core/ManagedFileStore.h"
 #include "core/MigrationRunner.h"
+#include "modules/certificates/data/CertificateAttachmentRepository.h"
+#include "modules/certificates/data/CertificateAttachmentStorage.h"
 #include "modules/certificates/domain/Certificate.h"
+#include "modules/certificates/service/CertificateAttachmentService.h"
 
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QTemporaryDir>
 #include <QtTest>
 
 // Shared fixture for the certificate test suites, mirroring
@@ -174,6 +179,43 @@ inline QString seedEndorsement(QSqlDatabase&  db,
     }
     return id;
 }
+
+// The three attachment collaborators a CertificateListWidget needs, bundled
+// together — and, more importantly, pointed at a throwaway folder.
+//
+// The second part is not convenience. ManagedFileStore::rootPath() resolves to
+// the real per-user data folder by default, and CLAUDE.md §10.1 exists because
+// that folder was once destroyed by a command that looked correct. A test that
+// wrote a file there would be doing the same class of thing by accident, so
+// every test holding one of these writes into a QTemporaryDir that disappears
+// with it.
+class AttachmentFixture
+{
+public:
+    AttachmentFixture(QSqlDatabase& db, const InstallationContext& installation)
+        : repository(db, installation)
+        , service(repository, storage)
+    {
+        QVERIFY2(temporaryRoot.isValid(), "could not create a temporary managed data folder");
+        ManagedFileStore::setRootPathOverride(temporaryRoot.path());
+    }
+
+    ~AttachmentFixture()
+    {
+        // Cleared, not left pointing at a folder that is about to vanish: the
+        // override is process-wide, so the next test would inherit it.
+        ManagedFileStore::setRootPathOverride(QString());
+    }
+
+    Q_DISABLE_COPY(AttachmentFixture)
+
+    QString rootPath() const { return temporaryRoot.path(); }
+
+    QTemporaryDir                   temporaryRoot;
+    CertificateAttachmentRepository repository;
+    CertificateAttachmentStorage    storage;
+    CertificateAttachmentService    service;
+};
 
 inline int rowCountOf(QSqlDatabase& db, const QString& tableName)
 {

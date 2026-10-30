@@ -3,25 +3,33 @@
 #include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
+#include "modules/certificates/service/CertificateAttachmentService.h"
+#include "modules/certificates/ui/AttachmentChooser.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
 #include "modules/certificates/ui/CertificateExtensionDialog.h"
 #include "modules/certificates/ui/CertificateListRow.h"
 
+#include <QDesktopServices>
+#include <QDir>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QUrl>
 
 #include <optional>
 
 CertificateListActions::CertificateListActions(CertificateRepository&          repository,
                                                EndorsementRepository&          endorsements,
                                                CertificateExtensionRepository& extensions,
+                                               CertificateAttachmentService&   attachments,
                                                QTableWidget*                   table,
                                                QWidget*                        dialogParent)
     : QObject(dialogParent)
     , m_repository(repository)
     , m_endorsements(endorsements)
     , m_extensions(extensions)
+    , m_attachments(attachments)
     , m_table(table)
     , m_dialogParent(dialogParent)
 {
@@ -38,10 +46,35 @@ CertificateListActions::CertificateListActions(CertificateRepository&          r
     m_extensionButton->setObjectName(QStringLiteral("certificateExtensionButton"));
     m_extensionButton->setEnabled(false);
 
+    // certificate-attachment-spec §8: one button, a menu of three entries, the
+    // first of which is only there when something is actually attached. The
+    // menu is parented to the button, so it is destroyed with it.
+    m_attachmentButton = new QPushButton(tr("Atta&chment…"), dialogParent);
+    m_attachmentButton->setObjectName(QStringLiteral("certificateAttachmentButton"));
+    m_attachmentButton->setEnabled(false);
+
+    auto* menu = new QMenu(m_attachmentButton);
+
+    m_openAttachmentAction = menu->addAction(tr("&Open Current Attachment"));
+    m_openAttachmentAction->setObjectName(QStringLiteral("openAttachmentAction"));
+    menu->addSeparator();
+
+    QAction* attachFileAction = menu->addAction(tr("Attach &File…"));
+    attachFileAction->setObjectName(QStringLiteral("attachFileAction"));
+
+    QAction* attachFolderAction = menu->addAction(tr("Attach F&older…"));
+    attachFolderAction->setObjectName(QStringLiteral("attachFolderAction"));
+
+    m_attachmentButton->setMenu(menu);
+
     connect(m_renewButton, &QPushButton::clicked, this,
             &CertificateListActions::renewCertificate);
     connect(m_extensionButton, &QPushButton::clicked, this,
             &CertificateListActions::startOrResolveExtension);
+    connect(m_openAttachmentAction, &QAction::triggered, this,
+            &CertificateListActions::openCurrentAttachment);
+    connect(attachFileAction, &QAction::triggered, this, &CertificateListActions::attachFile);
+    connect(attachFolderAction, &QAction::triggered, this, &CertificateListActions::attachFolder);
     connect(m_table, &QTableWidget::itemSelectionChanged, this,
             &CertificateListActions::updateButtonStates);
 }
@@ -54,6 +87,11 @@ QPushButton* CertificateListActions::renewButton() const
 QPushButton* CertificateListActions::extensionButton() const
 {
     return m_extensionButton;
+}
+
+QPushButton* CertificateListActions::attachmentButton() const
+{
+    return m_attachmentButton;
 }
 
 void CertificateListActions::setVesselId(const QString& vesselId)
@@ -90,6 +128,7 @@ void CertificateListActions::updateButtonStates()
 {
     updateRenewButtonState();
     updateExtensionButtonState();
+    updateAttachmentButtonState();
 }
 
 void CertificateListActions::updateRenewButtonState()
@@ -126,6 +165,86 @@ void CertificateListActions::updateExtensionButtonState()
                                       : tr("Start Short-Term &Extension…"));
 }
 
+void CertificateListActions::updateAttachmentButtonState()
+{
+    const QString id = selectedCertificateId();
+    // No never-expires rule here, unlike the other two buttons: a certificate
+    // that never expires still has a real document behind it
+    // (certificate-attachment-spec §8 disables this only with no selection).
+    m_attachmentButton->setEnabled(!id.isEmpty());
+
+    // Offered only when there is something to open, rather than shown greyed
+    // out: "Open" on a certificate with no document is a question with no
+    // useful answer. An unreadable row reports no path, so the entry hides —
+    // the same "treat it as none" judgment the list already makes for an
+    // unreadable endorsement or extension.
+    m_openAttachmentAction->setVisible(!id.isEmpty()
+                                       && !m_attachments.currentAbsolutePath(id).isEmpty());
+}
+
+void CertificateListActions::openCurrentAttachment()
+{
+    const QString id = selectedCertificateId();
+    if (id.isEmpty()) {
+        return;
+    }
+
+    const QString absolutePath = m_attachments.currentAbsolutePath(id);
+    if (absolutePath.isEmpty()) {
+        // Reachable if the attachment was replaced from elsewhere between the
+        // menu opening and the entry being clicked.
+        QMessageBox::information(m_dialogParent, tr("No document attached"),
+                                 tr("This certificate has no attached document."));
+        return;
+    }
+
+    // openUrl() handles a file and a folder identically, which is the whole
+    // reason nothing above this line had to know which one it is (§8).
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(absolutePath))) {
+        QMessageBox::warning(m_dialogParent, tr("Could not open the document"),
+                             tr("Windows, macOS or your desktop refused to open:\n\n%1")
+                                 .arg(QDir::toNativeSeparators(absolutePath)));
+    }
+}
+
+void CertificateListActions::attachFile()
+{
+    attachFrom(AttachmentChooser::chooseFile(m_dialogParent), /*sourceIsFolder=*/false);
+}
+
+void CertificateListActions::attachFolder()
+{
+    attachFrom(AttachmentChooser::chooseFolder(m_dialogParent), /*sourceIsFolder=*/true);
+}
+
+void CertificateListActions::attachFrom(const QString& sourcePath, bool sourceIsFolder)
+{
+    const QString id = selectedCertificateId();
+    if (id.isEmpty() || sourcePath.isEmpty()) {
+        return; // nothing selected, or the chooser was cancelled
+    }
+
+    // The certificate itself, because its number, name and expiry date are
+    // what the stored file is named after (§6).
+    std::optional<Certificate> certificate;
+    if (!m_repository.findById(id, &certificate) || !certificate.has_value()) {
+        QMessageBox::warning(m_dialogParent, tr("Could not open certificate"),
+                             m_repository.errorString());
+        return;
+    }
+
+    // The whole §7 sequence — archive, copy, record — lives in the service, so
+    // that this screen and the renewal dialog cannot do it differently.
+    if (!m_attachments.replaceCurrent(*certificate, certificate->expiryDate, sourcePath,
+                                      sourceIsFolder)) {
+        QMessageBox::warning(m_dialogParent, tr("Could not attach the document"),
+                             m_attachments.errorString());
+        return;
+    }
+
+    emit listChanged();
+}
+
 void CertificateListActions::renewCertificate()
 {
     const QString id = selectedCertificateId();
@@ -159,8 +278,8 @@ void CertificateListActions::renewCertificate()
         return; // nothing has happened at all
     }
 
-    CertificateEditDialog dialog(m_repository, m_endorsements, m_vesselId, certificate,
-                                 /*isRenewal=*/true, m_dialogParent);
+    CertificateEditDialog dialog(m_repository, m_endorsements, m_attachments, m_vesselId,
+                                 certificate, /*isRenewal=*/true, m_dialogParent);
     if (dialog.exec() == QDialog::Accepted) {
         emit listChanged();
     }
@@ -193,7 +312,7 @@ void CertificateListActions::startOrResolveExtension()
         return;
     }
 
-    CertificateExtensionDialog dialog(m_extensions, id, certificate->name, m_dialogParent);
+    CertificateExtensionDialog dialog(m_extensions, m_attachments, *certificate, m_dialogParent);
     if (dialog.exec() == QDialog::Accepted) {
         emit listChanged();
     }

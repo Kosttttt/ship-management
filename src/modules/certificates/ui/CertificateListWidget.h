@@ -6,6 +6,7 @@ struct Certificate;
 struct CertificateState;
 
 class AppSettingRepository;
+class CertificateAttachmentService;
 class CertificateExtensionRepository;
 class CertificateListActions;
 class CertificateRepository;
@@ -36,6 +37,7 @@ public:
     CertificateListWidget(CertificateRepository&          repository,
                           EndorsementRepository&          endorsements,
                           CertificateExtensionRepository& extensions,
+                          CertificateAttachmentService&   attachments,
                           AppSettingRepository&           appSettings,
                           const InstallationContext&      installation,
                           QWidget*                        parent = nullptr);
@@ -79,6 +81,7 @@ private:
     CertificateRepository&          m_repository;
     EndorsementRepository&          m_endorsements;
     CertificateExtensionRepository& m_extensions;
+    CertificateAttachmentService&   m_attachments;
     AppSettingRepository&           m_appSettings;
     QString                         m_vesselId;
 

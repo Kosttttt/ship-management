@@ -218,7 +218,9 @@ void TestCertificateExtension::startingAnExtensionShowsItsDateWithTheShortTermSu
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -278,7 +280,9 @@ void TestCertificateExtension::extensionButtonIsDisabledForACertificateThatNever
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(!extensionButtonOf(widget)->isEnabled(), "disabled with nothing selected");
@@ -305,7 +309,9 @@ void TestCertificateExtension::resolvingRevertsTheListToTheCertificatesOwnExpiry
 
     QVERIFY(startExtension(extensions, QStringLiteral("c1"), today.addMonths(2)));
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -385,7 +391,9 @@ void TestCertificateExtension::renewIsDisabledWhileAnExtensionIsActive()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 

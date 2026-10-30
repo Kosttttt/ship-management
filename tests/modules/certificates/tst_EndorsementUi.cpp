@@ -76,7 +76,10 @@ void TestEndorsementUi::sectionIsHiddenOnABrandNewCertificate()
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
 
-    CertificateEditDialog dialog(certificates, endorsements, QStringLiteral("v1"), std::nullopt);
+    AttachmentFixture attachments(db, context);
+
+    CertificateEditDialog dialog(certificates, endorsements, attachments.service,
+                                 QStringLiteral("v1"), std::nullopt);
 
     QVERIFY(!hasEndorsementsSection(dialog));
 }
@@ -90,7 +93,10 @@ void TestEndorsementUi::sectionIsHiddenWhenNoSurveyIsRequired()
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
 
-    CertificateEditDialog dialog(certificates, endorsements, QStringLiteral("v1"),
+    AttachmentFixture attachments(db, context);
+
+    CertificateEditDialog dialog(certificates, endorsements, attachments.service,
+                                 QStringLiteral("v1"),
                                  savedCertificate(/*annual=*/false, /*intermediate=*/false));
 
     QVERIFY(!hasEndorsementsSection(dialog));
@@ -103,12 +109,14 @@ void TestEndorsementUi::sectionIsShownWhenEditingACertificateThatRequiresASurvey
     CertificateRepository     certificates(db, context);
     EndorsementRepository     endorsements(db, context);
 
-    CertificateEditDialog annualOnly(certificates, endorsements, QStringLiteral("v1"),
-                                     savedCertificate(true, false));
+    AttachmentFixture attachments(db, context);
+
+    CertificateEditDialog annualOnly(certificates, endorsements, attachments.service,
+                                     QStringLiteral("v1"), savedCertificate(true, false));
     QVERIFY(hasEndorsementsSection(annualOnly));
 
-    CertificateEditDialog intermediateOnly(certificates, endorsements, QStringLiteral("v1"),
-                                           savedCertificate(false, true));
+    CertificateEditDialog intermediateOnly(certificates, endorsements, attachments.service,
+                                           QStringLiteral("v1"), savedCertificate(false, true));
     QVERIFY(hasEndorsementsSection(intermediateOnly));
 }
 

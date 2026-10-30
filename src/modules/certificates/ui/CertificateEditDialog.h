@@ -8,6 +8,8 @@
 
 #include <optional>
 
+class AttachmentSourceField;
+class CertificateAttachmentService;
 class CertificateEditForm;
 class CertificateRepository;
 class EndorsementRepository;
@@ -28,6 +30,7 @@ public:
     // recorded surveys (certificate-renewal-spec §6).
     CertificateEditDialog(CertificateRepository&            repository,
                           EndorsementRepository&            endorsements,
+                          CertificateAttachmentService&     attachments,
                           const QString&                    vesselId,
                           const std::optional<Certificate>& existing,
                           bool                              isRenewal = false,
@@ -47,11 +50,22 @@ private:
     void       reloadEndorsements();
     void       addEndorsement();
 
+    // certificate-attachment-spec §8: shown only in renewal mode. A renewal is
+    // the moment the paper document is actually replaced, so the offer belongs
+    // next to it; an ordinary edit changes no document.
+    QGroupBox* buildAttachmentSection();
+
+    // Run after the certificate update has succeeded, using the certificate's
+    // *new* expiry date for the stored filename. A failure here warns but
+    // still accepts, the same call step 10 made for a failed survey clear.
+    void replaceAttachmentIfChosen(const Certificate& renewed);
+
     // The survey types this certificate actually requires.
     QList<SurveyType> allowedSurveyTypes() const;
 
-    CertificateRepository& m_repository;
-    EndorsementRepository& m_endorsements;
+    CertificateRepository&        m_repository;
+    EndorsementRepository&        m_endorsements;
+    CertificateAttachmentService& m_attachments;
 
     CertificateEditForm* m_form      = nullptr;
     QPushButton*         m_okButton  = nullptr;
@@ -62,5 +76,6 @@ private:
     bool       m_requiresAnnual       = false;
     bool       m_requiresIntermediate = false;
 
-    QTableWidget* m_endorsementTable = nullptr;
+    QTableWidget*          m_endorsementTable = nullptr;
+    AttachmentSourceField* m_attachmentSource = nullptr;
 };

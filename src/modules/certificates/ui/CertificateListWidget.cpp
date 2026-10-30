@@ -6,6 +6,7 @@
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/CertificateState.h"
+#include "modules/certificates/service/CertificateAttachmentService.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
 #include "modules/certificates/ui/CertificateListActions.h"
 #include "modules/certificates/ui/CertificateListRow.h"
@@ -76,6 +77,7 @@ QString expiryLabel(const Certificate& certificate, const CertificateState& stat
 CertificateListWidget::CertificateListWidget(CertificateRepository&          repository,
                                              EndorsementRepository&          endorsements,
                                              CertificateExtensionRepository& extensions,
+                                             CertificateAttachmentService&   attachments,
                                              AppSettingRepository&           appSettings,
                                              const InstallationContext&      installation,
                                              QWidget*                        parent)
@@ -83,6 +85,7 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     , m_repository(repository)
     , m_endorsements(endorsements)
     , m_extensions(extensions)
+    , m_attachments(attachments)
     , m_appSettings(appSettings)
 {
     m_addButton = new QPushButton(tr("&Add Certificate"), this);
@@ -106,9 +109,9 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     m_table->sortByColumn(static_cast<int>(Column::ListNumber), Qt::AscendingOrder);
 
     // After the table, which it watches for selection changes. It owns the
-    // Renew and extension buttons; this widget only places them.
-    m_actions = new CertificateListActions(m_repository, m_endorsements, m_extensions, m_table,
-                                           this);
+    // Renew, extension and attachment buttons; this widget only places them.
+    m_actions = new CertificateListActions(m_repository, m_endorsements, m_extensions,
+                                           m_attachments, m_table, this);
 
     auto* hint = new QLabel(tr("Double-click a certificate to edit it."), this);
     hint->setEnabled(false); // renders as secondary text
@@ -123,6 +126,7 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     controlRow->addWidget(m_addButton);
     controlRow->addWidget(m_actions->renewButton());
     controlRow->addWidget(m_actions->extensionButton());
+    controlRow->addWidget(m_actions->attachmentButton());
     controlRow->addStretch();
     controlRow->addWidget(m_needsAttentionCheck);
 
@@ -354,7 +358,8 @@ void CertificateListWidget::addCertificate()
 
     // isRenewal spelled out: it sits before `parent`, so passing `this`
     // positionally here would silently convert the pointer to true.
-    CertificateEditDialog dialog(m_repository, m_endorsements, m_vesselId, std::nullopt,
+    CertificateEditDialog dialog(m_repository, m_endorsements, m_attachments, m_vesselId,
+                                 std::nullopt,
                                  /*isRenewal=*/false, this);
     if (dialog.exec() == QDialog::Accepted) {
         reload();
@@ -388,7 +393,8 @@ void CertificateListWidget::editCertificate(QTableWidgetItem* item)
 
     // Double-click keeps opening the ordinary, non-destructive edit — the
     // survey-clearing side effect belongs only to the Renew button.
-    CertificateEditDialog dialog(m_repository, m_endorsements, m_vesselId, certificate,
+    CertificateEditDialog dialog(m_repository, m_endorsements, m_attachments, m_vesselId,
+                                 certificate,
                                  /*isRenewal=*/false, this);
     if (dialog.exec() == QDialog::Accepted) {
         reload();

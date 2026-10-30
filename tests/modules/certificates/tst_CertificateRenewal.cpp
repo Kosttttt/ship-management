@@ -186,7 +186,9 @@ void TestCertificateRenewal::successfulRenewalMovesDatesAndClearsSurveys()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -221,7 +223,9 @@ void TestCertificateRenewal::cancellingTheConfirmationChangesNothing()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -254,7 +258,9 @@ void TestCertificateRenewal::cancellingTheEditDialogChangesNothing()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -284,7 +290,9 @@ void TestCertificateRenewal::renewIsDisabledWithNoSelection()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(!renewButtonOf(widget)->isEnabled(), "nothing selected, so nothing to renew");
@@ -315,7 +323,9 @@ void TestCertificateRenewal::renewIsDisabledForACertificateThatNeverExpires()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
 
     // Row 0 is "1" (Tonnage, never expires); row 1 is "2" (Load Line).
@@ -340,7 +350,9 @@ void TestCertificateRenewal::confirmationNamesTheSurveyCountOnlyWhenThereAreSome
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -395,15 +407,17 @@ void TestCertificateRenewal::renewalModeHidesTheEndorsementsSection()
     QVERIFY(certificates.findById(QStringLiteral("c1"), &certificate));
     QVERIFY(certificate.has_value());
 
-    CertificateEditDialog renewal(certificates, endorsements, m_vesselId, certificate,
-                                  /*isRenewal=*/true);
+    AttachmentFixture attachments(db, context);
+
+    CertificateEditDialog renewal(certificates, endorsements, attachments.service, m_vesselId,
+                                  certificate, /*isRenewal=*/true);
     QVERIFY2(renewal.findChild<QGroupBox*>(QStringLiteral("endorsementsSection")) == nullptr,
              "renewal mode never shows the endorsements section");
     QVERIFY(renewal.windowTitle().contains(QStringLiteral("Renew")));
 
     // The ordinary edit of the same certificate still shows it.
-    CertificateEditDialog edit(certificates, endorsements, m_vesselId, certificate,
-                               /*isRenewal=*/false);
+    CertificateEditDialog edit(certificates, endorsements, attachments.service, m_vesselId,
+                               certificate, /*isRenewal=*/false);
     QVERIFY(edit.findChild<QGroupBox*>(QStringLiteral("endorsementsSection")) != nullptr);
 }
 
@@ -426,7 +440,9 @@ void TestCertificateRenewal::renewedCertificateComesBackAsValid()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidget* table = tableOf(widget);
@@ -466,7 +482,9 @@ void TestCertificateRenewal::doubleClickStillOpensTheOrdinaryEditDialog()
     CertificateExtensionRepository extensions(db, context);
     AppSettingRepository           appSettings(db);
 
-    CertificateListWidget widget(certificates, endorsements, extensions, appSettings, context);
+    AttachmentFixture attachments(db, context);
+    CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
+                                 appSettings, context);
     widget.setVesselId(m_vesselId);
 
     QString capturedTitle;

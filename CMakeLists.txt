@@ -39,6 +39,8 @@ set(SHIP_MIGRATION_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/005_create_endorsement.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/006_create_app_setting.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/007_create_certificate_extension.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/008_create_certificate_attachment.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/009_add_certificate_extension_attachment_path.sql
 )
 
 # Compiles the migrations into a target, reachable at ":/migrations/...".
@@ -68,6 +70,7 @@ qt_add_library(ShipCore STATIC
     src/core/VesselRepository.h       src/core/VesselRepository.cpp
     src/core/AppSetting.h
     src/core/AppSettingRepository.h   src/core/AppSettingRepository.cpp
+    src/core/ManagedFileStore.h       src/core/ManagedFileStore.cpp
 )
 
 # PUBLIC: anything linking ShipCore also gets src/ as an include root, so both
@@ -92,6 +95,9 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/domain/Certificate.cpp
     src/modules/certificates/domain/Endorsement.h
     src/modules/certificates/domain/Endorsement.cpp
+    src/modules/certificates/domain/CertificateAttachment.h
+    src/modules/certificates/domain/AttachmentNaming.h
+    src/modules/certificates/domain/AttachmentNaming.cpp
     src/modules/certificates/domain/CertificateExtension.h
     src/modules/certificates/domain/CertificateState.h
     src/modules/certificates/domain/CertificateState.cpp
@@ -103,6 +109,12 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/data/EndorsementRepository.cpp
     src/modules/certificates/data/CertificateExtensionRepository.h
     src/modules/certificates/data/CertificateExtensionRepository.cpp
+    src/modules/certificates/data/CertificateAttachmentRepository.h
+    src/modules/certificates/data/CertificateAttachmentRepository.cpp
+    src/modules/certificates/data/CertificateAttachmentStorage.h
+    src/modules/certificates/data/CertificateAttachmentStorage.cpp
+    src/modules/certificates/service/CertificateAttachmentService.h
+    src/modules/certificates/service/CertificateAttachmentService.cpp
     src/modules/certificates/ui/CertificateEditForm.h
     src/modules/certificates/ui/CertificateEditForm.cpp
     src/modules/certificates/ui/CertificateEditDialog.h
@@ -122,6 +134,10 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/EndorsementEditDialog.cpp
     src/modules/certificates/ui/CertificateExtensionDialog.h
     src/modules/certificates/ui/CertificateExtensionDialog.cpp
+    src/modules/certificates/ui/AttachmentChooser.h
+    src/modules/certificates/ui/AttachmentChooser.cpp
+    src/modules/certificates/ui/AttachmentSourceField.h
+    src/modules/certificates/ui/AttachmentSourceField.cpp
 )
 
 target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets)

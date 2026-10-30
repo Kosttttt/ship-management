@@ -4,17 +4,20 @@
 #include <QObject>
 #include <QString>
 
+class CertificateAttachmentService;
 class CertificateExtensionRepository;
 class CertificateRepository;
 class EndorsementRepository;
+class QAction;
 class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
 class QWidget;
 
 // The certificate list's selection-driven actions: Renew
-// (certificate-renewal-spec §5) and the short-term extension Start/Resolve
-// button (certificate-extension-spec §7).
+// (certificate-renewal-spec §5), the short-term extension Start/Resolve button
+// (certificate-extension-spec §7), and the Attachment menu
+// (certificate-attachment-spec §8).
 //
 // Split out of CertificateListWidget, which had grown past the ~300-line
 // guideline in CLAUDE.md §9. The seam is a real one rather than a line count
@@ -37,11 +40,17 @@ public:
     CertificateListActions(CertificateRepository&          repository,
                            EndorsementRepository&          endorsements,
                            CertificateExtensionRepository& extensions,
+                           CertificateAttachmentService&   attachments,
                            QTableWidget*                   table,
                            QWidget*                        dialogParent);
 
     QPushButton* renewButton() const;
     QPushButton* extensionButton() const;
+
+    // One button carrying a menu rather than three more buttons in the row
+    // (certificate-attachment-spec §8): attaching is occasional, and a row of
+    // permanently greyed-out buttons reads as broken.
+    QPushButton* attachmentButton() const;
 
     // Renewal opens the edit dialog for one vessel's certificate, so the
     // actions need to know which vessel the list is currently showing. Pushed
@@ -65,8 +74,20 @@ private:
     void renewCertificate();
     void startOrResolveExtension();
 
+    // The §8 menu, in the order the user meets it: look at what is there,
+    // then replace it with a file or with a whole folder.
+    void openCurrentAttachment();
+    void attachFile();
+    void attachFolder();
+
+    // The one place both menu entries end up, with the source already chosen.
+    // sourceIsFolder comes from which entry was used rather than from asking
+    // the filesystem, because that is also what decides the stored name.
+    void attachFrom(const QString& sourcePath, bool sourceIsFolder);
+
     void updateRenewButtonState();
     void updateExtensionButtonState();
+    void updateAttachmentButtonState();
 
     // The selected row, or -1. Based on the selection rather than the
     // "current" focus cell, which Qt can set without anything appearing
@@ -87,11 +108,17 @@ private:
     CertificateRepository&          m_repository;
     EndorsementRepository&          m_endorsements;
     CertificateExtensionRepository& m_extensions;
+    CertificateAttachmentService&   m_attachments;
 
     QTableWidget* m_table        = nullptr;
     QWidget*      m_dialogParent = nullptr;
     QString       m_vesselId;
 
-    QPushButton* m_renewButton     = nullptr;
-    QPushButton* m_extensionButton = nullptr;
+    QPushButton* m_renewButton      = nullptr;
+    QPushButton* m_extensionButton  = nullptr;
+    QPushButton* m_attachmentButton = nullptr;
+
+    // Owned by the button, which is owned by dialogParent. Kept as members
+    // because the first of them is shown or hidden as the selection changes.
+    QAction* m_openAttachmentAction = nullptr;
 };
