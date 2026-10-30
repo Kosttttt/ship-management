@@ -1,10 +1,15 @@
-# Manual test checklist — steps 1 through 10
+# Manual test checklist — steps 1 through 12
 
 This is a walkthrough for clicking through everything built so far, as a
 real user would. It's a confidence/UX check, not a substitute for the
 automated tests — those already run every edge case in each spec's "§N edge
-cases" section through `ctest`, with 100% passing as of step 10 (24 test
+cases" section through `ctest`, with 100% passing as of step 12 (27 test
 suites). This checklist is about *using* the app, not re-proving the logic.
+
+Steps 11 and 12 (short-term extensions, attachments) were never walked
+through by hand before now — this update adds both, since testing an
+extension's own document (step 12) means exercising the extension dialog
+(step 11) anyway.
 
 ## Before you start: one safety rule
 
@@ -29,12 +34,21 @@ around. Two reasonable ways to handle that:
   incident, finding the *real* data file this app uses on this machine
   needs a careful look, not a guess.
 
+**New as of step 12**: attaching a document or a folder also creates real
+files on disk, under `attachments\<certificate-id>\...` inside the app's
+data folder — not just database rows. There's no "remove attachment"
+action yet either, so a test attachment sticks around the same way a test
+certificate does. Nothing here is destructive — attaching only ever adds or
+archives, never deletes a file — so this doesn't change the safety rule
+above, just extends what "sticks around" means.
+
 ## 1. Opening the app
 
-In Qt Creator: open the project, make sure the Qt 6.11.1 MinGW 64-bit kit
-is selected (bottom-left kit selector), then **Ctrl+R** to build and run.
-(**F5** also runs it but with debugging attached — remember breakpoints
-don't actually stop on this machine yet, so Ctrl+R is the normal way.)
+No need to open Qt Creator for this — just double-click
+`dist\ShipManagement\ShipManagement.exe` (the standalone build, see
+"Producing a Release build" in `docs/PROJECT-STATUS.md`). Claude Code
+refreshes it after each change; ask for that whenever you want to test
+something new.
 
 What to check: the window opens with no error dialog, and the sidebar shows
 **Vessels** (or your one vessel's screen, if this installation is in
@@ -179,6 +193,73 @@ Check:
 8. Double-click a *different*, untouched certificate to confirm ordinary
    editing still opens the normal "Edit Certificate" dialog with its
    Endorsements section intact and nothing cleared.
+
+## 11. Short-term extensions (step 11)
+
+1. Select a certificate that has a real expiry date (not your no-expiry
+   one). Next to Renew you should see a **Start Short-Term Extension…**
+   button.
+2. Select your no-expiry certificate instead — confirm that button goes
+   grey too, the same rule Renew follows.
+3. Reselect the certificate with an expiry and click it. In the dialog,
+   set an expiry a few months out, type an optional note, leave the
+   Document field alone, and click **Start Extension**.
+4. Confirm: the Expiry Date cell now reads `<date> — Short Term`, the
+   button's label changed to **Short-Term Active — Resolve**, and
+   **Renew** is now disabled for this certificate.
+5. Click **Short-Term Active — Resolve**. No confirmation dialog should
+   appear. Confirm the Expiry Date cell reverts to the certificate's own
+   date and **Renew** is enabled again.
+
+## 12. Attachments (step 12)
+
+Before starting, have ready: one real file of any type (a PDF, a photo,
+a `.docx` — no restriction) and one real folder containing 2–3 files,
+anywhere on your computer. Attaching **copies** them into the app's data
+folder; your originals are untouched.
+
+1. Select any certificate. A new **Attachment…** button should sit next
+   to Renew and the extension button, enabled as soon as a row is
+   selected (there's no "never expires" rule on this one — every
+   certificate can have a real document behind it).
+2. Click **Attachment…** → **Attach File…**, pick your test file. No
+   error should appear.
+3. Click **Attachment…** again — **Open Current Attachment** should now
+   be the first item. Click it; the file should open in whatever program
+   your computer normally opens that file type with.
+4. Click **Attachment…** → **Attach Folder…**, pick your test folder.
+   Click **Attachment…** → **Open Current Attachment** again — this time
+   it should open the folder, with your files still inside it under
+   their own names.
+5. Click **Attachment…** → **Attach File…** once more with a different
+   file. Confirm it replaces the folder as the current attachment.
+6. **Renewal carries a document too.** Click **Renew** on a certificate.
+   The renewal dialog should show an **Attached document** section with
+   its own **Choose…** button. Pick a file, finish the renewal as usual.
+   Afterward, confirm **Open Current Attachment** opens the file you just
+   picked during renewal, not whatever was there before.
+7. **An extension's document is separate.** Start a short-term extension
+   (section 11 above) on a certificate that already has something
+   attached directly to it. This time, before clicking **Start
+   Extension**, use the extension dialog's own **Document** field to
+   pick a file. After starting it, check **Attachment…** → **Open
+   Current Attachment** on that same certificate — it should still open
+   the certificate's own document, completely unaffected by the
+   extension's document. Resolve the extension; still unaffected.
+8. Select a certificate with nothing attached yet (e.g. one you just
+   added). Open the **Attachment…** menu — **Open Current Attachment**
+   should be **missing entirely**, not just greyed out; only **Attach
+   File…**/**Attach Folder…** should show.
+9. Try attaching something unusual — a `.zip`, a `.txt`, a file with no
+   extension at all. Confirm none of it is refused; there's deliberately
+   no file-type restriction.
+
+If you want to see where everything actually landed: open File Explorer
+and go to the same data folder step 2's log file is in (paste
+`%APPDATA%\Ship Management` into the address bar) — there should be an
+`attachments\` folder with one subfolder per certificate you attached
+something to, and an `archive\` folder inside each wherever you replaced
+something. Just looking is fine; this isn't a delete/overwrite command.
 
 ## If something doesn't look right
 
