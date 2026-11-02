@@ -1351,6 +1351,152 @@ two "should be fine" claims survived contact with the real bytes.
 
 ---
 
+### Attachment addendum — per-vessel folders, Add/Edit attach control, Document & Issue Date columns ✅
+Triggered by manual testing of step 12 itself: the developer raised four
+real gaps after actually using it (where files are stored, no way to
+attach from the ordinary Add/Edit dialog, no visible indicator of what's
+attached, Issue Date missing from this screen). Design discussion
+converged on `docs/certificate-attachment-addendum-spec.md`, with three
+explicit judgment calls confirmed directly by the developer before any
+code was written: a vessel's attachment folder is a **hard requirement**,
+not an optional nicety, with **no silent fallback** if it's missing;
+changing a vessel's folder **moves its existing documents** rather than
+leaving them behind; and the attach control belongs in **both** Add and
+Edit, not Edit/Renewal alone. Built and independently verified
+file-by-file against the spec — all 40 files `git show --stat` lists for
+the final commit, cross-checked line-by-line against what was actually
+read, not just against Claude Code's own report. **No defects found.**
+
+One process note worth recording honestly: partway through this
+verification I read `CertificateListActions.cpp` without first
+re-staging it for this pass, got the stale pre-addendum copy back, and
+nearly reported a real-looking defect (a single-argument
+`currentAbsolutePath()` call that would have been a compile error
+against the new two-argument signature). Caught it myself before
+reporting it, re-staged, and the actual current file was correct. Logged
+here because it's the same class of mistake `CLAUDE.md` §10.1 already
+exists to guard against in a different shape — trust the freshly-staged
+bytes, not the last thing read.
+
+- `migrations/010_add_vessel_attachment_root_path.sql` — one nullable
+  `ALTER TABLE vessel ADD COLUMN attachment_root_path TEXT`. `NULL` means
+  "not configured," which is what makes the hard-refusal rule in
+  `VesselAttachmentRoots::rootForWriting()` possible with no special-case
+  sentinel.
+- `core/VesselAttachmentRoots` (new) — the policy class the addendum
+  turns on. `rootForWriting()` checks
+  `ManagedFileStore::rootPathOverride()` first (keeping every existing
+  test's throwaway-directory pattern working unchanged), then the
+  vessel's own stored path, returning empty with a friendly
+  "set it in Settings" message if neither applies — never a fallback to
+  the old installation-wide folder. `resolveForOpening()` is the one
+  place that *does* fall back to the legacy location, deliberately, so
+  an attachment made before this addendum still opens.
+  `changeRoot()` validates (exists, writable, not already holding
+  another vessel's `attachments/` folder), moves any existing subtree,
+  and only then writes the database column — with a rollback (move the
+  files back) if that final write fails, which is Claude Code's own
+  addition beyond the literal spec and confirmed sound.
+- `core/ManagedFileStore` — `rootPath()` now explicitly documented as
+  the pre-addendum location (kept only so an old attachment can still be
+  found), with `copyInto()`/`moveToArchive()`/`resolveAbsolute()` all
+  taking the root as an explicit parameter instead of calling it
+  internally. New `moveTree()`: rename first (same volume), recursive
+  copy-then-delete-source as a cross-volume fallback, refuses a
+  destination that already exists rather than merging into it, and
+  **deliberately reports success if the copy succeeded but deleting the
+  source failed** — reasoned that failing here would leave a full copy
+  at both ends and make retry permanently impossible. Confirmed sound.
+- `core/Vessel.h` / `VesselRepository` — `attachmentRootPath` is stored
+  **absolute**, the one deliberate exception to `CLAUDE.md` §6.9's
+  relative-path rule, with a new `setAttachmentRootPath()` as the only
+  method that ever writes it. Deliberately **not** written by the
+  ordinary `update()` — confirmed necessary, since `VesselEditForm`
+  builds a fresh `Vessel` with this field always empty, so including it
+  there would silently blank a vessel's folder on every routine edit.
+- `service/CertificateAttachmentService` — gained `VesselAttachmentRoots&`
+  as a third collaborator. Both `replaceCurrent()` and
+  `addExtensionDocument()` check it as literally the first line of the
+  function body, before any repository or storage call — confirmed this
+  is what makes the refusal identical across all four attach entry
+  points rather than something each screen has to remember to check.
+- `ui/CertificateEditDialog` — the attachment section (from step 12,
+  renewal-only) now appears in **all three modes**, worded per mode so
+  doing nothing is obviously safe in Edit/Renewal ("stays as it is") and
+  honest in Add ("no document is attached yet"). On Add, the attachment
+  is applied *after* `create()` returns, using the id the repository
+  just generated — there is nothing to name a file after until the row
+  exists.
+- `ui/CertificateListWidget` — two new columns: **Issue Date**, placed
+  right after Name per the spec (a plain field, no computed state,
+  sorted chronologically via the new `DateItem`); and **Document**, last,
+  showing a plain glyph with no filename when something is attached and
+  nothing at all otherwise. A single click anywhere in that column opens
+  the document with no row selection needed first; every other column
+  still ignores a single click, which is what keeps the behaviour
+  unambiguous. Lives here rather than in `CertificateListActions`
+  because it's driven by *which cell was clicked*, not by *what's
+  selected* — the same distinction that already keeps Add Certificate
+  out of that class.
+- `ui/DateItem` (new) — the same "store the real value alongside the
+  display text" pattern as `ListNumberItem`/`StatusItem`, so Issue Date
+  (and Survey From/To, which silently gained the same fix) sort
+  chronologically instead of as text.
+- `app/AttachmentFolderSettings` (new) + `app/SettingsPage` — one row per
+  vessel on the Settings screen (vessel name, current folder, a
+  "Choose…" button), built from `VesselRepository::list()` so VESSEL vs
+  OFFICE scoping is inherited rather than re-checked. Deliberately
+  outside the existing Save button's reach: choosing a folder physically
+  moves files the moment it's chosen, which can't share one Save with a
+  numeric threshold that only takes effect when clicked.
+- `CLAUDE.md` §6.9 — wording corrected, with Claude Code's own proposed
+  text approved as-is: paths are relative to the vessel's configured
+  folder, `attachment_root_path` is named as the one absolute exception
+  and why, with a pointer to the addendum spec and a note that there was
+  one folder per installation before it.
+- 3 new unit test suites (30 total, was 27): `tst_VesselAttachmentRoots`
+  (10 functions — the refusal and its message, the override still
+  winning over a configured vessel per §2.4, all of §2.5's
+  move/refuse/no-op cases, and a pre-addendum attachment still resolving
+  after a folder is configured), `tst_CertificateAttachmentFolders` (11
+  functions — the same refusal reached through the service from a bare
+  vessel id, the Add/Edit/Renewal attachment section, the Document
+  column's mark-only-what's-attached and click-does-nothing-on-empty
+  behaviour, and the Issue Date column's chronological sort end to end),
+  `tst_AttachmentFolderSettings` (5 functions — one row per vessel in
+  OFFICE mode, exactly one in VESSEL mode, the unconfigured/configured
+  label text). `tst_ManagedFileStore` gained 4 functions for
+  `rootPathOverride()`/`moveTree()`. Test-function count: **307 → 337
+  (+30)**, counted directly from the suites (ctest reports 27 → 30
+  *suites*, not functions) and cross-checked against the diff.
+  **Clean rebuild confirmed from an actually-deleted `build` directory**
+  (not an incremental build, unlike this addendum's first pass): 232/232
+  build targets, 0 errors, 0 warnings; ctest 100% passed, 30/30 suites.
+  Both the full `git show --stat` and the full raw `ctest` output were
+  pasted back and read directly rather than taken on trust.
+
+Three script corrections caught by Claude Code, not by me, worth
+recording since I handed over a script that would have failed outright:
+the generator must be `Ninja`, not Visual Studio/MSVC — this Qt 6.11.1
+install is MinGW-built, and MSVC cannot link against it (`CLAUDE.md` §2
+already pins MinGW/GCC on Windows; I'd simply forgotten it when writing
+the rebuild script); `UTF8Encoding` lives in `System.Text`, not
+`System.IO` as I'd written it; and `Format-Hex` doesn't exist in
+PowerShell 5.1, so the byte check ran through `od` in Bash instead
+(itself not a PowerShell command, so that moved to Bash on the second
+try too).
+
+Committed as **`93e23c0`** (code, 40 files, 2572 insertions / 216
+deletions) and, separately, **`28b45d3`** (the two docs files that were
+prepared before `93e23c0` but not included in it: the addendum spec
+itself — which `93e23c0`'s own code comments reference by path — and the
+manual-test-checklist.md path correction from before this addendum
+began). Both confirmed genuine directly from `.git/logs/HEAD` and
+`CLAUDE.md`'s actual on-disk content, not from the report alone. **Not
+pushed** — `main` is 2 commits ahead of `origin/main`.
+
+---
+
 ## Decisions confirmed by the developer
 
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
@@ -1556,6 +1702,31 @@ two "should be fine" claims survived contact with the real bytes.
 - There is no "remove attachment entirely" action — every path is
   "replace," never "clear to empty." Deferred, not rejected; see
   `certificate-attachment-spec.md` §10.
+- A vessel's attachment folder is a **hard requirement**: with none
+  configured, every attach entry point refuses outright rather than
+  falling back to anywhere else, including the old installation-wide
+  folder. The developer's own reasoning: every vessel needs its own real
+  folder in the office regardless of how it gets there technically (a
+  synced Google Drive folder was named as one future possibility, with
+  no code written toward it yet — the folder chooser is generic on
+  purpose).
+- Changing a vessel's attachment folder **moves its existing documents**
+  to the new location rather than leaving them behind — explicitly
+  preferred by the developer over the simpler "just point at the new
+  folder" option.
+- The attach control in the certificate dialog is offered in **both**
+  Add and Edit, not Edit/Renewal alone — the document is just as often
+  already in hand when a certificate is first entered as it is at
+  renewal time.
+- The Document column indicator is a **plain icon only** — no filename
+  shown — doubling as both "something is attached" and "click here to
+  open it," reached by a single click with no row selection needed
+  first.
+- Issue Date returns to the certificate list, placed directly after
+  Name — it had left the screen at step 7 in favour of a "what needs
+  attention" focus, and comes back now for exactly the per-vessel-folder
+  cross-check use case the developer described: receive or renew a
+  certificate, check its status, and decide when to act.
 
 ## Outstanding technical debt
 
@@ -1661,13 +1832,38 @@ two "should be fine" claims survived contact with the real bytes.
   why `CLAUDE.md` §10.1's "point any manual run at a throwaway data
   directory" has no mechanism behind it today. A `--data-dir` argument
   would give it one, and would also let a future verification pass check a
-  screen without going near the real fleet data. **Still open as of step
-  12** — step 12's `ManagedFileStore::setRootPathOverride()` only
-  redirects where *attachments* go; it has no effect on
-  `Database::defaultFilePath()` itself, so a manual run still writes its
-  database to the real folder even with the override in place. The two
-  are separate gaps that happen to share a root cause. Worth adding next
-  time `main.cpp`/startup is touched for another reason.
+  screen without going near the real fleet data. **Still open, now in two
+  layers rather than one.** Step 12's `ManagedFileStore::setRootPathOverride()`
+  still only redirects where *attachments* go, with no effect on
+  `Database::defaultFilePath()` itself. The attachment addendum adds a
+  second layer on top: `VesselAttachmentRoots::rootForWriting()` checks
+  that same override first, then a *vessel's own configured folder* —
+  so a manual run against the real database also attaches real documents
+  into whichever folder each real vessel is actually pointed at, unless
+  the override happens to be set. All three gaps (database path,
+  installation-wide override, per-vessel folder) share the same root
+  cause and the same fix: a `--data-dir` argument plumbed through to all
+  three. Worth adding next time `main.cpp`/startup is touched for
+  another reason.
+- The attachment addendum pushed four files further past the
+  ~300-line guideline, two of them substantially: `CertificateListWidget.cpp`
+  grew from 396 to **481 lines** (the Document and Issue Date columns,
+  plus the new click handler) — the most over-guideline file in the
+  project now, and the first candidate to look at if this screen is
+  touched again. `core/VesselRepository.cpp` grew from 312 to **366
+  lines** (the new column plus `setAttachmentRootPath()`).
+  `core/ManagedFileStore.cpp` grew from 259 to **328 lines** (every
+  method taking an explicit `root` parameter, plus `moveTree()`).
+  `CertificateListActions.cpp`, already 19 lines over after step 12,
+  grew by one more line to 320. `CertificateEditDialog.cpp` crossed the
+  guideline for the first time, growing from 227 to 302 lines (the
+  attachment section now built for all three modes rather than one).
+  None split now — no obviously clean seam in any of them yet, and
+  `CertificateListActions.cpp` was already split out of
+  `CertificateListWidget.cpp` once for exactly this reason. Watching all
+  five; `CertificateListWidget.cpp` is the one most likely to need a
+  second split if Step 13 (CSV import/export) or anything later touches
+  this screen again.
 - Step 12's new/changed files mostly stayed well under the ~300-line
   guideline (`ManagedFileStore.cpp` 259 lines, `CertificateAttachmentRepository.cpp`
   228 lines, `CertificateEditDialog.cpp` 286 lines). The one exception:
