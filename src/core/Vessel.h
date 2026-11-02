@@ -17,4 +17,18 @@ struct Vessel {
     int     grossTonnage = 0;   // 0 means "not entered", never a float (CLAUDE.md §6.8)
     QString portOfRegistry;
     QString flagState;
+
+    // Where this vessel's own documents are kept on this machine, chosen by
+    // whoever runs the installation; empty means "not configured yet", which
+    // refuses an attachment rather than falling back anywhere
+    // (certificate-attachment-addendum-spec §2.2).
+    //
+    // Absolute, unlike every path stored against a certificate. Those are
+    // relative so the files can travel (CLAUDE.md §6.9); this one says where
+    // the root is here and now, and is re-chosen on another machine rather
+    // than carried to it.
+    //
+    // Deliberately not written by VesselRepository::update(): see the note on
+    // setAttachmentRootPath() for why.
+    QString attachmentRootPath;
 };

@@ -32,7 +32,25 @@ public:
 
     // Bumps revision and refreshes updated_at/updated_by, leaving created_at
     // and created_by as they were (vessel-crud-spec §6).
+    //
+    // Deliberately does NOT write attachment_root_path, even though the column
+    // is read into Vessel. VesselEditForm::vessel() builds a fresh Vessel out
+    // of its own fields, so a path included here would be silently blanked
+    // every time somebody corrected a call sign. The one place that path is
+    // written is setAttachmentRootPath() below.
     bool update(const Vessel& vessel);
+
+    // certificate-attachment-addendum-spec §2.3/§2.5: one column, on its own.
+    //
+    // Separate from update() because of the order §2.5 insists on — the files
+    // are moved first, and this is called only once that has actually
+    // succeeded. An empty path stores SQL NULL, which reads back as "not
+    // configured".
+    //
+    // This does not move anything itself. VesselAttachmentRoots::changeRoot()
+    // is what sequences the move and this write; calling this directly would
+    // leave the database claiming a folder the files are not in.
+    bool setAttachmentRootPath(const QString& vesselId, const QString& absolutePath);
 
     QString errorString() const;
 

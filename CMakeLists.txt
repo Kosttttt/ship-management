@@ -41,6 +41,7 @@ set(SHIP_MIGRATION_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/007_create_certificate_extension.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/008_create_certificate_attachment.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/009_add_certificate_extension_attachment_path.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/010_add_vessel_attachment_root_path.sql
 )
 
 # Compiles the migrations into a target, reachable at ":/migrations/...".
@@ -71,6 +72,7 @@ qt_add_library(ShipCore STATIC
     src/core/AppSetting.h
     src/core/AppSettingRepository.h   src/core/AppSettingRepository.cpp
     src/core/ManagedFileStore.h       src/core/ManagedFileStore.cpp
+    src/core/VesselAttachmentRoots.h  src/core/VesselAttachmentRoots.cpp
 )
 
 # PUBLIC: anything linking ShipCore also gets src/ as an include root, so both
@@ -126,6 +128,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateListActions.cpp
     src/modules/certificates/ui/ListNumberItem.h
     src/modules/certificates/ui/ListNumberItem.cpp
+    src/modules/certificates/ui/DateItem.h
+    src/modules/certificates/ui/DateItem.cpp
     src/modules/certificates/ui/StatusItem.h
     src/modules/certificates/ui/StatusItem.cpp
     src/modules/certificates/ui/EndorsementEditForm.h
@@ -164,6 +168,7 @@ qt_add_library(ShipApp STATIC
     src/app/VesselListWidget.h     src/app/VesselListWidget.cpp
     src/app/VesselDetailPage.h     src/app/VesselDetailPage.cpp
     src/app/SettingsPage.h         src/app/SettingsPage.cpp
+    src/app/AttachmentFolderSettings.h src/app/AttachmentFolderSettings.cpp
 )
 
 target_link_libraries(ShipApp PUBLIC ShipCore ShipCertificates Qt6::Widgets)

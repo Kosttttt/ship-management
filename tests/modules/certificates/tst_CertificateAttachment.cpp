@@ -286,20 +286,23 @@ void TestCertificateAttachment::theCurrentAttachmentResolvesForAFileAndAFolder()
 
     // Nothing attached yet: an empty answer, which is also how the list
     // decides not to offer "Open Current Attachment" at all (§8).
-    QCOMPARE(attachments.service.currentAbsolutePath(certificate.id), QString());
+    QCOMPARE(attachments.service.currentAbsolutePath(
+        certificate.vesselId, certificate.id), QString());
 
     QVERIFY(attachments.service.replaceCurrent(
         certificate, certificate.expiryDate,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
-    const QString asAFile = attachments.service.currentAbsolutePath(certificate.id);
+    const QString asAFile = attachments.service.currentAbsolutePath(
+        certificate.vesselId, certificate.id);
     QVERIFY(QDir::isAbsolutePath(asAFile));
     QVERIFY(QFileInfo(asAFile).isFile());
 
     QVERIFY(attachments.service.replaceCurrent(certificate, certificate.expiryDate,
                                                sourceFolder(QStringLiteral("pack")), true));
 
-    const QString asAFolder = attachments.service.currentAbsolutePath(certificate.id);
+    const QString asAFolder = attachments.service.currentAbsolutePath(
+        certificate.vesselId, certificate.id);
     QVERIFY(QDir::isAbsolutePath(asAFolder));
     QVERIFY(QFileInfo(asAFolder).isDir());
 }
@@ -447,7 +450,8 @@ void TestCertificateAttachment::theStoredPathIsRelativeAndFollowsTheRoot()
     QVERIFY2(!stored.contains(QLatin1Char('\\')), qPrintable(stored));
     QVERIFY2(!stored.contains(attachments.rootPath()), qPrintable(stored));
 
-    const QString onTheVessel = attachments.service.currentAbsolutePath(certificate.id);
+    const QString onTheVessel = attachments.service.currentAbsolutePath(
+        certificate.vesselId, certificate.id);
     QCOMPARE(onTheVessel, QDir(attachments.rootPath()).filePath(stored));
 
     // The office machine: the same managed folder, in a different place. Only
@@ -459,7 +463,8 @@ void TestCertificateAttachment::theStoredPathIsRelativeAndFollowsTheRoot()
     QVERIFY(QFile::copy(onTheVessel, officeCopy));
 
     ManagedFileStore::setRootPathOverride(office.path());
-    const QString inTheOffice = attachments.service.currentAbsolutePath(certificate.id);
+    const QString inTheOffice = attachments.service.currentAbsolutePath(
+        certificate.vesselId, certificate.id);
 
     QVERIFY(inTheOffice != onTheVessel);
     QCOMPARE(inTheOffice, QDir(office.path()).filePath(stored));

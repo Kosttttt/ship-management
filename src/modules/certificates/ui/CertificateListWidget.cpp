@@ -10,10 +10,13 @@
 #include "modules/certificates/ui/CertificateEditDialog.h"
 #include "modules/certificates/ui/CertificateListActions.h"
 #include "modules/certificates/ui/CertificateListRow.h"
+#include "modules/certificates/ui/DateItem.h"
 #include "modules/certificates/ui/ListNumberItem.h"
 #include "modules/certificates/ui/StatusItem.h"
 
 #include <QCheckBox>
+#include <QDesktopServices>
+#include <QDir>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -21,26 +24,36 @@
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QTableWidget>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
 
-// certificate-list-status-spec §3:
-// No. · Name · Status · Expiry Date · Survey From · Survey To · Days Left.
+// certificate-list-status-spec §3, as amended by
+// certificate-attachment-addendum-spec §4 and §5:
 //
-// Issue Date and Category left this screen with step 7 — they are still on the
-// edit dialog. This list's job is now "what needs attention".
+// No. · Name · Issue Date · Status · Expiry Date · Survey From · Survey To ·
+// Days Left · Document
+//
+// Issue Date left this screen at step 7, in favour of a "what needs attention"
+// focus, and comes back here (§5) — placed next to Expiry Date rather than at
+// the end, so the two dates that answer "what is this document, and when does
+// it run out" sit together instead of being separated by status and survey.
+//
+// Document is last (§4) so that nothing else had to be renumbered for it.
 enum class Column {
     ListNumber = 0,
     Name       = 1,
-    Status     = 2,
-    Expiry     = 3,
-    SurveyFrom = 4,
-    SurveyTo   = 5,
-    DaysLeft   = 6
+    IssueDate  = 2,
+    Status     = 3,
+    Expiry     = 4,
+    SurveyFrom = 5,
+    SurveyTo   = 6,
+    DaysLeft   = 7,
+    Attachment = 8
 };
 
-constexpr int kColumnCount = 7;
+constexpr int kColumnCount = 9;
 
 // The row data in CertificateListRow.h rides on the first cell, which is this
 // column. Asserted rather than assumed, since the two are declared apart.
@@ -54,7 +67,14 @@ enum class Page {
     List   = 1
 };
 
-const QString kDateFormat = QStringLiteral("dd MMM yyyy");
+// The mark in the Document column (§4): a plain glyph when something is
+// attached and an empty cell when nothing is, with no filename and no button.
+//
+// Written as an escape rather than as a literal paperclip so that this source
+// file stays pure ASCII and cannot be damaged by a tool that re-saves it in
+// another encoding. QStringLiteral builds UTF-16, where U+1F4CE is a surrogate
+// pair, which is exactly what Qt wants.
+const QString kAttachmentGlyph = QStringLiteral(u"\U0001F4CE");
 
 QString expiryLabel(const Certificate& certificate, const CertificateState& state)
 {
@@ -64,12 +84,12 @@ QString expiryLabel(const Certificate& certificate, const CertificateState& stat
     // filter behaviour stays exactly as it was.
     if (state.activeExtensionExpiry.has_value()) {
         return CertificateListWidget::tr("%1 — Short Term")
-            .arg(state.activeExtensionExpiry->toString(kDateFormat));
+            .arg(state.activeExtensionExpiry->toString(DateItem::kDateFormat));
     }
     if (certificate.neverExpires()) {
         return CertificateListWidget::tr("Does not expire");
     }
-    return certificate.expiryDate.toString(kDateFormat);
+    return certificate.expiryDate.toString(DateItem::kDateFormat);
 }
 
 } // namespace
@@ -93,8 +113,9 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     m_table = new QTableWidget(this);
     m_table->setObjectName(QStringLiteral("certificateTable"));
     m_table->setColumnCount(kColumnCount);
-    m_table->setHorizontalHeaderLabels({tr("No."), tr("Name"), tr("Status"), tr("Expiry Date"),
-                                        tr("Survey From"), tr("Survey To"), tr("Days Left")});
+    m_table->setHorizontalHeaderLabels({tr("No."), tr("Name"), tr("Issue Date"), tr("Status"),
+                                        tr("Expiry Date"), tr("Survey From"), tr("Survey To"),
+                                        tr("Days Left"), tr("Document")});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers); // edited via the dialog
@@ -105,6 +126,10 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     // a user gets without clicking anything (certificate-crud-spec §8.2).
     // Any header click still re-sorts by that column, as before.
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::ListNumber),
+                                                      QHeaderView::ResizeToContents);
+    // The Document column holds one glyph or nothing at all (§4), so stretching
+    // it would waste a fifth of the table on a column that is mostly empty.
+    m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::Attachment),
                                                       QHeaderView::ResizeToContents);
     m_table->sortByColumn(static_cast<int>(Column::ListNumber), Qt::AscendingOrder);
 
@@ -155,6 +180,12 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     connect(m_addButton, &QPushButton::clicked, this, &CertificateListWidget::addCertificate);
     connect(m_table, &QTableWidget::itemDoubleClicked, this,
             &CertificateListWidget::editCertificate);
+    // §4: one click in the Document column opens that row's document, with no
+    // need to select the row first and no trip through the Attachment menu.
+    // Every other column ignores a single click, which is what makes a single
+    // click unambiguous here.
+    connect(m_table, &QTableWidget::cellClicked, this,
+            &CertificateListWidget::openAttachmentIfDocumentColumn);
     // The actions own the button clicks and the selection watching; all this
     // widget has to know is that something changed and the list is now stale.
     connect(m_actions, &CertificateListActions::listChanged, this,
@@ -319,21 +350,23 @@ void CertificateListWidget::fillRow(int                     row,
 
     m_table->setItem(row, static_cast<int>(Column::ListNumber), numberItem);
     m_table->setItem(row, static_cast<int>(Column::Name), new QTableWidgetItem(certificate.name));
+
+    // §5: a plain field with nothing computed about it, so there is no state to
+    // consult — only the certificate's own issue date. A DateItem rather than
+    // formatted text, so the column sorts chronologically (§7 case 9).
+    m_table->setItem(row, static_cast<int>(Column::IssueDate),
+                     new DateItem(certificate.issueDate));
+
     m_table->setItem(row, static_cast<int>(Column::Status), new StatusItem(state.display));
     m_table->setItem(row, static_cast<int>(Column::Expiry),
                      new QTableWidgetItem(expiryLabel(certificate, state)));
 
-    // §5: blank unless there is an outstanding survey window to show. The two
-    // dates are asked directly whether they are valid, rather than inferring
-    // it a second time from the severity.
-    m_table->setItem(row, static_cast<int>(Column::SurveyFrom),
-                     new QTableWidgetItem(state.windowOpens.isValid()
-                                              ? state.windowOpens.toString(kDateFormat)
-                                              : QString()));
-    m_table->setItem(row, static_cast<int>(Column::SurveyTo),
-                     new QTableWidgetItem(state.windowCloses.isValid()
-                                              ? state.windowCloses.toString(kDateFormat)
-                                              : QString()));
+    // certificate-list-status-spec §5: blank unless there is an outstanding
+    // survey window to show. A DateItem renders an invalid date as a blank
+    // cell, so "is there a window" needs no separate test here — and these two
+    // now sort chronologically alongside Issue Date rather than as text.
+    m_table->setItem(row, static_cast<int>(Column::SurveyFrom), new DateItem(state.windowOpens));
+    m_table->setItem(row, static_cast<int>(Column::SurveyTo), new DateItem(state.windowCloses));
 
     // §6: the raw signed number, negative once overdue. A certificate that
     // never expires has no meaningful count, and a bare 0 would read as "due
@@ -348,6 +381,52 @@ void CertificateListWidget::fillRow(int                     row,
         daysItem->setData(Qt::DisplayRole, state.daysLeft);
     }
     m_table->setItem(row, static_cast<int>(Column::DaysLeft), daysItem);
+
+    // §4: one more read per certificate — the same accepted N+1 the
+    // endorsements and the active extension above already cost on this screen.
+    // Asked here rather than remembered on the row, so that what the cell shows
+    // and what a click opens are the same question answered by the same
+    // service.
+    const bool hasAttachment =
+        !m_attachments.currentAbsolutePath(m_vesselId, certificate.id).isEmpty();
+
+    auto* attachmentItem = new QTableWidgetItem(hasAttachment ? kAttachmentGlyph : QString());
+    attachmentItem->setTextAlignment(Qt::AlignCenter);
+    if (hasAttachment) {
+        attachmentItem->setToolTip(tr("Click to open the attached document."));
+    }
+    m_table->setItem(row, static_cast<int>(Column::Attachment), attachmentItem);
+}
+
+// §4: lives here rather than in CertificateListActions, because it is driven by
+// *which cell was clicked* and not by *what is selected* — the same distinction
+// that already keeps Add Certificate out of the actions class.
+void CertificateListWidget::openAttachmentIfDocumentColumn(int row, int column)
+{
+    if (column != static_cast<int>(Column::Attachment)) {
+        return;
+    }
+
+    QTableWidgetItem* numberItem = m_table->item(row, static_cast<int>(Column::ListNumber));
+    if (numberItem == nullptr) {
+        return;
+    }
+    const QString id = numberItem->data(CertificateRow::kCertificateIdRole).toString();
+
+    const QString absolutePath = m_attachments.currentAbsolutePath(m_vesselId, id);
+    if (absolutePath.isEmpty()) {
+        // §4: an empty cell does nothing at all when clicked — not even a
+        // message, because there is nothing to report.
+        return;
+    }
+
+    // openUrl() handles a file and a folder identically, which is why nothing
+    // above this line had to know which one is attached.
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(absolutePath))) {
+        QMessageBox::warning(this, tr("Could not open the document"),
+                             tr("Windows, macOS or your desktop refused to open:\n\n%1")
+                                 .arg(QDir::toNativeSeparators(absolutePath)));
+    }
 }
 
 void CertificateListWidget::addCertificate()

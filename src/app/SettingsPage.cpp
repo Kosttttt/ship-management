@@ -1,6 +1,8 @@
 #include "app/SettingsPage.h"
 
+#include "app/AttachmentFolderSettings.h"
 #include "core/AppSettingRepository.h"
+#include "core/VesselRepository.h"
 
 #include <QFormLayout>
 #include <QGroupBox>
@@ -29,7 +31,9 @@ QSpinBox* makeDaySpin(QWidget* parent, const QString& objectName)
 
 } // namespace
 
-SettingsPage::SettingsPage(AppSettingRepository& settings, QWidget* parent)
+SettingsPage::SettingsPage(AppSettingRepository& settings,
+                           VesselRepository&     vessels,
+                           QWidget*              parent)
     : QWidget(parent)
     , m_settings(settings)
 {
@@ -77,6 +81,12 @@ SettingsPage::SettingsPage(AppSettingRepository& settings, QWidget* parent)
     buttonRow->addStretch();
     buttonRow->addWidget(m_statusLabel);
 
+    // certificate-attachment-addendum-spec §2.1. Below the thresholds and
+    // outside the Save button's reach: a threshold is a number waiting to be
+    // saved, while choosing a folder physically moves documents the moment it
+    // is chosen, so the two cannot share one Save.
+    m_attachmentFolders = new AttachmentFolderSettings(vessels, this);
+
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(heading);
     layout->addWidget(explanation);
@@ -85,6 +95,8 @@ SettingsPage::SettingsPage(AppSettingRepository& settings, QWidget* parent)
     layout->addWidget(m_hintLabel);
     layout->addSpacing(8);
     layout->addLayout(buttonRow);
+    layout->addSpacing(16);
+    layout->addWidget(m_attachmentFolders);
     layout->addStretch();
 
     for (QSpinBox* spin : {m_criticalSpin, m_expiringSoonSpin, m_dueSoonSpin}) {
@@ -98,6 +110,14 @@ SettingsPage::SettingsPage(AppSettingRepository& settings, QWidget* parent)
 
 void SettingsPage::reload()
 {
+    // First, and outside the early return below: a settings row that cannot be
+    // read says nothing about whether the fleet's folders can be. Guarded
+    // because the constructor calls reload() and the section may not exist yet
+    // if that order ever changes.
+    if (m_attachmentFolders != nullptr) {
+        m_attachmentFolders->reload();
+    }
+
     AppSetting setting;
     if (!m_settings.read(&setting)) {
         qWarning() << "Could not read the application settings:" << m_settings.errorString();

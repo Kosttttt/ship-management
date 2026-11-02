@@ -1,7 +1,9 @@
 #include "app/SettingsPage.h"
 
 #include "core/AppSettingRepository.h"
+#include "core/InstallationContext.h"
 #include "core/MigrationRunner.h"
+#include "core/VesselRepository.h"
 
 #include <QLabel>
 #include <QPushButton>
@@ -28,6 +30,19 @@ private slots:
     void savingWritesThroughToTheRepository();
 
 private:
+    // The page now also shows the per-vessel attachment folders
+    // (certificate-attachment-addendum-spec §2.1), so it needs a vessel
+    // repository. These suites seed no vessels, so that section simply renders
+    // its "no vessels yet" state and nothing here depends on it.
+    static InstallationContext officeContext()
+    {
+        InstallationRecord record;
+        record.id     = QStringLiteral("install-office");
+        record.mode   = InstallationMode::Office;
+        record.nodeId = QStringLiteral("OFFICE");
+        return InstallationContext(record);
+    }
+
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
 
     static QSpinBox* critical(SettingsPage& page)
@@ -81,7 +96,8 @@ void TestSettingsPage::loadsTheStoredValues()
 {
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     QCOMPARE(critical(page)->value(), 30);
     QCOMPARE(expiringSoon(page)->value(), 60);
@@ -94,7 +110,8 @@ void TestSettingsPage::saveIsDisabledWhenCriticalReachesExpiringSoon()
 {
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     critical(page)->setValue(60); // equal to expiring soon
     QVERIFY2(!saveButton(page)->isEnabled(), "equal is not strictly increasing");
@@ -107,7 +124,8 @@ void TestSettingsPage::saveIsDisabledWhenExpiringSoonReachesDueSoon()
 {
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     expiringSoon(page)->setValue(90);
     QVERIFY(!saveButton(page)->isEnabled());
@@ -120,7 +138,8 @@ void TestSettingsPage::saveReEnablesOnceTheOrderIsCorrected()
 {
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     critical(page)->setValue(80);
     QVERIFY(!saveButton(page)->isEnabled());
@@ -134,7 +153,8 @@ void TestSettingsPage::theHintNamesTheOffendingPair()
 {
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     critical(page)->setValue(65);
     QVERIFY(hint(page)->text().contains(QStringLiteral("Critical"), Qt::CaseInsensitive));
@@ -153,7 +173,8 @@ void TestSettingsPage::spinBoxesRefuseZeroAndNegativeValues()
     // the same "the widget enforces the rule" approach as gross tonnage.
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     critical(page)->setValue(0);
     QCOMPARE(critical(page)->value(), 1);
@@ -166,7 +187,8 @@ void TestSettingsPage::savingWritesThroughToTheRepository()
 {
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
-    SettingsPage         page(repository);
+    VesselRepository     vessels(db, officeContext());
+    SettingsPage         page(repository, vessels);
 
     critical(page)->setValue(14);
     expiringSoon(page)->setValue(45);

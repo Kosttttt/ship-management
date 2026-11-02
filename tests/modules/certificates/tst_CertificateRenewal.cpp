@@ -23,6 +23,15 @@
 
 using namespace CertificateTestSupport;
 
+namespace {
+
+// Was 2 until certificate-attachment-addendum-spec §5 put Issue Date back
+// between Name and Status. Named rather than written out, so the next column
+// change is one edit here and not a hunt through the file.
+constexpr int kStatusColumn = 3;
+
+} // namespace
+
 // certificate-renewal-spec §7, the nine edge cases.
 class TestCertificateRenewal : public QObject
 {
@@ -450,7 +459,7 @@ void TestCertificateRenewal::renewedCertificateComesBackAsValid()
     // with one endorsement against a five-year term, the later anniversaries
     // are unsatisfied, so this reads Survey Overdue rather than Critical —
     // either way it is not Valid, which is what renewal has to change.
-    QVERIFY(table->item(0, 2)->text() != StatusItem::labelFor(DisplayStatus::Valid));
+    QVERIFY(table->item(0, kStatusColumn)->text() != StatusItem::labelFor(DisplayStatus::Valid));
 
     table->selectRow(0);
     answerConfirmThenDialog(QMessageBox::Yes, today.addYears(5), /*acceptEdit=*/true);
@@ -458,7 +467,7 @@ void TestCertificateRenewal::renewedCertificateComesBackAsValid()
 
     // The list has reloaded and recomputed from the new dates.
     QCOMPARE(table->rowCount(), 1);
-    QCOMPARE(table->item(0, 2)->text(), StatusItem::labelFor(DisplayStatus::Valid));
+    QCOMPARE(table->item(0, kStatusColumn)->text(), StatusItem::labelFor(DisplayStatus::Valid));
 
     QList<Endorsement> remaining;
     QVERIFY(endorsements.list(QStringLiteral("c1"), &remaining));

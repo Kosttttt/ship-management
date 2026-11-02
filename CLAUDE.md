@@ -148,9 +148,17 @@ revision     INTEGER NOT NULL DEFAULT 1
    closed for a week, and a stale alert is worse than no alert.
 8. **Money and quantities are never `float` or `double`.** Use integer minor
    units.
-9. **File paths stored in the database are always relative** to the managed
-   data folder, never absolute. Reason: the folder is copied between ship and
-   office, and between machines.
+9. **File paths stored in the database are always relative** to the relevant
+   vessel's configured attachment folder, never absolute. Reason: that folder
+   is copied between ship and office, and between machines, so only the part
+   below the root may be stored.
+
+   The one exception is `vessel.attachment_root_path`, which *is* absolute,
+   because its whole job is to say where that root is on this machine right
+   now. It is chosen per installation and re-chosen elsewhere, never carried
+   across. Each vessel points at its own folder — see
+   `docs/certificate-attachment-addendum-spec.md` §2; before that addendum
+   there was one folder per installation, the one the database file sits in.
 
 ## 7. Module pattern
 

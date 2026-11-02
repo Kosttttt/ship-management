@@ -2,6 +2,7 @@
 
 #include "app/IModule.h"
 #include "core/AppSettingRepository.h"
+#include "core/VesselAttachmentRoots.h"
 #include "core/VesselRepository.h"
 #include "modules/certificates/CertificateAlertProvider.h"
 #include "modules/certificates/data/CertificateAttachmentRepository.h"
@@ -39,18 +40,32 @@ private:
     EndorsementRepository          m_endorsements;
     CertificateExtensionRepository m_extensions;
 
+    // Core-owned, but the module reads them: a module depending on core is
+    // the direction dependencies are allowed to point (CLAUDE.md §4).
+    //
+    // Declared before the attachment members below, not after, because the
+    // folder resolution is built from the vessel repository and C++ initialises
+    // members in declaration order.
+    AppSettingRepository m_appSettings;
+    VesselRepository     m_vessels;
+
+    // Where each vessel keeps its own documents
+    // (certificate-attachment-addendum-spec §2). Built here from this module's
+    // own VesselRepository, the same way every other repository this module
+    // needs is: ModuleRegistry still constructs every module from nothing but a
+    // database connection and an installation context, which is what "adding a
+    // module requires zero changes to existing modules" has to mean in
+    // practice (CLAUDE.md §7).
+    VesselAttachmentRoots m_attachmentRoots;
+
     // The attachment trio, in the order they depend on each other: the
     // repository knows the rows, the storage knows the files, and the service
-    // is the only thing that knows what order to use them in
-    // (certificate-attachment-spec §7). Only the service is handed to the UI.
+    // is the only thing that knows what order to use them in and which folder
+    // they belong in (certificate-attachment-spec §7). Only the service is
+    // handed to the UI.
     CertificateAttachmentRepository m_attachments;
     CertificateAttachmentStorage    m_attachmentStorage;
     CertificateAttachmentService    m_attachmentService;
-
-    // Core-owned, but the module reads them: a module depending on core is
-    // the direction dependencies are allowed to point (CLAUDE.md §4).
-    AppSettingRepository m_appSettings;
-    VesselRepository     m_vessels;
 
     // Declared last: it holds references to several of the above, so they must
     // already be constructed when it is built.

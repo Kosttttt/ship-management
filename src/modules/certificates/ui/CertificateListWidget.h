@@ -72,6 +72,16 @@ private:
     void addCertificate();
     void editCertificate(QTableWidgetItem* item);
 
+    // certificate-attachment-addendum-spec §4. A single click in the Document
+    // column opens that row's attached document; a click anywhere else does
+    // nothing, and double-click keeps opening Edit Certificate everywhere
+    // including this column.
+    //
+    // Here rather than in CertificateListActions because it is driven by which
+    // cell was clicked rather than by what is selected — the same distinction
+    // that already keeps Add Certificate out of that class.
+    void openAttachmentIfDocumentColumn(int row, int column);
+
     void updateVisibleState();
 
     // Renders one already-computed row. The state is passed in rather than

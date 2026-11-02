@@ -3,6 +3,7 @@
 #include "core/Database.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -103,9 +104,9 @@ QString ManagedFileStore::rootPath()
         return g_rootOverride;
     }
 
-    // The one resolution of the managed data folder in this application. Asked
-    // of Database rather than of QStandardPaths so that the folder the files go
-    // into is, by construction, the folder the database file is already in.
+    // The one resolution of the installation's own data folder in this
+    // application. Asked of Database rather than of QStandardPaths so that the
+    // folder is, by construction, the folder the database file is already in.
     return QFileInfo(Database::defaultFilePath()).absolutePath();
 }
 
@@ -115,13 +116,24 @@ void ManagedFileStore::setRootPathOverride(const QString& absolutePath)
         absolutePath.isEmpty() ? QString() : QFileInfo(absolutePath).absoluteFilePath();
 }
 
-bool ManagedFileStore::copyInto(const QString& sourcePath,
+QString ManagedFileStore::rootPathOverride()
+{
+    return g_rootOverride;
+}
+
+bool ManagedFileStore::copyInto(const QString& root,
+                                const QString& sourcePath,
                                 const QString& destinationRelativeDir,
                                 const QString& desiredName,
                                 QString*       relativePathOut,
                                 QString*       errorString)
 {
     setError(errorString, QString());
+
+    if (root.isEmpty()) {
+        setError(errorString, QStringLiteral("No folder was given to copy this into."));
+        return false;
+    }
 
     if (desiredName.isEmpty()) {
         setError(errorString, QStringLiteral("No name was given for the copied file."));
@@ -132,12 +144,6 @@ bool ManagedFileStore::copyInto(const QString& sourcePath,
     if (sourcePath.isEmpty() || !sourceInfo.exists()) {
         setError(errorString, QStringLiteral("This file or folder could not be found:\n%1")
                                   .arg(nativePath(sourcePath)));
-        return false;
-    }
-
-    const QString root = rootPath();
-    if (root.isEmpty()) {
-        setError(errorString, QStringLiteral("The managed data folder could not be located."));
         return false;
     }
 
@@ -182,7 +188,8 @@ bool ManagedFileStore::copyInto(const QString& sourcePath,
     return true;
 }
 
-bool ManagedFileStore::moveToArchive(const QString& relativePath,
+bool ManagedFileStore::moveToArchive(const QString& root,
+                                     const QString& relativePath,
                                      const QString& archiveRelativeDir,
                                      QString*       errorString)
 {
@@ -193,9 +200,8 @@ bool ManagedFileStore::moveToArchive(const QString& relativePath,
         return false;
     }
 
-    const QString root = rootPath();
     if (root.isEmpty()) {
-        setError(errorString, QStringLiteral("The managed data folder could not be located."));
+        setError(errorString, QStringLiteral("No folder was given to archive this within."));
         return false;
     }
 
@@ -239,8 +245,8 @@ bool ManagedFileStore::moveToArchive(const QString& relativePath,
     }
 
     // Rename rather than copy-then-delete: it moves a file and a whole folder
-    // alike, and both paths are inside the managed folder by construction, so
-    // it stays within one volume.
+    // alike, and both paths are inside the same root by construction, so it
+    // stays within one volume.
     if (!QDir().rename(absoluteSource, absoluteTarget)) {
         setError(errorString, QStringLiteral("Could not move this into the archive:\n%1")
                                   .arg(nativePath(absoluteSource)));
@@ -249,10 +255,74 @@ bool ManagedFileStore::moveToArchive(const QString& relativePath,
     return true;
 }
 
-QString ManagedFileStore::resolveAbsolute(const QString& relativePath)
+QString ManagedFileStore::resolveAbsolute(const QString& root, const QString& relativePath)
 {
-    if (relativePath.isEmpty()) {
+    if (root.isEmpty() || relativePath.isEmpty()) {
         return QString();
     }
-    return QDir(rootPath()).filePath(relativePath);
+    return QDir(root).filePath(relativePath);
+}
+
+bool ManagedFileStore::moveTree(const QString& sourceAbsolutePath,
+                                const QString& targetAbsolutePath,
+                                QString*       errorString)
+{
+    setError(errorString, QString());
+
+    if (sourceAbsolutePath.isEmpty() || targetAbsolutePath.isEmpty()) {
+        setError(errorString, QStringLiteral("No folder was given to move."));
+        return false;
+    }
+
+    if (!QFileInfo::exists(sourceAbsolutePath)) {
+        setError(errorString, QStringLiteral("There is nothing to move at:\n%1")
+                                  .arg(nativePath(sourceAbsolutePath)));
+        return false;
+    }
+
+    // Refused rather than merged. Merging two trees would quietly mix one
+    // vessel's documents into another's, which is the whole thing §2.5's
+    // "already contains an attachments folder" check exists to prevent.
+    if (QFileInfo::exists(targetAbsolutePath)) {
+        setError(errorString, QStringLiteral("Something is already here:\n%1")
+                                  .arg(nativePath(targetAbsolutePath)));
+        return false;
+    }
+
+    // The destination's parent, not the destination itself: creating the
+    // destination would make the rename below fail against it.
+    const QString targetParent = QFileInfo(targetAbsolutePath).absolutePath();
+    if (!QDir().mkpath(targetParent)) {
+        setError(errorString, QStringLiteral("Could not create the folder:\n%1")
+                                  .arg(nativePath(targetParent)));
+        return false;
+    }
+
+    // Fast path first. QDir::rename() does not copy across volumes — it simply
+    // fails — so a false here is not yet a failure to report.
+    if (QDir().rename(sourceAbsolutePath, targetAbsolutePath)) {
+        return true;
+    }
+
+    if (!copyRecursively(sourceAbsolutePath, targetAbsolutePath, errorString)) {
+        // The source is untouched, so taking the partial destination back out
+        // leaves the vessel exactly where it was (§2.5).
+        removeAnything(targetAbsolutePath);
+        return false;
+    }
+
+    // Everything is now at the destination. A source that refuses to go away
+    // — a file open in another program is the usual reason — is reported as a
+    // warning and not as a failure: see the header for why failing here would
+    // be the worse of the two outcomes.
+    const QFileInfo sourceInfo(sourceAbsolutePath);
+    const bool      removed =
+        sourceInfo.isDir() ? QDir(sourceAbsolutePath).removeRecursively()
+                           : QFile::remove(sourceAbsolutePath);
+    if (!removed) {
+        qWarning() << "Moved the vessel's documents but could not remove the old copy at"
+                   << nativePath(sourceAbsolutePath);
+    }
+
+    return true;
 }

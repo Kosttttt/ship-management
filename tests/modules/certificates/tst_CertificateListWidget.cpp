@@ -31,7 +31,7 @@ private slots:
 
     void defaultSortIsByListNumberNotByName();
     void certificatesWithoutAListNumberSortLast();
-    void columnsAreNumberNameStatusExpirySurveyDaysLeft();
+    void columnsAreNumberNameIssueStatusExpirySurveyDaysDocument();
 
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
@@ -275,7 +275,7 @@ void TestCertificateListWidget::certificatesWithoutAListNumberSortLast()
     QVERIFY(numbers.at(3).isEmpty());
 }
 
-void TestCertificateListWidget::columnsAreNumberNameStatusExpirySurveyDaysLeft()
+void TestCertificateListWidget::columnsAreNumberNameIssueStatusExpirySurveyDaysDocument()
 {
     QSqlDatabase db = database();
     seedCertificate(db, QStringLiteral("s1"), QStringLiteral("vs"), QStringLiteral("Load Line"),
@@ -296,16 +296,22 @@ void TestCertificateListWidget::columnsAreNumberNameStatusExpirySurveyDaysLeft()
     // certificate-list-status-spec §3. Issue Date and Category left this
     // screen in step 7; they are still on the edit dialog.
     QTableWidget* table = tableOf(widget);
-    QCOMPARE(table->columnCount(), 7);
+    QCOMPARE(table->columnCount(), 9);
     QCOMPARE(table->horizontalHeaderItem(0)->text(), QStringLiteral("No."));
     QCOMPARE(table->horizontalHeaderItem(1)->text(), QStringLiteral("Name"));
-    QCOMPARE(table->horizontalHeaderItem(2)->text(), QStringLiteral("Status"));
-    QCOMPARE(table->horizontalHeaderItem(3)->text(), QStringLiteral("Expiry Date"));
-    QCOMPARE(table->horizontalHeaderItem(4)->text(), QStringLiteral("Survey From"));
-    QCOMPARE(table->horizontalHeaderItem(5)->text(), QStringLiteral("Survey To"));
-    QCOMPARE(table->horizontalHeaderItem(6)->text(), QStringLiteral("Days Left"));
+    // certificate-attachment-addendum-spec §5: Issue Date is back, and placed
+    // next to Expiry Date rather than at the end.
+    QCOMPARE(table->horizontalHeaderItem(2)->text(), QStringLiteral("Issue Date"));
+    QCOMPARE(table->horizontalHeaderItem(3)->text(), QStringLiteral("Status"));
+    QCOMPARE(table->horizontalHeaderItem(4)->text(), QStringLiteral("Expiry Date"));
+    QCOMPARE(table->horizontalHeaderItem(5)->text(), QStringLiteral("Survey From"));
+    QCOMPARE(table->horizontalHeaderItem(6)->text(), QStringLiteral("Survey To"));
+    QCOMPARE(table->horizontalHeaderItem(7)->text(), QStringLiteral("Days Left"));
+    // §4: appended last, so nothing else needed renumbering for it.
+    QCOMPARE(table->horizontalHeaderItem(8)->text(), QStringLiteral("Document"));
 
-    QCOMPARE(table->item(0, 3)->text(), QStringLiteral("04 Feb 2031"));
+    QCOMPARE(table->item(0, 2)->text(), QStringLiteral("04 Feb 2026"));
+    QCOMPARE(table->item(0, 4)->text(), QStringLiteral("04 Feb 2031"));
 }
 
 QTEST_MAIN(TestCertificateListWidget)

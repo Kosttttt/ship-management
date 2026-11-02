@@ -119,7 +119,7 @@ void MainWindow::buildSidebar(const InstallationContext& installation,
     // both installation modes — role-based access is layered on at the end of
     // the project, not designed around now (CLAUDE.md §11).
     m_sidebar->addItem(tr("Settings"));
-    m_pages->addWidget(new SettingsPage(appSettings, this));
+    m_pages->addWidget(new SettingsPage(appSettings, vessels, this));
 
     connect(m_sidebar, &QListWidget::currentRowChanged, m_pages, &QStackedWidget::setCurrentIndex);
     m_sidebar->setCurrentRow(0);

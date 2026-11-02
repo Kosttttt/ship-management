@@ -50,15 +50,28 @@ private:
     void       reloadEndorsements();
     void       addEndorsement();
 
-    // certificate-attachment-spec §8: shown only in renewal mode. A renewal is
-    // the moment the paper document is actually replaced, so the offer belongs
-    // next to it; an ordinary edit changes no document.
+    // certificate-attachment-spec §8, widened by
+    // certificate-attachment-addendum-spec §3: shown in every mode now, not
+    // only renewal. A certificate's real document is as often already in hand
+    // the first time it is entered as it is at renewal time, and an ordinary
+    // edit is where somebody who has just scanned it goes looking.
+    //
+    // Only the empty-state wording differs between the three modes: Add has
+    // nothing to keep, while Edit and Renewal may both already have a document
+    // that must obviously survive doing nothing.
     QGroupBox* buildAttachmentSection();
 
-    // Run after the certificate update has succeeded, using the certificate's
-    // *new* expiry date for the stored filename. A failure here warns but
-    // still accepts, the same call step 10 made for a failed survey clear.
-    void replaceAttachmentIfChosen(const Certificate& renewed);
+    // Run after the certificate write has succeeded, never before: the stored
+    // filename is built from the row's own number, name and expiry date, and on
+    // Add there is no row and no id until create() has returned one (§3).
+    //
+    // expiryDateForName is the certificate's new expiry date on a renewal and
+    // its current one otherwise — an ordinary edit is not a renewal and has no
+    // new date to name a document after.
+    //
+    // A failure here warns but still accepts, the same call step 10 made for a
+    // failed survey clear: the certificate itself is already saved.
+    void replaceAttachmentIfChosen(const Certificate& saved);
 
     // The survey types this certificate actually requires.
     QList<SurveyType> allowedSurveyTypes() const;

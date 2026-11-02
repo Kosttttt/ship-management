@@ -178,8 +178,9 @@ void CertificateListActions::updateAttachmentButtonState()
     // useful answer. An unreadable row reports no path, so the entry hides —
     // the same "treat it as none" judgment the list already makes for an
     // unreadable endorsement or extension.
-    m_openAttachmentAction->setVisible(!id.isEmpty()
-                                       && !m_attachments.currentAbsolutePath(id).isEmpty());
+    const bool hasAttachment =
+        !id.isEmpty() && !m_attachments.currentAbsolutePath(m_vesselId, id).isEmpty();
+    m_openAttachmentAction->setVisible(hasAttachment);
 }
 
 void CertificateListActions::openCurrentAttachment()
@@ -189,7 +190,7 @@ void CertificateListActions::openCurrentAttachment()
         return;
     }
 
-    const QString absolutePath = m_attachments.currentAbsolutePath(id);
+    const QString absolutePath = m_attachments.currentAbsolutePath(m_vesselId, id);
     if (absolutePath.isEmpty()) {
         // Reachable if the attachment was replaced from elsewhere between the
         // menu opening and the entry being clicked.

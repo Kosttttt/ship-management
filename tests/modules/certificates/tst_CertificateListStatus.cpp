@@ -66,7 +66,12 @@ private:
     }
 
     // Column indices, matching certificate-list-status-spec §3.
-    enum Col { No = 0, Name = 1, Status = 2, Expiry = 3, From = 4, To = 5, Days = 6 };
+    // Reordered by certificate-attachment-addendum-spec §5 (Issue Date comes
+    // back, between Name and Status) and §4 (the Document column is appended).
+    enum Col {
+        No    = 0, Name = 1, Issue = 2, Status = 3, Expiry = 4,
+        From  = 5, To   = 6, Days  = 7, Document = 8
+    };
 
     static QString cell(CertificateListWidget& widget, int row, int column)
     {

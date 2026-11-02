@@ -35,6 +35,12 @@ private slots:
     void anEmptyRelativePathResolvesToNothing();
     void theSameRelativePathResolvesUnderADifferentRoot();
 
+    // certificate-attachment-addendum-spec §2.4 and §2.5.
+    void theOverrideIsReadableSoTheVesselLookupCanHonourIt();
+    void movingATreeTakesEverythingInsideIt();
+    void movingOntoSomethingThatExistsIsRefused();
+    void movingSomethingThatIsNotThereFails();
+
 private:
     QString root() const { return m_root.path(); }
 
@@ -114,7 +120,7 @@ void TestManagedFileStore::copiesAFileInAndReportsARelativePath()
 
     QString relative;
     QString error;
-    QVERIFY2(ManagedFileStore::copyInto(source, QStringLiteral("attachments/c1"),
+    QVERIFY2(ManagedFileStore::copyInto(root(), source, QStringLiteral("attachments/c1"),
                                         QStringLiteral("15D_Load_Line_2027-06-01.pdf"), &relative,
                                         &error),
              qPrintable(error));
@@ -144,7 +150,7 @@ void TestManagedFileStore::copiesAWholeFolderKeepingTheNamesInsideIt()
 
     QString relative;
     QString error;
-    QVERIFY2(ManagedFileStore::copyInto(sourceDir, QStringLiteral("attachments/c1"),
+    QVERIFY2(ManagedFileStore::copyInto(root(), sourceDir, QStringLiteral("attachments/c1"),
                                         QStringLiteral("15D_Load_Line_2027-06-01"), &relative,
                                         &error),
              qPrintable(error));
@@ -170,13 +176,13 @@ void TestManagedFileStore::aCollisionEarnsASuffixBeforeTheExtension()
 
     QString first;
     QString error;
-    QVERIFY2(ManagedFileStore::copyInto(source, QStringLiteral("attachments/c1/extensions"),
+    QVERIFY2(ManagedFileStore::copyInto(root(), source, QStringLiteral("attachments/c1/extensions"),
                                         QStringLiteral("15D_ShortTerm_2027-03-01.pdf"), &first,
                                         &error),
              qPrintable(error));
 
     QString second;
-    QVERIFY2(ManagedFileStore::copyInto(source, QStringLiteral("attachments/c1/extensions"),
+    QVERIFY2(ManagedFileStore::copyInto(root(), source, QStringLiteral("attachments/c1/extensions"),
                                         QStringLiteral("15D_ShortTerm_2027-03-01.pdf"), &second,
                                         &error),
              qPrintable(error));
@@ -196,7 +202,7 @@ void TestManagedFileStore::aMissingSourceFailsAndLeavesNothingBehind()
 
     QString relative;
     QString error;
-    QVERIFY(!ManagedFileStore::copyInto(missing, QStringLiteral("attachments/c1"),
+    QVERIFY(!ManagedFileStore::copyInto(root(), missing, QStringLiteral("attachments/c1"),
                                         QStringLiteral("name.pdf"), &relative, &error));
     QVERIFY(!error.isEmpty());
     QVERIFY(relative.isEmpty());
@@ -213,7 +219,7 @@ void TestManagedFileStore::archivingAFileMovesItAndStampsTheName()
     QVERIFY(writeFile(current, QStringLiteral("the old document")));
 
     QString error;
-    QVERIFY2(ManagedFileStore::moveToArchive(QStringLiteral("attachments/c1/current.pdf"),
+    QVERIFY2(ManagedFileStore::moveToArchive(root(), QStringLiteral("attachments/c1/current.pdf"),
                                              QStringLiteral("attachments/c1/archive"), &error),
              qPrintable(error));
 
@@ -242,7 +248,7 @@ void TestManagedFileStore::archivingAFolderMovesTheWholeThing()
                       QStringLiteral("still here")));
 
     QString error;
-    QVERIFY2(ManagedFileStore::moveToArchive(QStringLiteral("attachments/c1/pack"),
+    QVERIFY2(ManagedFileStore::moveToArchive(root(), QStringLiteral("attachments/c1/pack"),
                                              QStringLiteral("attachments/c1/archive"), &error),
              qPrintable(error));
 
@@ -260,32 +266,36 @@ void TestManagedFileStore::archivingAFolderMovesTheWholeThing()
 void TestManagedFileStore::archivingSomethingThatIsNotThereFails()
 {
     QString error;
-    QVERIFY(!ManagedFileStore::moveToArchive(QStringLiteral("attachments/c1/ghost.pdf"),
+    QVERIFY(!ManagedFileStore::moveToArchive(root(), QStringLiteral("attachments/c1/ghost.pdf"),
                                              QStringLiteral("attachments/c1/archive"), &error));
     QVERIFY(!error.isEmpty());
 
     // An empty path is a caller mistake, not "nothing to do": the caller skips
     // archiving itself when there is no current attachment.
-    QVERIFY(!ManagedFileStore::moveToArchive(QString(), QStringLiteral("attachments/c1/archive"),
-                                             &error));
+    QVERIFY(!ManagedFileStore::moveToArchive(root(), QString(),
+                                             QStringLiteral("attachments/c1/archive"), &error));
 }
 
 void TestManagedFileStore::resolveAbsoluteJoinsTheRoot()
 {
     const QString relative = QStringLiteral("attachments/c1/15D_Load_Line_2027-06-01.pdf");
-    QCOMPARE(ManagedFileStore::resolveAbsolute(relative), QDir(root()).filePath(relative));
+    QCOMPARE(ManagedFileStore::resolveAbsolute(root(), relative), QDir(root()).filePath(relative));
 }
 
 void TestManagedFileStore::anEmptyRelativePathResolvesToNothing()
 {
     // "There is no attachment" must never resolve to the managed folder
     // itself, which something would then helpfully open.
-    QCOMPARE(ManagedFileStore::resolveAbsolute(QString()), QString());
+    QCOMPARE(ManagedFileStore::resolveAbsolute(root(), QString()), QString());
 }
 
 // §9 case 9: the concrete proof that CLAUDE.md §6.9 holds for this feature.
 // The same stored string points at the right file on a second machine, because
 // what is stored is relative and only the root differs.
+//
+// Since the attachment addendum the root is a parameter rather than process
+// state, so this is now a direct statement rather than something demonstrated
+// by switching an override: two roots, one relative path, two real files.
 void TestManagedFileStore::theSameRelativePathResolvesUnderADifferentRoot()
 {
     const QString relative = QStringLiteral("attachments/c1/15D_Load_Line_2027-06-01.pdf");
@@ -293,22 +303,104 @@ void TestManagedFileStore::theSameRelativePathResolvesUnderADifferentRoot()
     QVERIFY(QDir().mkpath(QFileInfo(QDir(root()).filePath(relative)).absolutePath()));
     QVERIFY(writeFile(QDir(root()).filePath(relative), QStringLiteral("the ship copy")));
 
-    const QString onTheShip = ManagedFileStore::resolveAbsolute(relative);
+    const QString onTheShip = ManagedFileStore::resolveAbsolute(root(), relative);
     QVERIFY(QFileInfo::exists(onTheShip));
 
     // A second folder standing in for the office machine, with the same
-    // managed folder copied into it.
+    // subtree copied into it.
     QTemporaryDir office;
     QVERIFY(office.isValid());
     QVERIFY(QDir().mkpath(QFileInfo(QDir(office.path()).filePath(relative)).absolutePath()));
     QVERIFY(writeFile(QDir(office.path()).filePath(relative), QStringLiteral("the office copy")));
 
-    ManagedFileStore::setRootPathOverride(office.path());
-
-    const QString inTheOffice = ManagedFileStore::resolveAbsolute(relative);
+    const QString inTheOffice = ManagedFileStore::resolveAbsolute(office.path(), relative);
     QVERIFY(inTheOffice != onTheShip);
     QVERIFY(QFileInfo::exists(inTheOffice));
     QCOMPARE(readFile(inTheOffice), QStringLiteral("the office copy"));
+}
+
+// certificate-attachment-addendum-spec §2.4: the override is still the one
+// thing that can replace the installation's own folder, and clearing it still
+// puts it back. The addendum changes which folder attachments go into, not
+// this.
+void TestManagedFileStore::theOverrideIsReadableSoTheVesselLookupCanHonourIt()
+{
+    ManagedFileStore::setRootPathOverride(m_root.path());
+    QCOMPARE(ManagedFileStore::rootPathOverride(),
+             QFileInfo(m_root.path()).absoluteFilePath());
+
+    ManagedFileStore::setRootPathOverride(QString());
+    QVERIFY2(ManagedFileStore::rootPathOverride().isEmpty(),
+             "with nothing overridden, VesselAttachmentRoots must fall through to the vessel");
+}
+
+// §2.5, the fast path: both folders on one volume, so a rename does it.
+void TestManagedFileStore::movingATreeTakesEverythingInsideIt()
+{
+    const QString source = QDir(root()).filePath(QStringLiteral("attachments"));
+    QVERIFY(QDir().mkpath(QDir(source).filePath(QStringLiteral("c1/extensions"))));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("c1/current.pdf")),
+                      QStringLiteral("the document")));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("c1/extensions/short.pdf")),
+                      QStringLiteral("the short-term one")));
+
+    QTemporaryDir newRoot;
+    QVERIFY(newRoot.isValid());
+    const QString target = QDir(newRoot.path()).filePath(QStringLiteral("attachments"));
+
+    QString error;
+    QVERIFY2(ManagedFileStore::moveTree(source, target, &error), qPrintable(error));
+
+    // Moved, not copied: a vessel's documents exist in one place.
+    QVERIFY2(!QFileInfo::exists(source), "the old location must not keep a second copy");
+
+    QCOMPARE(readFile(QDir(target).filePath(QStringLiteral("c1/current.pdf"))),
+             QStringLiteral("the document"));
+    QCOMPARE(readFile(QDir(target).filePath(QStringLiteral("c1/extensions/short.pdf"))),
+             QStringLiteral("the short-term one"));
+}
+
+// §2.5 again: a destination that already holds something is refused rather
+// than merged, and the source is left exactly as it was.
+void TestManagedFileStore::movingOntoSomethingThatExistsIsRefused()
+{
+    const QString source = QDir(root()).filePath(QStringLiteral("attachments"));
+    QVERIFY(QDir().mkpath(source));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("mine.pdf")), QStringLiteral("mine")));
+
+    QTemporaryDir newRoot;
+    QVERIFY(newRoot.isValid());
+    const QString target = QDir(newRoot.path()).filePath(QStringLiteral("attachments"));
+    QVERIFY(QDir().mkpath(target));
+    QVERIFY(writeFile(QDir(target).filePath(QStringLiteral("theirs.pdf")),
+                      QStringLiteral("theirs")));
+
+    QString error;
+    QVERIFY(!ManagedFileStore::moveTree(source, target, &error));
+    QVERIFY(!error.isEmpty());
+
+    // Both sides untouched: nothing was pooled, nothing was lost.
+    QCOMPARE(readFile(QDir(source).filePath(QStringLiteral("mine.pdf"))),
+             QStringLiteral("mine"));
+    QCOMPARE(readFile(QDir(target).filePath(QStringLiteral("theirs.pdf"))),
+             QStringLiteral("theirs"));
+}
+
+void TestManagedFileStore::movingSomethingThatIsNotThereFails()
+{
+    QTemporaryDir newRoot;
+    QVERIFY(newRoot.isValid());
+
+    // A name no other test in this suite creates. m_root is one QTemporaryDir
+    // for the whole object rather than one per test, so "attachments" is left
+    // lying around by the two tests above and would not be missing at all.
+    const QString missing = QDir(root()).filePath(QStringLiteral("no-such-subtree"));
+    QVERIFY(!QFileInfo::exists(missing));
+
+    QString error;
+    QVERIFY(!ManagedFileStore::moveTree(
+        missing, QDir(newRoot.path()).filePath(QStringLiteral("attachments")), &error));
+    QVERIFY(!error.isEmpty());
 }
 
 QTEST_MAIN(TestManagedFileStore)

@@ -16,7 +16,8 @@ namespace {
 const QString kSystemUser = QStringLiteral("SYSTEM");
 
 const QString kSelectColumns = QStringLiteral(
-    "id, name, imo_number, call_sign, gross_tonnage, port_of_registry, flag_state");
+    "id, name, imo_number, call_sign, gross_tonnage, port_of_registry, flag_state,"
+    " attachment_root_path");
 
 QString nowUtc()
 {
@@ -46,6 +47,9 @@ Vessel vesselFromRow(const QSqlQuery& query)
     vessel.grossTonnage   = query.value(4).toInt(); // NULL reads back as 0
     vessel.portOfRegistry = query.value(5).toString();
     vessel.flagState      = query.value(6).toString();
+    // NULL reads back as an empty string, which is exactly what "not
+    // configured yet" means (certificate-attachment-addendum-spec §2.3).
+    vessel.attachmentRootPath = query.value(7).toString();
     return vessel;
 }
 
@@ -214,8 +218,9 @@ bool VesselRepository::create(const Vessel& vessel, QString* newId)
     query.prepare(QStringLiteral(
         "INSERT INTO vessel"
         " (id, name, imo_number, call_sign, gross_tonnage, port_of_registry, flag_state,"
+        "  attachment_root_path,"
         "  created_at, created_by, updated_at, updated_by, is_deleted, origin_node, revision)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1)"));
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1)"));
     query.addBindValue(id);
     query.addBindValue(vessel.name.trimmed());
     query.addBindValue(imoNumber);
@@ -223,6 +228,10 @@ bool VesselRepository::create(const Vessel& vessel, QString* newId)
     query.addBindValue(nullableTonnage(vessel.grossTonnage));
     query.addBindValue(nullableText(vessel.portOfRegistry.trimmed()));
     query.addBindValue(nullableText(vessel.flagState.trimmed()));
+    // Normally empty: a vessel being added has no folder yet, and Settings is
+    // where one is chosen. Carried through rather than hardcoded to NULL so
+    // that a caller which does know the folder is not silently ignored.
+    query.addBindValue(nullableText(vessel.attachmentRootPath.trimmed()));
     query.addBindValue(now);
     query.addBindValue(kSystemUser);
     query.addBindValue(now);
@@ -299,6 +308,52 @@ bool VesselRepository::update(const Vessel& vessel)
 
     if (query.numRowsAffected() == 0) {
         m_errorString = QStringLiteral("This vessel no longer exists and could not be saved.");
+        return false;
+    }
+
+    return true;
+}
+
+bool VesselRepository::setAttachmentRootPath(const QString& vesselId,
+                                             const QString& absolutePath)
+{
+    m_errorString.clear();
+
+    if (vesselId.isEmpty()) {
+        m_errorString = QStringLiteral("No vessel was given, so no folder could be stored.");
+        return false;
+    }
+
+    // The same refusal update() makes, for the same reason: the screen never
+    // offers another vessel's row to a VESSEL installation, and the repository
+    // does not take that on trust (CLAUDE.md §3).
+    if (isScopedToOneVessel() && vesselId != m_installation.vesselScope()) {
+        m_errorString = QStringLiteral("This installation may only change its own vessel.");
+        return false;
+    }
+
+    // No validate() call here: this touches one column and leaves every field
+    // validate() checks exactly as it found it. Running it would mean a vessel
+    // carrying, say, a legacy IMO number could never be given a folder.
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE vessel SET"
+        "  attachment_root_path = ?,"
+        "  updated_at = ?, updated_by = ?, revision = revision + 1"
+        " WHERE id = ? AND is_deleted = 0"));
+    query.addBindValue(nullableText(absolutePath.trimmed()));
+    query.addBindValue(nowUtc());
+    query.addBindValue(kSystemUser);
+    query.addBindValue(vesselId);
+
+    if (!query.exec()) {
+        m_errorString = QStringLiteral("Could not store the attachment folder:\n%1")
+                            .arg(query.lastError().text());
+        return false;
+    }
+
+    if (query.numRowsAffected() == 0) {
+        m_errorString = QStringLiteral("This vessel no longer exists, so no folder was stored.");
         return false;
     }
 

@@ -8,6 +8,15 @@
 // Nothing outside this class should construct an "attachments/..." path by
 // hand. That is the whole reason it exists: the layout is a convention, and a
 // convention spread across three call sites is a convention that will drift.
+// The one exception is the top-level folder name itself, which now belongs to
+// the vessel rather than to this module — core has to be able to move that
+// whole subtree when a vessel's folder changes
+// (certificate-attachment-addendum-spec §2.5) — so it is taken from
+// VesselAttachmentRoots::kManagedSubfolder and still written down once.
+//
+// Every entry point takes the root to work within. It does not look one up:
+// which folder a vessel's documents belong in is a question about vessels, and
+// is answered once, by the service, before anything here is called (§2.4).
 //
 // Still no SQL — recording which path ended up being used is
 // CertificateAttachmentRepository's job, and the order the two are called in is
@@ -26,7 +35,8 @@ public:
     // archiving is then skipped, which is the ordinary first-attachment case
     // and not an error. Works the same whether either side is a file or a
     // folder — replacing a folder with a file archives the folder wholesale.
-    bool replaceCurrent(const QString& certificateId,
+    bool replaceCurrent(const QString& root,
+                        const QString& certificateId,
                         const QString& currentRelativePath, // "" if none
                         const QString& sourcePath,
                         const QString& desiredName, // from AttachmentNaming
@@ -39,7 +49,8 @@ public:
     //
     // No archiving: an extension row is its own archival unit (§2), so there is
     // nothing here to retire.
-    bool addExtensionDocument(const QString& certificateId,
+    bool addExtensionDocument(const QString& root,
+                              const QString& certificateId,
                               const QString& sourcePath,
                               const QString& desiredName,
                               QString*       newRelativePathOut,

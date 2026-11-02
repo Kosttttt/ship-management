@@ -1,0 +1,30 @@
+-- 010: where one vessel's own documents live
+-- (certificate-attachment-addendum-spec §2.3).
+--
+-- Until now every attachment went into the one folder the database file sits
+-- in. That made the files an implementation detail of the installation. They
+-- are not: they are the vessel's own real-world paperwork, and the office
+-- wants them in a folder it already uses — quite possibly one that
+-- synchronises itself. So each vessel points at its own folder.
+--
+-- On `vessel` rather than on anything in the certificates module, because the
+-- concept belongs to the vessel: the Document Management module on this
+-- project's roadmap will store files against a vessel too, and should inherit
+-- this rather than invent a second answer to the same question (§2.3).
+--
+-- NULL means "not yet configured", which is a refusal and never a fallback:
+-- nothing may be attached to this vessel's certificates until a folder exists
+-- (§2.2).
+--
+-- Absolute, and the one path in this schema that is. Every path stored
+-- *against a certificate* stays relative (CLAUDE.md §6.9) precisely so that
+-- the set of files can be copied between machines; this column is the other
+-- half of that — it says where the root is on this machine, right now, and is
+-- re-chosen rather than carried across.
+--
+-- 002_create_vessel.sql is already committed and is never edited
+-- (CLAUDE.md §6.6), so the column arrives as its own migration — the same
+-- shape 004 used for certificate.list_number and 009 for an extension's
+-- document.
+
+ALTER TABLE vessel ADD COLUMN attachment_root_path TEXT;

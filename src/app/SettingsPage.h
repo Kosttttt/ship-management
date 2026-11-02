@@ -3,9 +3,11 @@
 #include <QWidget>
 
 class AppSettingRepository;
+class AttachmentFolderSettings;
 class QLabel;
 class QPushButton;
 class QSpinBox;
+class VesselRepository;
 
 // The Settings screen (settings-app-setting-spec §6).
 //
@@ -17,9 +19,16 @@ class SettingsPage : public QWidget
     Q_OBJECT
 
 public:
-    explicit SettingsPage(AppSettingRepository& settings, QWidget* parent = nullptr);
+    // Takes the vessel repository as well as the settings row, because the
+    // per-vessel attachment folders (certificate-attachment-addendum-spec §2)
+    // are a setting too — just one stored on `vessel` rather than in
+    // `app_setting`, since the folder belongs to the vessel and not to this
+    // installation's preferences.
+    SettingsPage(AppSettingRepository& settings,
+                 VesselRepository&     vessels,
+                 QWidget*              parent = nullptr);
 
-    // Re-reads the stored row into the form.
+    // Re-reads the stored row into the form, and the fleet's folders with it.
     void reload();
 
 private:
@@ -40,6 +49,11 @@ private:
     QLabel*      m_hintLabel   = nullptr;
     QLabel*      m_statusLabel = nullptr;
     QPushButton* m_saveButton  = nullptr;
+
+    // Saves itself the moment a folder is chosen, rather than waiting for the
+    // Save button: choosing a folder moves files, which is not something to
+    // leave sitting in a form as an unsaved change.
+    AttachmentFolderSettings* m_attachmentFolders = nullptr;
 
     QString m_settingId;
 };

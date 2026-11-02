@@ -94,11 +94,12 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
         layout->addWidget(buildEndorsementsSection(*existing), 0);
     }
 
-    // certificate-attachment-spec §8: the renewal is where a new document
-    // physically arrives, so replacing it happens in the same motion.
-    if (m_isRenewal) {
-        layout->addWidget(buildAttachmentSection(), 0);
-    }
+    // certificate-attachment-addendum-spec §3: offered in all three modes.
+    // Step 12 showed it on renewal only, on the reasoning that a renewal is
+    // when a new document physically arrives; manual testing made the simpler
+    // point that the document is just as often in hand when the certificate is
+    // first entered.
+    layout->addWidget(buildAttachmentSection(), 0);
 
     layout->addWidget(buttons);
 
@@ -160,11 +161,16 @@ QGroupBox* CertificateEditDialog::buildAttachmentSection()
     auto* group = new QGroupBox(tr("Attached document"), this);
     group->setObjectName(QStringLiteral("attachmentSection"));
 
-    // Worded so that doing nothing is obviously safe: the commonest renewal is
-    // one where the scan arrives later, and the dialog must not imply that
-    // skipping this loses the existing document.
-    m_attachmentSource =
-        new AttachmentSourceField(tr("The document already attached stays as it is."), group);
+    // Worded per mode (addendum §3). Edit and Renewal are both worded so that
+    // doing nothing is obviously safe — the commonest renewal is one where the
+    // scan arrives later, and neither dialog may imply that skipping this
+    // loses a document that is already there. On Add there is nothing to lose,
+    // and saying there is would be a small lie.
+    const QString emptyText = m_isEditing
+                                  ? tr("The document already attached stays as it is.")
+                                  : tr("No document is attached yet.");
+
+    m_attachmentSource = new AttachmentSourceField(emptyText, group);
 
     auto* groupLayout = new QVBoxLayout(group);
     groupLayout->addWidget(m_attachmentSource);
@@ -172,27 +178,28 @@ QGroupBox* CertificateEditDialog::buildAttachmentSection()
     return group;
 }
 
-void CertificateEditDialog::replaceAttachmentIfChosen(const Certificate& renewed)
+void CertificateEditDialog::replaceAttachmentIfChosen(const Certificate& saved)
 {
     if (m_attachmentSource == nullptr || m_attachmentSource->sourcePath().isEmpty()) {
         return; // left alone: nothing about the attachment changes
     }
 
-    // The new expiry date, not the old one (§8): the stored filename describes
-    // the document that has just replaced the previous one.
-    if (!m_attachments.replaceCurrent(renewed, renewed.expiryDate,
+    // saved.expiryDate is the right date in all three modes, because it comes
+    // from the row that was just written: the new date on a renewal, and the
+    // unchanged one on an ordinary edit or an addition (§3).
+    if (!m_attachments.replaceCurrent(saved, saved.expiryDate,
                                       m_attachmentSource->sourcePath(),
                                       m_attachmentSource->sourceIsFolder())) {
-        qWarning() << "Renewal could not replace the attached document:"
+        qWarning() << "Could not attach the document to this certificate:"
                    << m_attachments.errorString();
         QMessageBox::warning(
-            this, tr("Renewed, but the document was not replaced"),
-            tr("The certificate was renewed, but its attached document could not be "
-               "replaced.\n\n%1")
+            this, tr("Saved, but the document was not attached"),
+            tr("The certificate was saved, but the document could not be attached to "
+               "it.\n\n%1")
                 .arg(m_attachments.errorString()));
-        // Still accept, exactly as a failed survey clear does: the renewal
-        // itself succeeded, and keeping the dialog open would invite a second
-        // update of data already written.
+        // Still accept, exactly as a failed survey clear does: the certificate
+        // itself was written, and keeping the dialog open would invite a second
+        // write of data already stored.
     }
 }
 
@@ -237,9 +244,14 @@ void CertificateEditDialog::accept()
         return;
     }
 
-    const Certificate edited = m_form->certificate();
+    Certificate edited = m_form->certificate();
 
-    const bool saved = m_isEditing ? m_repository.update(edited) : m_repository.create(edited);
+    // The generated id is asked for, because on Add it is the only way to name
+    // what was just created — and the attachment below has to be attached to
+    // something (addendum §3).
+    QString    createdId;
+    const bool saved = m_isEditing ? m_repository.update(edited)
+                                   : m_repository.create(edited, &createdId);
 
     if (!saved) {
         qWarning() << "Certificate save failed:" << m_repository.errorString();
@@ -274,12 +286,17 @@ void CertificateEditDialog::accept()
         // open would invite a second update of data already written.
     }
 
-    // After the update, per §8: the filesystem work is not worth doing if the
-    // new dates never made it into the database. `edited` carries the id the
-    // form was loaded with, so it names the certificate that was just renewed.
-    if (m_isRenewal) {
-        replaceAttachmentIfChosen(edited);
+    // After the write, per §8 and addendum §3: the filesystem work is not
+    // worth doing if the row never made it into the database.
+    //
+    // On Edit and Renewal `edited` already carries the id the form was loaded
+    // with. On Add it carries none, so the id the repository has just
+    // generated is put on it here — the row exists now, and that is what makes
+    // naming a file after it possible at all.
+    if (!m_isEditing) {
+        edited.id = createdId;
     }
+    replaceAttachmentIfChosen(edited);
 
     QDialog::accept();
 }

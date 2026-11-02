@@ -3,6 +3,8 @@
 #include "core/InstallationContext.h"
 #include "core/ManagedFileStore.h"
 #include "core/MigrationRunner.h"
+#include "core/VesselAttachmentRoots.h"
+#include "core/VesselRepository.h"
 #include "modules/certificates/data/CertificateAttachmentRepository.h"
 #include "modules/certificates/data/CertificateAttachmentStorage.h"
 #include "modules/certificates/domain/Certificate.h"
@@ -180,7 +182,7 @@ inline QString seedEndorsement(QSqlDatabase&  db,
     return id;
 }
 
-// The three attachment collaborators a CertificateListWidget needs, bundled
+// The attachment collaborators a CertificateListWidget needs, bundled
 // together — and, more importantly, pointed at a throwaway folder.
 //
 // The second part is not convenience. ManagedFileStore::rootPath() resolves to
@@ -189,12 +191,22 @@ inline QString seedEndorsement(QSqlDatabase&  db,
 // wrote a file there would be doing the same class of thing by accident, so
 // every test holding one of these writes into a QTemporaryDir that disappears
 // with it.
+//
+// The override is also what keeps these suites free of the addendum's
+// per-vessel folders: it is consulted ahead of any vessel lookup
+// (certificate-attachment-addendum-spec §2.4), so a test may seed a
+// certificate against a vessel id that has no vessel row at all and still
+// attach to it. The per-vessel resolution and its refusal are exercised
+// deliberately, with the override cleared, in tst_VesselAttachmentRoots and
+// tst_CertificateAttachmentFolders.
 class AttachmentFixture
 {
 public:
     AttachmentFixture(QSqlDatabase& db, const InstallationContext& installation)
-        : repository(db, installation)
-        , service(repository, storage)
+        : vessels(db, installation)
+        , roots(vessels)
+        , repository(db, installation)
+        , service(repository, storage, roots)
     {
         QVERIFY2(temporaryRoot.isValid(), "could not create a temporary managed data folder");
         ManagedFileStore::setRootPathOverride(temporaryRoot.path());
@@ -211,7 +223,14 @@ public:
 
     QString rootPath() const { return temporaryRoot.path(); }
 
-    QTemporaryDir                   temporaryRoot;
+    QTemporaryDir temporaryRoot;
+
+    // Declared in dependency order: the folder resolution is built from the
+    // vessel repository, and the service from the resolution, and C++
+    // initialises members in the order they are declared.
+    VesselRepository      vessels;
+    VesselAttachmentRoots roots;
+
     CertificateAttachmentRepository repository;
     CertificateAttachmentStorage    storage;
     CertificateAttachmentService    service;

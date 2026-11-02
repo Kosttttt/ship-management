@@ -28,6 +28,8 @@ add_ship_test(tst_VesselEditForm         app/tst_VesselEditForm.cpp ShipApp)
 add_ship_test(tst_AppSettingRepository  core/tst_AppSettingRepository.cpp)
 add_ship_test(tst_ManagedFileStore      core/tst_ManagedFileStore.cpp)
 add_ship_test(tst_SettingsPage          app/tst_SettingsPage.cpp ShipApp)
+add_ship_test(tst_VesselAttachmentRoots core/tst_VesselAttachmentRoots.cpp)
+add_ship_test(tst_AttachmentFolderSettings app/tst_AttachmentFolderSettings.cpp ShipApp)
 
 add_ship_test(tst_ModuleRegistry        app/tst_ModuleRegistry.cpp ShipApp)
 add_ship_test(tst_Alerts                app/tst_Alerts.cpp ShipApp ShipCertificates)
@@ -54,6 +56,8 @@ add_ship_test(tst_CertificateExtension
     modules/certificates/tst_CertificateExtension.cpp ShipCertificates)
 add_ship_test(tst_CertificateAttachment
     modules/certificates/tst_CertificateAttachment.cpp ShipCertificates)
+add_ship_test(tst_CertificateAttachmentFolders
+    modules/certificates/tst_CertificateAttachmentFolders.cpp ShipCertificates)
 
 add_ship_test(tst_CertificateStateExpiry
     modules/certificates/tst_CertificateStateExpiry.cpp ShipCertificates)
@@ -81,5 +85,8 @@ ship_add_migrations(tst_CertificateListStatus)
 ship_add_migrations(tst_CertificateRenewal)
 ship_add_migrations(tst_CertificateExtension)
 ship_add_migrations(tst_CertificateAttachment)
+ship_add_migrations(tst_CertificateAttachmentFolders)
+ship_add_migrations(tst_VesselAttachmentRoots)
+ship_add_migrations(tst_AttachmentFolderSettings)
 ship_add_migrations(tst_EndorsementRepository)
 ship_add_migrations(tst_EndorsementUi)

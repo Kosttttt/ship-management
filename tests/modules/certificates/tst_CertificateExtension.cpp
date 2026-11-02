@@ -74,7 +74,9 @@ private:
     }
 
     // Column indexes, matching the enum inside CertificateListWidget.cpp.
-    enum Column { Status = 2, Expiry = 3, SurveyFrom = 4, SurveyTo = 5 };
+    // Shifted by one by certificate-attachment-addendum-spec §5, which puts
+    // Issue Date back between Name and Status.
+    enum Column { Status = 3, Expiry = 4, SurveyFrom = 5, SurveyTo = 6 };
 
     // Drives the extension dialog once it is up. A repeating poll rather than
     // a singleShot, and a scan as well as activeModalWidget(): a widget the
