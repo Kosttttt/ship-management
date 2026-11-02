@@ -138,6 +138,11 @@ CertificateState computeCertificateState(const Certificate&          certificate
         state.survey         = SurveySeverity::NotRequired;
         state.nextSurveyType = SurveyType::Renewal;
         state.daysLeft       = today.daysTo(extensionExpiry);
+        // §7 of addendum 2: while an extension is in force it is the document
+        // that matters, so it is also the date an attached file is named
+        // after — consistent with the Expiry column, which already substitutes
+        // it during this window.
+        state.dueDate = extensionExpiry;
 
         state.display = displayFor(state.expiry, state.survey);
         state.isValid = state.expiry != ExpirySeverity::Expired;
@@ -193,12 +198,19 @@ CertificateState computeCertificateState(const Certificate&          certificate
 
         // §4.4: until the window opens, count to the opening; once open (or
         // past), count to the close, which goes negative when overdue.
-        state.daysLeft = (today < reported.window.opens)
-                             ? today.daysTo(reported.window.opens)
-                             : today.daysTo(reported.window.closes);
+        //
+        // dueDate is that same date, named, so that anything else needing to
+        // know "what is next" — the attachment filename, under addendum 2 §7 —
+        // asks rather than guesses. An outstanding window always falls before
+        // expiry (the last anniversary is a year before it), so this is also
+        // the soonest of the three dates §7 lists.
+        state.dueDate  = (today < reported.window.opens) ? reported.window.opens
+                                                         : reported.window.closes;
+        state.daysLeft = today.daysTo(state.dueDate);
     } else {
         // Nothing outstanding: the next action is the renewal before expiry.
         state.nextSurveyType = SurveyType::Renewal;
+        state.dueDate        = certificate.expiryDate;
         state.daysLeft       = today.daysTo(certificate.expiryDate);
     }
 

@@ -1,24 +1,62 @@
 #include "modules/certificates/service/CertificateAttachmentService.h"
 
+#include "core/AppSettingRepository.h"
 #include "core/VesselAttachmentRoots.h"
 #include "modules/certificates/data/CertificateAttachmentRepository.h"
 #include "modules/certificates/data/CertificateAttachmentStorage.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
+#include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/AttachmentNaming.h"
 #include "modules/certificates/domain/Certificate.h"
+#include "modules/certificates/domain/CertificateState.h"
 
 #include <optional>
 
 CertificateAttachmentService::CertificateAttachmentService(
     CertificateAttachmentRepository& repository, CertificateAttachmentStorage& storage,
-    VesselAttachmentRoots& roots)
+    VesselAttachmentRoots& roots, EndorsementRepository& endorsements,
+    CertificateExtensionRepository& extensions, AppSettingRepository& appSettings)
     : m_repository(repository)
     , m_storage(storage)
     , m_roots(roots)
+    , m_endorsements(endorsements)
+    , m_extensions(extensions)
+    , m_appSettings(appSettings)
 {
 }
 
+QDate CertificateAttachmentService::nameDateFor(const Certificate& certificate)
+{
+    // Each of the three reads below treats a failure as "nothing there", the
+    // same judgment the list screen already makes for an unreadable
+    // endorsement or extension: the file still gets attached, named from
+    // slightly less information.
+    QList<Endorsement> endorsements;
+    m_endorsements.list(certificate.id, &endorsements);
+
+    std::optional<CertificateExtension> extension;
+    m_extensions.findActiveFor(certificate.id, &extension);
+    const std::optional<QDate> extensionExpiry =
+        extension.has_value() ? std::optional<QDate>(extension->expiryDate) : std::nullopt;
+
+    AppSetting      setting;
+    AlertThresholds thresholds;
+    if (m_appSettings.read(&setting)) {
+        thresholds.criticalDays     = setting.criticalDays;
+        thresholds.expiringSoonDays = setting.expiringSoonDays;
+        thresholds.dueSoonDays      = setting.dueSoonDays;
+    }
+
+    const CertificateState state = computeCertificateState(
+        certificate, endorsements, thresholds, QDate::currentDate(), extensionExpiry);
+
+    // Invalid only for a certificate that never expires and has no extension,
+    // which has no date in its filename either way — so handing the invalid
+    // date straight to buildName() is correct rather than a gap.
+    return state.dueDate.isValid() ? state.dueDate : certificate.expiryDate;
+}
+
 bool CertificateAttachmentService::replaceCurrent(const Certificate& certificate,
-                                                  const QDate&       expiryDateForName,
                                                   const QString&     sourcePath,
                                                   bool               sourceIsFolder)
 {
@@ -42,7 +80,8 @@ bool CertificateAttachmentService::replaceCurrent(const Certificate& certificate
     }
 
     const QString desiredName = AttachmentNaming::withExtensionFrom(
-        AttachmentNaming::buildName(certificate, expiryDateForName, /*isShortTerm=*/false),
+        AttachmentNaming::buildName(certificate, nameDateFor(certificate),
+                                    /*isShortTerm=*/false),
         sourcePath, sourceIsFolder);
 
     // Step 2: the filesystem work, before the database write. A failure here
@@ -97,8 +136,64 @@ bool CertificateAttachmentService::addExtensionDocument(const Certificate& certi
                                           relativePathOut, &m_errorString);
 }
 
-QString CertificateAttachmentService::currentAbsolutePath(const QString& vesselId,
-                                                          const QString& certificateId)
+bool CertificateAttachmentService::deleteCurrent(const Certificate& certificate)
+{
+    m_errorString.clear();
+
+    std::optional<CertificateAttachment> current;
+    if (!m_repository.findActiveFor(certificate.id, &current)) {
+        m_errorString = m_repository.errorString();
+        return false;
+    }
+    if (!current.has_value()) {
+        return true; // nothing attached: nothing to do, and not a failure
+    }
+
+    // Found before the row is retired, because afterwards there is nothing
+    // left to say which file this was.
+    const QString relativePath = current->relativePath;
+
+    // The row first (§4's ordering): a failure here must not find the file
+    // already gone, so the action stays safe to repeat.
+    if (!m_repository.detach(certificate.id)) {
+        m_errorString = m_repository.errorString();
+        return false;
+    }
+
+    // And now the file itself, for good. The return value is deliberately
+    // ignored: a failure leaves its message in errorString() for the caller to
+    // surface, but does not put the row back. The certificate shows no
+    // document, which is what was asked for, and a leftover file is a smaller
+    // problem than a row claiming a document the user has been told is gone.
+    deleteStoredFile(certificate.vesselId, relativePath);
+
+    return true;
+}
+
+bool CertificateAttachmentService::deleteStoredFile(const QString& vesselId,
+                                                    const QString& relativePath)
+{
+    m_errorString.clear();
+
+    if (relativePath.isEmpty()) {
+        return true; // nothing recorded, nothing to delete
+    }
+
+    // Where the file actually is, not where a new one would go: a document
+    // stored before the per-vessel addendum sits under the installation's own
+    // folder, and must be deleted from there (§2.2).
+    const QString root = m_roots.rootHolding(vesselId, relativePath);
+    if (root.isEmpty()) {
+        return true; // already gone from everywhere this knows to look
+    }
+
+    if (!m_storage.deleteStored(root, relativePath, &m_errorString)) {
+        return false;
+    }
+    return true;
+}
+
+QString CertificateAttachmentService::currentRelativePath(const QString& certificateId)
 {
     m_errorString.clear();
 
@@ -107,13 +202,20 @@ QString CertificateAttachmentService::currentAbsolutePath(const QString& vesselI
         m_errorString = m_repository.errorString();
         return QString();
     }
-    if (!current.has_value()) {
+    return current.has_value() ? current->relativePath : QString();
+}
+
+QString CertificateAttachmentService::currentAbsolutePath(const QString& vesselId,
+                                                          const QString& certificateId)
+{
+    const QString relativePath = currentRelativePath(certificateId);
+    if (relativePath.isEmpty()) {
         return QString();
     }
 
     // The stored path is relative; this is the one place it becomes absolute,
     // and only so that something can be opened with it.
-    return m_roots.resolveForOpening(vesselId, current->relativePath);
+    return m_roots.resolveForOpening(vesselId, relativePath);
 }
 
 QString CertificateAttachmentService::errorString() const

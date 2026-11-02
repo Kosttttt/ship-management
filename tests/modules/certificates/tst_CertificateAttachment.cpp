@@ -40,6 +40,9 @@ private slots:
     void theReplacedRowAndItsFileBothSurvive();                // 8
     void theStoredPathIsRelativeAndFollowsTheRoot();           // 9
 
+    // certificate-attachment-addendum-2-spec §3.1 and §3.2.
+    void twoCertificatesShareOneFolderAndOneArchive();
+
     // §6, the pure naming function.
     void theNameIsNumberThenNameThenDate();
     void aShortTermNameSaysSoBeforeTheDate();
@@ -157,14 +160,14 @@ void TestCertificateAttachment::attachingAFileForTheFirstTimeStoresTheRowAndTheF
     const QString source = sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one"));
     QVERIFY(!source.isEmpty());
 
-    QVERIFY2(attachments.service.replaceCurrent(certificate, certificate.expiryDate, source,
+    QVERIFY2(attachments.service.replaceCurrent(certificate, source,
                                                 /*sourceIsFolder=*/false),
              qPrintable(attachments.service.errorString()));
 
-    // §4: directly under attachments/<certificateId>/, named per §6, keeping
+    // addendum 2 §3.1: directly in the vessel's folder, named per §6, keeping
     // the original extension.
     const QString stored = activePathOf(db, certificate.id);
-    QCOMPARE(stored, QStringLiteral("attachments/c1/%1.pdf").arg(expectedBaseName()));
+    QCOMPARE(stored, QStringLiteral("%1.pdf").arg(expectedBaseName()));
 
     QCOMPARE(rowCountOf(db, QStringLiteral("certificate_attachment")), 1);
 
@@ -181,13 +184,13 @@ void TestCertificateAttachment::attachingASecondFileArchivesTheFirst()
     AttachmentFixture attachments(db, officeContext());
 
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("old.pdf"), QStringLiteral("the old document")), false));
 
     const QString firstPath = activePathOf(db, certificate.id);
 
     QVERIFY2(attachments.service.replaceCurrent(
-                 certificate, certificate.expiryDate,
+                 certificate,
                  sourceFile(QStringLiteral("new.pdf"), QStringLiteral("the new document")), false),
              qPrintable(attachments.service.errorString()));
 
@@ -203,12 +206,17 @@ void TestCertificateAttachment::attachingASecondFileArchivesTheFirst()
 
     // And the old file is physically in the archive, not gone.
     const QDir archive(
-        QDir(attachments.rootPath()).filePath(QStringLiteral("attachments/c1/archive")));
+        QDir(attachments.rootPath()).filePath(QStringLiteral("archive")));
     const QStringList archived = archive.entryList(QDir::Files);
     QCOMPARE(archived.size(), 1);
     QVERIFY2(archived.first().startsWith(expectedBaseName()), qPrintable(archived.first()));
     QVERIFY2(archived.first().contains(QStringLiteral("__archived-")),
              qPrintable(archived.first()));
+
+    // addendum 2 §9 case 1: still a .pdf, so it opens from a file browser. The
+    // marker goes before the extension, not after it (§2).
+    QVERIFY2(archived.first().endsWith(QStringLiteral(".pdf")), qPrintable(archived.first()));
+
     QCOMPARE(readFile(archive.filePath(archived.first())), QStringLiteral("the old document"));
 }
 
@@ -222,13 +230,13 @@ void TestCertificateAttachment::attachingAFolderWorksTheSameWay()
     const QString source = sourceFolder(QStringLiteral("survey pack"));
     QVERIFY(!source.isEmpty());
 
-    QVERIFY2(attachments.service.replaceCurrent(certificate, certificate.expiryDate, source,
+    QVERIFY2(attachments.service.replaceCurrent(certificate, source,
                                                 /*sourceIsFolder=*/true),
              qPrintable(attachments.service.errorString()));
 
     // The folder is renamed; no extension, because it is a folder (§2).
     const QString stored = activePathOf(db, certificate.id);
-    QCOMPARE(stored, QStringLiteral("attachments/c1/%1").arg(expectedBaseName()));
+    QCOMPARE(stored, QStringLiteral("%1").arg(expectedBaseName()));
 
     const QDir copied(QDir(attachments.rootPath()).filePath(stored));
     QVERIFY(copied.exists());
@@ -249,28 +257,28 @@ void TestCertificateAttachment::replacingAFileWithAFolderAndBackArchivesEither()
     AttachmentFixture attachments(db, officeContext());
 
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("first.pdf"), QStringLiteral("a file")), false));
 
     // File replaced by a folder.
-    QVERIFY2(attachments.service.replaceCurrent(certificate, certificate.expiryDate,
+    QVERIFY2(attachments.service.replaceCurrent(certificate,
                                                 sourceFolder(QStringLiteral("pack")), true),
              qPrintable(attachments.service.errorString()));
     QCOMPARE(activePathOf(db, certificate.id),
-             QStringLiteral("attachments/c1/%1").arg(expectedBaseName()));
+             QStringLiteral("%1").arg(expectedBaseName()));
 
     // Folder replaced by a file.
     QVERIFY2(attachments.service.replaceCurrent(
-                 certificate, certificate.expiryDate,
+                 certificate,
                  sourceFile(QStringLiteral("third.pdf"), QStringLiteral("a file again")), false),
              qPrintable(attachments.service.errorString()));
     QCOMPARE(activePathOf(db, certificate.id),
-             QStringLiteral("attachments/c1/%1.pdf").arg(expectedBaseName()));
+             QStringLiteral("%1.pdf").arg(expectedBaseName()));
 
     // Both of the retired ones are in the archive, one a file and one a
     // folder, and the mechanism never had to know which it was dealing with.
     const QDir archive(
-        QDir(attachments.rootPath()).filePath(QStringLiteral("attachments/c1/archive")));
+        QDir(attachments.rootPath()).filePath(QStringLiteral("archive")));
     QCOMPARE(archive.entryList(QDir::Files).size(), 1);
     QCOMPARE(archive.entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 1);
 
@@ -290,7 +298,7 @@ void TestCertificateAttachment::theCurrentAttachmentResolvesForAFileAndAFolder()
         certificate.vesselId, certificate.id), QString());
 
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     const QString asAFile = attachments.service.currentAbsolutePath(
@@ -298,7 +306,7 @@ void TestCertificateAttachment::theCurrentAttachmentResolvesForAFileAndAFolder()
     QVERIFY(QDir::isAbsolutePath(asAFile));
     QVERIFY(QFileInfo(asAFile).isFile());
 
-    QVERIFY(attachments.service.replaceCurrent(certificate, certificate.expiryDate,
+    QVERIFY(attachments.service.replaceCurrent(certificate,
                                                sourceFolder(QStringLiteral("pack")), true));
 
     const QString asAFolder = attachments.service.currentAbsolutePath(
@@ -318,7 +326,7 @@ void TestCertificateAttachment::anExtensionDocumentIsIndependentOfTheCertificate
 
     // The certificate's own document first.
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("real.pdf"), QStringLiteral("the real certificate")), false));
     const QString certificatePath = activePathOf(db, certificate.id);
 
@@ -333,7 +341,7 @@ void TestCertificateAttachment::anExtensionDocumentIsIndependentOfTheCertificate
              qPrintable(attachments.service.errorString()));
 
     QCOMPARE(extensionDocument,
-             QStringLiteral("attachments/c1/extensions/15D_Safety_Construction_ShortTerm_"
+             QStringLiteral("15D_Safety_Construction_ShortTerm_"
                             "2027-03-01.pdf"));
 
     CertificateExtension extension;
@@ -357,9 +365,10 @@ void TestCertificateAttachment::anExtensionDocumentIsIndependentOfTheCertificate
     QVERIFY(QFileInfo::exists(QDir(attachments.rootPath()).filePath(extensionDocument)));
 
     // And replacing the certificate's own document leaves the extension's
-    // where it was — the archive step never looks inside extensions/.
+    // where it was: the two have different names, which under the flat layout
+    // is the whole of what keeps them apart (addendum 2 §3.1).
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("renewed.pdf"), QStringLiteral("the renewed one")), false));
     QVERIFY(QFileInfo::exists(QDir(attachments.rootPath()).filePath(extensionDocument)));
 }
@@ -380,7 +389,7 @@ void TestCertificateAttachment::vesselScopeRefusesAnotherVesselsCertificate()
     // Asked of the repository directly: the write is refused with a message,
     // not silently allowed.
     QVERIFY2(!attachments.repository.attach(QStringLiteral("c1"),
-                                            QStringLiteral("attachments/c1/anything.pdf")),
+                                            QStringLiteral("anything.pdf")),
              "another vessel's certificate must be refused");
     QVERIFY2(attachments.repository.errorString().contains(QStringLiteral("its own vessel")),
              qPrintable(attachments.repository.errorString()));
@@ -392,7 +401,7 @@ void TestCertificateAttachment::vesselScopeRefusesAnotherVesselsCertificate()
     // they load the certificate through CertificateRepository, which applies
     // the same scope filter before any of this is offered.
     QVERIFY(!attachments.service.replaceCurrent(
-        certificate, QDate(2027, 6, 1),
+        certificate,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     // Nothing was recorded either way.
@@ -408,10 +417,10 @@ void TestCertificateAttachment::theReplacedRowAndItsFileBothSurvive()
     AttachmentFixture attachments(db, officeContext());
 
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("old.pdf"), QStringLiteral("the old document")), false));
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("new.pdf"), QStringLiteral("the new document")), false));
 
     // The retired row is soft-deleted, not removed, and its revision moved on
@@ -426,7 +435,7 @@ void TestCertificateAttachment::theReplacedRowAndItsFileBothSurvive()
 
     // Its file survives under archive/ with the disambiguating suffix.
     const QDir archive(
-        QDir(attachments.rootPath()).filePath(QStringLiteral("attachments/c1/archive")));
+        QDir(attachments.rootPath()).filePath(QStringLiteral("archive")));
     QCOMPARE(archive.entryList(QDir::Files).size(), 1);
     QCOMPARE(readFile(archive.filePath(archive.entryList(QDir::Files).first())),
              QStringLiteral("the old document"));
@@ -442,7 +451,7 @@ void TestCertificateAttachment::theStoredPathIsRelativeAndFollowsTheRoot()
     AttachmentFixture attachments(db, officeContext());
 
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     const QString stored = activePathOf(db, certificate.id);
@@ -473,6 +482,77 @@ void TestCertificateAttachment::theStoredPathIsRelativeAndFollowsTheRoot()
     // Put it back, because the fixture is about to be asked to clean up after
     // the folder it actually created.
     ManagedFileStore::setRootPathOverride(attachments.rootPath());
+}
+
+// addendum 2 §3.1 and §3.2: everything in the vessel's folder, told apart by
+// its own generated name, with one archive shared by every certificate on the
+// vessel. The per-certificate subfolder is gone, so the names are all there is.
+void TestCertificateAttachment::twoCertificatesShareOneFolderAndOneArchive()
+{
+    QSqlDatabase db = database();
+
+    const Certificate first = seedTheCertificate(QStringLiteral("c1"));
+
+    seedCertificateWithSchedule(db, QStringLiteral("c2"), QStringLiteral("v1"),
+                                QStringLiteral("Load Line"), QStringLiteral("7"),
+                                QDate(2022, 6, 1), QDate(2028, 3, 1),
+                                /*requiresAnnual=*/false);
+
+    const InstallationContext  context = officeContext();
+    CertificateRepository      certificates(db, context);
+    std::optional<Certificate> loaded;
+    QVERIFY(certificates.findById(QStringLiteral("c2"), &loaded));
+    QVERIFY(loaded.has_value());
+    const Certificate second = *loaded;
+
+    AttachmentFixture attachments(db, context);
+
+    // Both attached, then both replaced, so each has one live file and one
+    // archived.
+    for (const Certificate& certificate : {first, second}) {
+        QVERIFY2(attachments.service.replaceCurrent(
+                     certificate,
+                     sourceFile(QStringLiteral("old-%1.pdf").arg(certificate.id),
+                                QStringLiteral("old")),
+                     false),
+                 qPrintable(attachments.service.errorString()));
+        QVERIFY2(attachments.service.replaceCurrent(
+                     certificate,
+                     sourceFile(QStringLiteral("new-%1.pdf").arg(certificate.id),
+                                QStringLiteral("new")),
+                     false),
+                 qPrintable(attachments.service.errorString()));
+    }
+
+    // Side by side in the vessel's folder, with nothing above them.
+    QCOMPARE(activePathOf(db, QStringLiteral("c1")),
+             QStringLiteral("15D_Safety_Construction_2027-06-01.pdf"));
+    QCOMPARE(activePathOf(db, QStringLiteral("c2")), QStringLiteral("7_Load_Line_2028-03-01.pdf"));
+
+    const QDir folder(attachments.rootPath());
+    QCOMPARE(folder.entryList(QDir::Files).size(), 2);
+
+    // One archive, holding both retired documents (§3.2). Told apart by their
+    // own prefixes, which are already unique within one vessel.
+    QCOMPARE(folder.entryList(QDir::Dirs | QDir::NoDotAndDotDot),
+             QStringList({QStringLiteral("archive")}));
+
+    const QDir        archive(folder.filePath(QStringLiteral("archive")));
+    const QStringList archived = archive.entryList(QDir::Files);
+    QCOMPARE(archived.size(), 2);
+
+    int fromFirst  = 0;
+    int fromSecond = 0;
+    for (const QString& name : archived) {
+        QVERIFY2(name.endsWith(QStringLiteral(".pdf")), qPrintable(name));
+        if (name.startsWith(QStringLiteral("15D_Safety_Construction_"))) {
+            ++fromFirst;
+        } else if (name.startsWith(QStringLiteral("7_Load_Line_"))) {
+            ++fromSecond;
+        }
+    }
+    QCOMPARE(fromFirst, 1);
+    QCOMPARE(fromSecond, 1);
 }
 
 // §6.
@@ -616,7 +696,7 @@ void TestCertificateAttachment::openIsOfferedOnlyWhenSomethingIsAttached()
              "nothing attached: Open is a question with no useful answer");
 
     QVERIFY(attachments.service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     // The list reloads after an attach, which is what re-reads this.

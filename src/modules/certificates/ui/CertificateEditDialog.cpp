@@ -5,36 +5,14 @@
 #include "modules/certificates/service/CertificateAttachmentService.h"
 #include "modules/certificates/ui/AttachmentSourceField.h"
 #include "modules/certificates/ui/CertificateEditForm.h"
-#include "modules/certificates/ui/EndorsementEditDialog.h"
+#include "modules/certificates/ui/EndorsementSection.h"
 
+#include <QDebug>
 #include <QDialogButtonBox>
 #include <QGroupBox>
-#include <QHeaderView>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QTableWidget>
 #include <QVBoxLayout>
-
-namespace {
-
-QString surveyTypeLabel(SurveyType type)
-{
-    switch (type) {
-    case SurveyType::Annual:
-        return CertificateEditDialog::tr("Annual");
-    case SurveyType::Intermediate:
-        return CertificateEditDialog::tr("Intermediate");
-    case SurveyType::Initial:
-        return CertificateEditDialog::tr("Initial");
-    case SurveyType::Renewal:
-        return CertificateEditDialog::tr("Renewal");
-    case SurveyType::Unset:
-        break;
-    }
-    return QString();
-}
-
-} // namespace
 
 CertificateEditDialog::CertificateEditDialog(CertificateRepository&            repository,
                                              EndorsementRepository&            endorsements,
@@ -91,7 +69,9 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
     // the new one, which has no anniversaries until the new dates are saved
     // (certificate-renewal-spec §6).
     if (m_isEditing && !m_isRenewal && (m_requiresAnnual || m_requiresIntermediate)) {
-        layout->addWidget(buildEndorsementsSection(*existing), 0);
+        layout->addWidget(
+            new EndorsementSection(m_endorsements, m_certificateId, allowedSurveyTypes(), this),
+            0);
     }
 
     // certificate-attachment-addendum-spec §3: offered in all three modes.
@@ -125,37 +105,6 @@ QList<SurveyType> CertificateEditDialog::allowedSurveyTypes() const
     return types;
 }
 
-QGroupBox* CertificateEditDialog::buildEndorsementsSection(const Certificate& certificate)
-{
-    Q_UNUSED(certificate)
-
-    auto* group = new QGroupBox(tr("Endorsements"), this);
-    group->setObjectName(QStringLiteral("endorsementsSection"));
-
-    m_endorsementTable = new QTableWidget(group);
-    m_endorsementTable->setObjectName(QStringLiteral("endorsementTable"));
-    m_endorsementTable->setColumnCount(3);
-    m_endorsementTable->setHorizontalHeaderLabels({tr("Type"), tr("Date"), tr("Place")});
-    m_endorsementTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_endorsementTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_endorsementTable->verticalHeader()->setVisible(false);
-    m_endorsementTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_endorsementTable->setMaximumHeight(120);
-    m_endorsementTable->setMinimumHeight(90);
-
-    auto* addButton = new QPushButton(tr("Add &Endorsement"), group);
-    addButton->setObjectName(QStringLiteral("addEndorsementButton"));
-
-    auto* groupLayout = new QVBoxLayout(group);
-    groupLayout->addWidget(m_endorsementTable);
-    groupLayout->addWidget(addButton, 0, Qt::AlignLeft);
-
-    connect(addButton, &QPushButton::clicked, this, &CertificateEditDialog::addEndorsement);
-
-    reloadEndorsements();
-    return group;
-}
-
 QGroupBox* CertificateEditDialog::buildAttachmentSection()
 {
     auto* group = new QGroupBox(tr("Attached document"), this);
@@ -184,11 +133,11 @@ void CertificateEditDialog::replaceAttachmentIfChosen(const Certificate& saved)
         return; // left alone: nothing about the attachment changes
     }
 
-    // saved.expiryDate is the right date in all three modes, because it comes
-    // from the row that was just written: the new date on a renewal, and the
-    // unchanged one on an ordinary edit or an addition (§3).
-    if (!m_attachments.replaceCurrent(saved, saved.expiryDate,
-                                      m_attachmentSource->sourcePath(),
+    // `saved` is the row as it now stands — the new dates on a renewal, the
+    // unchanged ones on an ordinary edit, and the just-created row on an
+    // addition — which is everything the service needs to work out both the
+    // name and the date it carries (addendum 2 §7).
+    if (!m_attachments.replaceCurrent(saved, m_attachmentSource->sourcePath(),
                                       m_attachmentSource->sourceIsFolder())) {
         qWarning() << "Could not attach the document to this certificate:"
                    << m_attachments.errorString();
@@ -200,39 +149,6 @@ void CertificateEditDialog::replaceAttachmentIfChosen(const Certificate& saved)
         // Still accept, exactly as a failed survey clear does: the certificate
         // itself was written, and keeping the dialog open would invite a second
         // write of data already stored.
-    }
-}
-
-void CertificateEditDialog::reloadEndorsements()
-{
-    if (m_endorsementTable == nullptr) {
-        return;
-    }
-
-    QList<Endorsement> endorsements;
-    if (!m_endorsements.list(m_certificateId, &endorsements)) {
-        qWarning() << "Could not load endorsements:" << m_endorsements.errorString();
-        return;
-    }
-
-    m_endorsementTable->setRowCount(endorsements.size());
-    for (int row = 0; row < endorsements.size(); ++row) {
-        const Endorsement& endorsement = endorsements.at(row);
-        m_endorsementTable->setItem(row, 0,
-                                    new QTableWidgetItem(surveyTypeLabel(endorsement.surveyType)));
-        m_endorsementTable->setItem(
-            row, 1,
-            new QTableWidgetItem(
-                endorsement.endorsementDate.toString(QStringLiteral("dd MMM yyyy"))));
-        m_endorsementTable->setItem(row, 2, new QTableWidgetItem(endorsement.place));
-    }
-}
-
-void CertificateEditDialog::addEndorsement()
-{
-    EndorsementEditDialog dialog(m_endorsements, m_certificateId, allowedSurveyTypes(), this);
-    if (dialog.exec() == QDialog::Accepted) {
-        reloadEndorsements();
     }
 }
 

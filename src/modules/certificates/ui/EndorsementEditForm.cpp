@@ -38,10 +38,10 @@ EndorsementEditForm::EndorsementEditForm(const QString&           certificateId,
 
     if (allowedTypes.size() == 1) {
         // One option is not a choice: the type is fixed and simply shown.
-        m_onlyType = allowedTypes.first();
-        auto* fixed = new QLabel(labelFor(m_onlyType), this);
-        fixed->setObjectName(QStringLiteral("fixedSurveyTypeLabel"));
-        layout->addRow(tr("Survey type:"), fixed);
+        m_onlyType  = allowedTypes.first();
+        m_typeLabel = new QLabel(labelFor(m_onlyType), this);
+        m_typeLabel->setObjectName(QStringLiteral("fixedSurveyTypeLabel"));
+        layout->addRow(tr("Survey type:"), m_typeLabel);
     } else {
         m_typeCombo = new QComboBox(this);
         m_typeCombo->setObjectName(QStringLiteral("surveyTypeCombo"));
@@ -80,9 +80,54 @@ EndorsementEditForm::EndorsementEditForm(const QString&           certificateId,
     layout->addRow(tr("Re&marks:"), m_remarksEdit);
 }
 
+void EndorsementEditForm::setEndorsement(const Endorsement& endorsement)
+{
+    m_endorsementId = endorsement.id;
+    if (!endorsement.certificateId.isEmpty()) {
+        m_certificateId = endorsement.certificateId;
+    }
+
+    if (m_typeCombo == nullptr) {
+        // Built with one allowed type, so there is nothing to choose. The
+        // stored type can still differ from it — the requirement was unticked
+        // after the survey was recorded — and when it does, the stored type
+        // wins and the label is corrected to say so. Leaving the label reading
+        // "Annual survey" over an intermediate row would be a quiet lie about
+        // what happened.
+        if (endorsement.surveyType != SurveyType::Unset) {
+            m_onlyType = endorsement.surveyType;
+            if (m_typeLabel != nullptr) {
+                m_typeLabel->setText(labelFor(m_onlyType));
+            }
+        }
+    } else {
+        int index = m_typeCombo->findData(static_cast<int>(endorsement.surveyType));
+        if (index < 0 && endorsement.surveyType != SurveyType::Unset) {
+            // A type the certificate no longer requires. Offered rather than
+            // dropped: editing the place a survey happened must not quietly
+            // change which survey it was.
+            m_typeCombo->addItem(labelFor(endorsement.surveyType),
+                                 static_cast<int>(endorsement.surveyType));
+            index = m_typeCombo->count() - 1;
+        }
+        m_typeCombo->setCurrentIndex(index);
+    }
+
+    if (endorsement.endorsementDate.isValid()) {
+        m_dateEdit->setDate(endorsement.endorsementDate);
+    }
+    m_placeEdit->setText(endorsement.place);
+    m_surveyorEdit->setText(endorsement.surveyor);
+    m_resultEdit->setText(endorsement.result);
+    m_remarksEdit->setPlainText(endorsement.remarks);
+
+    emit validityChanged(isValid());
+}
+
 Endorsement EndorsementEditForm::endorsement() const
 {
     Endorsement endorsement;
+    endorsement.id            = m_endorsementId;
     endorsement.certificateId = m_certificateId;
 
     if (m_typeCombo == nullptr) {

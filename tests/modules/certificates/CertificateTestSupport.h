@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "core/ManagedFileStore.h"
 #include "core/MigrationRunner.h"
@@ -7,6 +8,8 @@
 #include "core/VesselRepository.h"
 #include "modules/certificates/data/CertificateAttachmentRepository.h"
 #include "modules/certificates/data/CertificateAttachmentStorage.h"
+#include "modules/certificates/data/CertificateExtensionRepository.h"
+#include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/Certificate.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
 
@@ -205,8 +208,11 @@ public:
     AttachmentFixture(QSqlDatabase& db, const InstallationContext& installation)
         : vessels(db, installation)
         , roots(vessels)
+        , endorsements(db, installation)
+        , extensions(db, installation)
+        , appSettings(db)
         , repository(db, installation)
-        , service(repository, storage, roots)
+        , service(repository, storage, roots, endorsements, extensions, appSettings)
     {
         QVERIFY2(temporaryRoot.isValid(), "could not create a temporary managed data folder");
         ManagedFileStore::setRootPathOverride(temporaryRoot.path());
@@ -230,6 +236,15 @@ public:
     // initialises members in the order they are declared.
     VesselRepository      vessels;
     VesselAttachmentRoots roots;
+
+    // The service reads these three only to work out which date an attached
+    // file's name should carry (certificate-attachment-addendum-2-spec §7):
+    // the certificate's expiry, or a nearer survey window, or an active
+    // extension's own expiry. Bundled here so that every suite holding a
+    // fixture gets the same answer the list screen would show.
+    EndorsementRepository          endorsements;
+    CertificateExtensionRepository extensions;
+    AppSettingRepository           appSettings;
 
     CertificateAttachmentRepository repository;
     CertificateAttachmentStorage    storage;

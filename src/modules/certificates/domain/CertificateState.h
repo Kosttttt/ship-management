@@ -73,6 +73,21 @@ struct CertificateState {
     // counts to has already passed.
     int daysLeft = 0;
 
+    // The calendar date daysLeft above counts to — the one thing that needs
+    // attention next. Set in exactly the same places daysLeft is, and never
+    // anywhere else, which is what keeps the two from disagreeing.
+    //
+    // Invalid only when there is nothing to count to at all: a certificate
+    // that never expires and has no active extension.
+    //
+    // certificate-attachment-addendum-2-spec §7 is why this is a field rather
+    // than something each caller re-derives. An attached file is named after
+    // whichever of the expiry date, the next annual window and the next
+    // intermediate window is soonest, and that is precisely the date the Days
+    // Left column already counts to. Deriving it a second time elsewhere would
+    // be a second answer free to drift from the one on screen.
+    QDate dueDate;
+
     // Human-readable, for alerts and tooltips. Also where a survey completed
     // late is recorded (§4.5), rather than on a field of its own.
     QString reason;

@@ -304,6 +304,98 @@ bool CertificateRepository::update(const Certificate& certificate)
     return true;
 }
 
+bool CertificateRepository::softDeleteWithChildren(const QString& id)
+{
+    m_errorString.clear();
+
+    if (id.isEmpty()) {
+        m_errorString = QStringLiteral("No certificate was given to delete.");
+        return false;
+    }
+
+    // Loaded first, both to apply the VESSEL-mode scope filter — findById()
+    // already does, which is why this is asked of it rather than written
+    // again — and to be sure the row is really there before anything is
+    // written.
+    std::optional<Certificate> existing;
+    if (!findById(id, &existing)) {
+        return false;
+    }
+    if (!existing.has_value()) {
+        m_errorString = QStringLiteral("This certificate is no longer in the database.");
+        return false;
+    }
+
+    if (!m_database.transaction()) {
+        m_errorString = QStringLiteral("Could not start a transaction:\n%1")
+                            .arg(m_database.lastError().text());
+        return false;
+    }
+
+    const QString now = nowUtc();
+
+    // The children first, then the parent. The order is not what §4 lists —
+    // it names the certificate first — but it is the order the statements have
+    // to run in, because a child write that looked its parent up would not
+    // find a row already marked deleted. Inside one transaction the two orders
+    // are indistinguishable from outside, and the end state is exactly §4's.
+    const QStringList childTables = {QStringLiteral("endorsement"),
+                                     QStringLiteral("certificate_extension"),
+                                     QStringLiteral("certificate_attachment")};
+
+    for (const QString& table : childTables) {
+        QSqlQuery child(m_database);
+        child.prepare(QStringLiteral("UPDATE %1 SET"
+                                     "  is_deleted = 1, updated_at = ?, updated_by = ?,"
+                                     "  revision = revision + 1"
+                                     " WHERE certificate_id = ? AND is_deleted = 0")
+                          .arg(table));
+        child.addBindValue(now);
+        child.addBindValue(kSystemUser);
+        child.addBindValue(id);
+
+        if (!child.exec()) {
+            m_errorString = QStringLiteral("Could not delete the certificate:\n%1")
+                                .arg(child.lastError().text());
+            m_database.rollback();
+            return false;
+        }
+    }
+
+    QSqlQuery parent(m_database);
+    parent.prepare(QStringLiteral(
+        "UPDATE certificate SET"
+        "  is_deleted = 1, updated_at = ?, updated_by = ?, revision = revision + 1"
+        " WHERE id = ? AND is_deleted = 0"));
+    parent.addBindValue(now);
+    parent.addBindValue(kSystemUser);
+    parent.addBindValue(id);
+
+    if (!parent.exec()) {
+        m_errorString =
+            QStringLiteral("Could not delete the certificate:\n%1").arg(parent.lastError().text());
+        m_database.rollback();
+        return false;
+    }
+
+    if (parent.numRowsAffected() == 0) {
+        // Deleted by something else between the lookup above and here. Nothing
+        // of this transaction is kept, so the children are not orphaned.
+        m_errorString = QStringLiteral("This certificate is no longer in the database.");
+        m_database.rollback();
+        return false;
+    }
+
+    if (!m_database.commit()) {
+        m_errorString =
+            QStringLiteral("Could not delete the certificate:\n%1").arg(m_database.lastError().text());
+        m_database.rollback();
+        return false;
+    }
+
+    return true;
+}
+
 QString CertificateRepository::errorString() const
 {
     return m_errorString;

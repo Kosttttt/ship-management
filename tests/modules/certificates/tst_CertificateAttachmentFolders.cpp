@@ -171,7 +171,11 @@ void TestCertificateAttachmentFolders::attachingToAVesselWithNoFolderIsRefusedWi
     VesselAttachmentRoots        roots(vessels);
     CertificateAttachmentRepository attachments(db, context);
     CertificateAttachmentStorage    storage;
-    CertificateAttachmentService    service(attachments, storage, roots);
+    EndorsementRepository           endorsementRows(db, context);
+    CertificateExtensionRepository  extensionRows(db, context);
+    AppSettingRepository            settings(db);
+    CertificateAttachmentService    service(attachments, storage, roots, endorsementRows,
+                                            extensionRows, settings);
 
     const QString vesselId = unconfiguredVessel(QStringLiteral("9074729"));
     QVERIFY(!vesselId.isEmpty());
@@ -183,7 +187,7 @@ void TestCertificateAttachmentFolders::attachingToAVesselWithNoFolderIsRefusedWi
     const QString source = sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one"));
     QVERIFY(!source.isEmpty());
 
-    QVERIFY2(!service.replaceCurrent(certificate, certificate.expiryDate, source, false),
+    QVERIFY2(!service.replaceCurrent(certificate, source, false),
              "a vessel with no folder must not have anything attached to it");
 
     // The same message, from the same place, which is what makes §7 case 1
@@ -201,7 +205,11 @@ void TestCertificateAttachmentFolders::anExtensionDocumentIsRefusedForTheSameRea
     VesselAttachmentRoots        roots(vessels);
     CertificateAttachmentRepository attachments(db, context);
     CertificateAttachmentStorage    storage;
-    CertificateAttachmentService    service(attachments, storage, roots);
+    EndorsementRepository           endorsementRows(db, context);
+    CertificateExtensionRepository  extensionRows(db, context);
+    AppSettingRepository            settings(db);
+    CertificateAttachmentService    service(attachments, storage, roots, endorsementRows,
+                                            extensionRows, settings);
 
     const QString vesselId = unconfiguredVessel(QStringLiteral("9074729"));
     seedCertificate(db, QStringLiteral("c1"), vesselId, QStringLiteral("Load Line"));
@@ -225,7 +233,11 @@ void TestCertificateAttachmentFolders::nothingIsWrittenAnywhereWhenItIsRefused()
     VesselAttachmentRoots        roots(vessels);
     CertificateAttachmentRepository attachments(db, context);
     CertificateAttachmentStorage    storage;
-    CertificateAttachmentService    service(attachments, storage, roots);
+    EndorsementRepository           endorsementRows(db, context);
+    CertificateExtensionRepository  extensionRows(db, context);
+    AppSettingRepository            settings(db);
+    CertificateAttachmentService    service(attachments, storage, roots, endorsementRows,
+                                            extensionRows, settings);
 
     const QString vesselId = unconfiguredVessel(QStringLiteral("9074729"));
     seedCertificate(db, QStringLiteral("c1"), vesselId, QStringLiteral("Load Line"));
@@ -234,7 +246,7 @@ void TestCertificateAttachmentFolders::nothingIsWrittenAnywhereWhenItIsRefused()
     certificate.id = QStringLiteral("c1");
 
     QVERIFY(!service.replaceCurrent(
-        certificate, certificate.expiryDate,
+        certificate,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     // The refusal happens before anything is read or copied, so there is no
@@ -318,7 +330,11 @@ void TestCertificateAttachmentFolders::attachingToAJustCreatedCertificateUsesIts
     CertificateRepository        certificates(db, context);
     CertificateAttachmentRepository attachments(db, context);
     CertificateAttachmentStorage    storage;
-    CertificateAttachmentService    service(attachments, storage, roots);
+    EndorsementRepository           endorsementRows(db, context);
+    CertificateExtensionRepository  extensionRows(db, context);
+    AppSettingRepository            settings(db);
+    CertificateAttachmentService    service(attachments, storage, roots, endorsementRows,
+                                            extensionRows, settings);
 
     QTemporaryDir folder;
     const QString vesselId = configuredVessel(roots, QStringLiteral("9074729"), folder);
@@ -326,6 +342,10 @@ void TestCertificateAttachmentFolders::attachingToAJustCreatedCertificateUsesIts
 
     Certificate certificate  = sampleCertificate(vesselId, QStringLiteral("Load Line"));
     certificate.listNumber   = QStringLiteral("15D");
+    // No survey requirement, so addendum 2 §7 has nothing nearer than the
+    // expiry date to name the file after. The naming rule itself is exercised
+    // in tst_CertificateAttachmentNaming; this test is about the generated id.
+    certificate.requiresAnnualSurvey = false;
     certificate.expiryDate   = QDate(2031, 2, 4);
 
     QString createdId;
@@ -336,19 +356,22 @@ void TestCertificateAttachmentFolders::attachingToAJustCreatedCertificateUsesIts
     certificate.id = createdId;
 
     QVERIFY2(service.replaceCurrent(
-                 certificate, certificate.expiryDate,
+                 certificate,
                  sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false),
              qPrintable(service.errorString()));
 
     // Named from the certificate's own number, name and expiry, and filed
     // under the id that did not exist a moment ago.
     const QString stored = activePathOf(db, createdId);
-    QCOMPARE(stored, QStringLiteral("attachments/%1/15D_Load_Line_2031-02-04.pdf").arg(createdId));
+    QCOMPARE(stored, QStringLiteral("15D_Load_Line_2031-02-04.pdf"));
     QVERIFY(QFileInfo::exists(QDir(folder.path()).filePath(stored)));
 }
 
-// §7 case 7: an ordinary edit is not a renewal, so the name carries the expiry
-// date the certificate already has rather than a new one.
+// §7 case 7: an ordinary edit is not a renewal, so the name carries the dates
+// the certificate already has rather than a new expiry. With no survey
+// requirement, addendum 2 §7 leaves that as the expiry date itself; which date
+// wins when a survey window is nearer is tst_CertificateAttachmentNaming's
+// subject.
 void TestCertificateAttachmentFolders::anOrdinaryEditNamesTheFileFromTheExistingExpiry()
 {
     QSqlDatabase                 db      = database();
@@ -357,7 +380,11 @@ void TestCertificateAttachmentFolders::anOrdinaryEditNamesTheFileFromTheExisting
     VesselAttachmentRoots        roots(vessels);
     CertificateAttachmentRepository attachments(db, context);
     CertificateAttachmentStorage    storage;
-    CertificateAttachmentService    service(attachments, storage, roots);
+    EndorsementRepository           endorsementRows(db, context);
+    CertificateExtensionRepository  extensionRows(db, context);
+    AppSettingRepository            settings(db);
+    CertificateAttachmentService    service(attachments, storage, roots, endorsementRows,
+                                            extensionRows, settings);
 
     QTemporaryDir folder;
     const QString vesselId = configuredVessel(roots, QStringLiteral("9074729"), folder);
@@ -366,17 +393,18 @@ void TestCertificateAttachmentFolders::anOrdinaryEditNamesTheFileFromTheExisting
     Certificate certificate = sampleCertificate(vesselId, QStringLiteral("Load Line"));
     certificate.id          = QStringLiteral("c1");
     certificate.listNumber  = QStringLiteral("15D");
+    certificate.requiresAnnualSurvey = false;
     certificate.expiryDate  = QDate(2031, 2, 4);
 
     // Exactly what CertificateEditDialog passes outside renewal mode: the
-    // saved row's own expiry date.
+    // saved row as it now stands.
     QVERIFY2(service.replaceCurrent(
-                 certificate, certificate.expiryDate,
+                 certificate,
                  sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false),
              qPrintable(service.errorString()));
 
     QCOMPARE(activePathOf(db, QStringLiteral("c1")),
-             QStringLiteral("attachments/c1/15D_Load_Line_2031-02-04.pdf"));
+             QStringLiteral("15D_Load_Line_2031-02-04.pdf"));
 }
 
 void TestCertificateAttachmentFolders::theDocumentColumnMarksOnlyTheRowsThatHaveOne()
@@ -403,7 +431,7 @@ void TestCertificateAttachmentFolders::theDocumentColumnMarksOnlyTheRowsThatHave
                                                  QStringLiteral("With Document"));
     withDocument.id          = QStringLiteral("c1");
     QVERIFY(attachments.service.replaceCurrent(
-        withDocument, withDocument.expiryDate,
+        withDocument,
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
@@ -529,7 +557,11 @@ void TestCertificateAttachmentFolders::movingTheVesselsFolderLeavesTheStoredPath
     VesselAttachmentRoots        roots(vessels);
     CertificateAttachmentRepository attachments(db, context);
     CertificateAttachmentStorage    storage;
-    CertificateAttachmentService    service(attachments, storage, roots);
+    EndorsementRepository           endorsementRows(db, context);
+    CertificateExtensionRepository  extensionRows(db, context);
+    AppSettingRepository            settings(db);
+    CertificateAttachmentService    service(attachments, storage, roots, endorsementRows,
+                                            extensionRows, settings);
 
     QTemporaryDir first;
     const QString vesselId = configuredVessel(roots, QStringLiteral("9074729"), first);
@@ -540,7 +572,7 @@ void TestCertificateAttachmentFolders::movingTheVesselsFolderLeavesTheStoredPath
     certificate.id          = QStringLiteral("c1");
 
     QVERIFY2(service.replaceCurrent(
-                 certificate, certificate.expiryDate,
+                 certificate,
                  sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false),
              qPrintable(service.errorString()));
 

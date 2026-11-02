@@ -152,6 +152,10 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     controlRow->addWidget(m_actions->renewButton());
     controlRow->addWidget(m_actions->extensionButton());
     controlRow->addWidget(m_actions->attachmentButton());
+    // Last of the action buttons and furthest from Add, which is the one it
+    // would do the most damage to be mistaken for
+    // (certificate-attachment-addendum-2-spec §4).
+    controlRow->addWidget(m_actions->deleteButton());
     controlRow->addStretch();
     controlRow->addWidget(m_needsAttentionCheck);
 

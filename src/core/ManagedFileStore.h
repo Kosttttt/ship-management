@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 // File operations against a managed file root: copy something in under a
-// generated name, retire what it replaced, resolve a stored relative path back
-// to an absolute one, and move a whole tree from one root to another.
+// generated name, retire what it replaced, delete something outright, resolve
+// a stored relative path back to an absolute one, and move a whole tree — or a
+// folder's whole contents — from one root to another.
 //
 // Every path this class hands back or takes in, other than the root itself and
 // a source somewhere on the user's own disk, is relative to that root. Storing
@@ -67,8 +69,11 @@ public:
     // Copies a file or an entire directory (recursively) from sourcePath
     // (anywhere on disk) to <root>/<destinationRelativeDir>/<name>, where name
     // is desiredName with a numeric suffix added only if something already
-    // exists at that exact destination. Works identically for a file or a
-    // directory — the caller does not branch on which one sourcePath is.
+    // exists at that exact destination. An empty destinationRelativeDir means
+    // the root itself, which is where a vessel's documents now live
+    // (certificate-attachment-addendum-2-spec §3.1). Works identically for a
+    // file or a directory — the caller does not branch on which one sourcePath
+    // is.
     //
     // Returns the path actually used, relative to root, via *relativePathOut.
     // False and *errorString on failure (no root, source unreadable,
@@ -81,15 +86,42 @@ public:
                          QString*       errorString);
 
     // Moves whatever is at <root>/<relativePath> into
-    // <root>/<archiveRelativeDir>/<same name>__archived-<UTC timestamp,
-    // compact ISO-8601>. Works for a file or a directory. The suffix exists
-    // only to guarantee uniqueness — two attachments generated from the same
-    // certificate name and expiry date would otherwise collide in the archive
-    // over that certificate's lifetime. It is mechanical, not meant to be read.
+    // <root>/<archiveRelativeDir>/, with "__archived-<UTC timestamp, compact
+    // ISO-8601>" inserted immediately before the extension. Works for a file
+    // or a directory; a directory, having no extension to preserve, simply
+    // gains the marker at the end of its name.
+    //
+    // The marker exists only to guarantee uniqueness — two attachments
+    // generated from the same certificate name and date would otherwise
+    // collide in the archive over that certificate's lifetime, and since
+    // certificate-attachment-addendum-2-spec §3.2 the archive is shared by
+    // every certificate on the vessel, so collisions are likelier than they
+    // were. It is mechanical, not meant to be read.
+    //
+    // It goes *before* the extension rather than after it (§2): appended to
+    // the whole filename it left the archived copy looking like a file of no
+    // known type, which nothing would open from a file browser.
     static bool moveToArchive(const QString& root,
                               const QString& relativePath,
                               const QString& archiveRelativeDir,
                               QString*       errorString);
+
+    // Deletes whatever is at <root>/<relativePath>, for good — no archive copy
+    // (certificate-attachment-addendum-2-spec §4 and §5). Works for a file or
+    // a folder.
+    //
+    // Guarded in two ways that matter more here than anywhere else in this
+    // class, because this is the one operation that destroys something. An
+    // empty relativePath is refused rather than resolving to the root, and an
+    // absolute or escaping relativePath is refused rather than being joined
+    // (QDir::filePath() hands an absolute path straight back, so "nothing
+    // attached" or a stray "../.." would otherwise name the user's own
+    // folders). CLAUDE.md §10.1 is the reason these are checks and not
+    // assumptions.
+    //
+    // Something that is already gone is success: the caller wanted it not to
+    // be there, and it is not.
+    static bool deleteAt(const QString& root, const QString& relativePath, QString* errorString);
 
     // Resolves a path already relative to root back to an absolute one, for
     // opening it. An empty relativePath gives an empty string rather than the
@@ -119,4 +151,38 @@ public:
     static bool moveTree(const QString& sourceAbsolutePath,
                          const QString& targetAbsolutePath,
                          QString*       errorString);
+
+    // The names of everything directly inside a folder, hidden entries
+    // included, or an empty list when the folder does not exist. Names only,
+    // not paths, so the same list can be used against either side of a move.
+    //
+    // Hidden entries are listed because a document can perfectly well be one;
+    // which of them a caller then chooses to move is the caller's business.
+    static QStringList entriesIn(const QString& directory);
+
+    // Moves the named entries from sourceDir to targetDir, leaving anything
+    // else in either folder alone.
+    //
+    // This is what §2.5's "a vessel's folder change takes its documents with
+    // it" became once certificate-attachment-addendum-2-spec §3.1 flattened
+    // the layout: there is no longer one "attachments" subtree to move, so the
+    // thing to move is the folder's own entries. A name that is no longer
+    // there is skipped rather than failing — the caller listed it a moment
+    // ago, and something it has itself excluded is its business.
+    //
+    // Named rather than "everything in sourceDir" so that undoing a move
+    // touches exactly what the move touched. The destination may have held the
+    // user's own unrelated files before any of this, and putting those into
+    // the vessel's old folder on a rollback would be a second bug dressed as
+    // a recovery.
+    //
+    // Every name is checked against the destination first and the whole move
+    // is refused if any of them is already taken, so two vessels' documents
+    // can never be quietly pooled. An entry that fails part way through has
+    // the entries already moved put back, so a failure leaves the vessel
+    // exactly where it was.
+    static bool moveNamedEntries(const QString&     sourceDir,
+                                 const QString&     targetDir,
+                                 const QStringList& names,
+                                 QString*           errorString);
 };

@@ -4,18 +4,14 @@
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
-#include "modules/certificates/ui/AttachmentChooser.h"
+#include "modules/certificates/ui/CertificateAttachmentActions.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
 #include "modules/certificates/ui/CertificateExtensionDialog.h"
 #include "modules/certificates/ui/CertificateListRow.h"
 
-#include <QDesktopServices>
-#include <QDir>
-#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTableWidget>
-#include <QUrl>
 
 #include <optional>
 
@@ -30,6 +26,7 @@ CertificateListActions::CertificateListActions(CertificateRepository&          r
     , m_endorsements(endorsements)
     , m_extensions(extensions)
     , m_attachments(attachments)
+    , m_deletion(repository, extensions, attachments)
     , m_table(table)
     , m_dialogParent(dialogParent)
 {
@@ -46,35 +43,28 @@ CertificateListActions::CertificateListActions(CertificateRepository&          r
     m_extensionButton->setObjectName(QStringLiteral("certificateExtensionButton"));
     m_extensionButton->setEnabled(false);
 
-    // certificate-attachment-spec §8: one button, a menu of three entries, the
-    // first of which is only there when something is actually attached. The
-    // menu is parented to the button, so it is destroyed with it.
-    m_attachmentButton = new QPushButton(tr("Atta&chment…"), dialogParent);
-    m_attachmentButton->setObjectName(QStringLiteral("certificateAttachmentButton"));
-    m_attachmentButton->setEnabled(false);
+    m_attachmentActions =
+        new CertificateAttachmentActions(repository, attachments, table, dialogParent);
 
-    auto* menu = new QMenu(m_attachmentButton);
-
-    m_openAttachmentAction = menu->addAction(tr("&Open Current Attachment"));
-    m_openAttachmentAction->setObjectName(QStringLiteral("openAttachmentAction"));
-    menu->addSeparator();
-
-    QAction* attachFileAction = menu->addAction(tr("Attach &File…"));
-    attachFileAction->setObjectName(QStringLiteral("attachFileAction"));
-
-    QAction* attachFolderAction = menu->addAction(tr("Attach F&older…"));
-    attachFolderAction->setObjectName(QStringLiteral("attachFolderAction"));
-
-    m_attachmentButton->setMenu(menu);
+    // addendum 2 §4. The ellipsis is not decoration: it says a question comes
+    // before anything happens, which on the one destructive button in the row
+    // is worth saying in the label.
+    m_deleteButton = new QPushButton(tr("&Delete…"), dialogParent);
+    m_deleteButton->setObjectName(QStringLiteral("deleteCertificateButton"));
+    m_deleteButton->setEnabled(false);
 
     connect(m_renewButton, &QPushButton::clicked, this,
             &CertificateListActions::renewCertificate);
     connect(m_extensionButton, &QPushButton::clicked, this,
             &CertificateListActions::startOrResolveExtension);
-    connect(m_openAttachmentAction, &QAction::triggered, this,
-            &CertificateListActions::openCurrentAttachment);
-    connect(attachFileAction, &QAction::triggered, this, &CertificateListActions::attachFile);
-    connect(attachFolderAction, &QAction::triggered, this, &CertificateListActions::attachFolder);
+    connect(m_deleteButton, &QPushButton::clicked, this,
+            &CertificateListActions::deleteCertificate);
+
+    // Forwarded rather than re-emitted by hand: the attachment menu's actions
+    // make the list stale in exactly the same way this class's do.
+    connect(m_attachmentActions, &CertificateAttachmentActions::listChanged, this,
+            &CertificateListActions::listChanged);
+
     connect(m_table, &QTableWidget::itemSelectionChanged, this,
             &CertificateListActions::updateButtonStates);
 }
@@ -89,14 +79,20 @@ QPushButton* CertificateListActions::extensionButton() const
     return m_extensionButton;
 }
 
+QPushButton* CertificateListActions::deleteButton() const
+{
+    return m_deleteButton;
+}
+
 QPushButton* CertificateListActions::attachmentButton() const
 {
-    return m_attachmentButton;
+    return m_attachmentActions->button();
 }
 
 void CertificateListActions::setVesselId(const QString& vesselId)
 {
     m_vesselId = vesselId;
+    m_attachmentActions->setVesselId(vesselId);
 }
 
 int CertificateListActions::selectedRow() const
@@ -128,7 +124,8 @@ void CertificateListActions::updateButtonStates()
 {
     updateRenewButtonState();
     updateExtensionButtonState();
-    updateAttachmentButtonState();
+    updateDeleteButtonState();
+    m_attachmentActions->updateState();
 }
 
 void CertificateListActions::updateRenewButtonState()
@@ -165,85 +162,12 @@ void CertificateListActions::updateExtensionButtonState()
                                       : tr("Start Short-Term &Extension…"));
 }
 
-void CertificateListActions::updateAttachmentButtonState()
+void CertificateListActions::updateDeleteButtonState()
 {
-    const QString id = selectedCertificateId();
-    // No never-expires rule here, unlike the other two buttons: a certificate
-    // that never expires still has a real document behind it
-    // (certificate-attachment-spec §8 disables this only with no selection).
-    m_attachmentButton->setEnabled(!id.isEmpty());
-
-    // Offered only when there is something to open, rather than shown greyed
-    // out: "Open" on a certificate with no document is a question with no
-    // useful answer. An unreadable row reports no path, so the entry hides —
-    // the same "treat it as none" judgment the list already makes for an
-    // unreadable endorsement or extension.
-    const bool hasAttachment =
-        !id.isEmpty() && !m_attachments.currentAbsolutePath(m_vesselId, id).isEmpty();
-    m_openAttachmentAction->setVisible(hasAttachment);
-}
-
-void CertificateListActions::openCurrentAttachment()
-{
-    const QString id = selectedCertificateId();
-    if (id.isEmpty()) {
-        return;
-    }
-
-    const QString absolutePath = m_attachments.currentAbsolutePath(m_vesselId, id);
-    if (absolutePath.isEmpty()) {
-        // Reachable if the attachment was replaced from elsewhere between the
-        // menu opening and the entry being clicked.
-        QMessageBox::information(m_dialogParent, tr("No document attached"),
-                                 tr("This certificate has no attached document."));
-        return;
-    }
-
-    // openUrl() handles a file and a folder identically, which is the whole
-    // reason nothing above this line had to know which one it is (§8).
-    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(absolutePath))) {
-        QMessageBox::warning(m_dialogParent, tr("Could not open the document"),
-                             tr("Windows, macOS or your desktop refused to open:\n\n%1")
-                                 .arg(QDir::toNativeSeparators(absolutePath)));
-    }
-}
-
-void CertificateListActions::attachFile()
-{
-    attachFrom(AttachmentChooser::chooseFile(m_dialogParent), /*sourceIsFolder=*/false);
-}
-
-void CertificateListActions::attachFolder()
-{
-    attachFrom(AttachmentChooser::chooseFolder(m_dialogParent), /*sourceIsFolder=*/true);
-}
-
-void CertificateListActions::attachFrom(const QString& sourcePath, bool sourceIsFolder)
-{
-    const QString id = selectedCertificateId();
-    if (id.isEmpty() || sourcePath.isEmpty()) {
-        return; // nothing selected, or the chooser was cancelled
-    }
-
-    // The certificate itself, because its number, name and expiry date are
-    // what the stored file is named after (§6).
-    std::optional<Certificate> certificate;
-    if (!m_repository.findById(id, &certificate) || !certificate.has_value()) {
-        QMessageBox::warning(m_dialogParent, tr("Could not open certificate"),
-                             m_repository.errorString());
-        return;
-    }
-
-    // The whole §7 sequence — archive, copy, record — lives in the service, so
-    // that this screen and the renewal dialog cannot do it differently.
-    if (!m_attachments.replaceCurrent(*certificate, certificate->expiryDate, sourcePath,
-                                      sourceIsFolder)) {
-        QMessageBox::warning(m_dialogParent, tr("Could not attach the document"),
-                             m_attachments.errorString());
-        return;
-    }
-
-    emit listChanged();
+    // No never-expires rule and no extension rule, unlike the two above: any
+    // certificate can be entered by mistake, including one that never expires
+    // and one currently extended (§4).
+    m_deleteButton->setEnabled(!selectedCertificateId().isEmpty());
 }
 
 void CertificateListActions::renewCertificate()
@@ -317,4 +241,66 @@ void CertificateListActions::startOrResolveExtension()
     if (dialog.exec() == QDialog::Accepted) {
         emit listChanged();
     }
+}
+
+void CertificateListActions::deleteCertificate()
+{
+    const QString id = selectedCertificateId();
+    if (id.isEmpty()) {
+        return;
+    }
+
+    std::optional<Certificate> certificate;
+    if (!m_repository.findById(id, &certificate) || !certificate.has_value()) {
+        QMessageBox::warning(m_dialogParent, tr("Could not open certificate"),
+                             m_repository.errorString());
+        return;
+    }
+
+    // Counted for the question, best-effort: an unreadable list makes the
+    // wording less specific but must not block the deletion.
+    QList<Endorsement> endorsements;
+    m_endorsements.list(id, &endorsements);
+
+    // §4: explicit that the real files go too, because that is the part
+    // nothing else in this application does and the part that cannot be
+    // undone from inside it. Named rather than described — "this certificate"
+    // is not enough when the question arrives over a list of forty rows.
+    QString message = tr("Delete '%1'?").arg(certificate->name);
+    if (!endorsements.isEmpty()) {
+        message += QLatin1Char('\n')
+                   + tr("Its %n recorded survey(s) will be removed with it.", nullptr,
+                        static_cast<int>(endorsements.size()));
+    }
+    message += QStringLiteral("\n\n")
+               + tr("Any document attached to it, and any short-term extension's document, "
+                    "will be permanently deleted from the vessel's attachment folder — not "
+                    "moved to the archive. This cannot be undone from inside the "
+                    "application.");
+
+    const auto answer = QMessageBox::question(m_dialogParent, tr("Delete certificate"), message,
+                                              QMessageBox::Yes | QMessageBox::No,
+                                              QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return; // nothing has happened at all
+    }
+
+    if (!m_deletion.deleteCertificate(*certificate)) {
+        QMessageBox::warning(m_dialogParent, tr("Could not delete the certificate"),
+                             m_deletion.errorString());
+        return;
+    }
+
+    // Gone from the list, but a file would not go. Said out loud rather than
+    // swallowed: somebody will otherwise find it in the folder later with no
+    // certificate left to explain it.
+    if (!m_deletion.errorString().isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent, tr("Deleted, but a file is still there"),
+            tr("The certificate was deleted, but one of its files could not be "
+               "removed.\n\n%1")
+                .arg(m_deletion.errorString()));
+    }
+
+    emit listChanged();
 }

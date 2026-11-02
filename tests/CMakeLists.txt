@@ -56,6 +56,12 @@ add_ship_test(tst_CertificateExtension
     modules/certificates/tst_CertificateExtension.cpp ShipCertificates)
 add_ship_test(tst_CertificateAttachment
     modules/certificates/tst_CertificateAttachment.cpp ShipCertificates)
+add_ship_test(tst_CertificateAttachmentNaming
+    modules/certificates/tst_CertificateAttachmentNaming.cpp ShipCertificates)
+add_ship_test(tst_CertificateDeletion
+    modules/certificates/tst_CertificateDeletion.cpp ShipCertificates)
+add_ship_test(tst_EndorsementEditDelete
+    modules/certificates/tst_EndorsementEditDelete.cpp ShipCertificates)
 add_ship_test(tst_CertificateAttachmentFolders
     modules/certificates/tst_CertificateAttachmentFolders.cpp ShipCertificates)
 
@@ -86,6 +92,9 @@ ship_add_migrations(tst_CertificateRenewal)
 ship_add_migrations(tst_CertificateExtension)
 ship_add_migrations(tst_CertificateAttachment)
 ship_add_migrations(tst_CertificateAttachmentFolders)
+ship_add_migrations(tst_CertificateAttachmentNaming)
+ship_add_migrations(tst_CertificateDeletion)
+ship_add_migrations(tst_EndorsementEditDelete)
 ship_add_migrations(tst_VesselAttachmentRoots)
 ship_add_migrations(tst_AttachmentFolderSettings)
 ship_add_migrations(tst_EndorsementRepository)

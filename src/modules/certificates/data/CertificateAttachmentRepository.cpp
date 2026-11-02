@@ -222,6 +222,42 @@ bool CertificateAttachmentRepository::attach(const QString& certificateId,
     return true;
 }
 
+bool CertificateAttachmentRepository::detach(const QString& certificateId)
+{
+    m_errorString.clear();
+
+    // Scope is checked even though this only ever narrows an UPDATE: another
+    // vessel's certificate must be refused with a message, not silently affect
+    // zero rows and then report success — the same call resolve() makes for an
+    // extension.
+    bool ok = false;
+    vesselIdForCertificate(certificateId, &ok);
+    if (!ok) {
+        return false;
+    }
+
+    // Soft delete, never a hard DELETE (CLAUDE.md §6.4), even though the file
+    // itself really is deleted afterwards. The row has to replicate the
+    // deletion to the other side, and the audit trail has to survive it; what
+    // §5 refuses to keep is the *document*, not the record that there was one.
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE certificate_attachment SET"
+        "  is_deleted = 1, updated_at = ?, updated_by = ?, revision = revision + 1"
+        " WHERE certificate_id = ? AND is_deleted = 0"));
+    query.addBindValue(nowUtc());
+    query.addBindValue(kSystemUser);
+    query.addBindValue(certificateId);
+
+    if (!query.exec()) {
+        m_errorString = QStringLiteral("Could not remove the attached document:\n%1")
+                            .arg(query.lastError().text());
+        return false;
+    }
+
+    return true; // affecting zero rows (nothing attached) is not a failure
+}
+
 QString CertificateAttachmentRepository::errorString() const
 {
     return m_errorString;

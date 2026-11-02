@@ -1,6 +1,7 @@
 #include "core/ManagedFileStore.h"
 
 #include "core/Database.h"
+#include "core/FileTree.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -26,74 +27,37 @@ QString nativePath(const QString& path)
     return QDir::toNativeSeparators(path);
 }
 
-// "report.pdf" with index 3 becomes "report_3.pdf", not "report.pdf_3": the
-// extension has to stay last or the operating system stops recognising the
-// file. A folder has no extension, so it simply gains the suffix.
-QString nameWithIndex(const QString& desiredName, int index)
+// Whether a path is safe to join onto a root. Anything absolute, and anything
+// that climbs back out with "..", is not: QDir::filePath() returns an absolute
+// argument unchanged, so joining one would silently name somewhere else
+// entirely. Only the destructive operations check this, because only they
+// cannot be taken back.
+bool isContainableRelativePath(const QString& relativePath)
 {
-    if (index <= 1) {
-        return desiredName;
-    }
-
-    const QFileInfo info(desiredName);
-    const QString   suffix = info.suffix();
-    if (suffix.isEmpty()) {
-        return QStringLiteral("%1_%2").arg(desiredName).arg(index);
-    }
-    return QStringLiteral("%1_%2.%3").arg(info.completeBaseName()).arg(index).arg(suffix);
-}
-
-// Deletes a file or a whole directory, used only to clean up after a copy that
-// failed half way — so a failure never leaves a partial attachment behind.
-void removeAnything(const QString& absolutePath)
-{
-    const QFileInfo info(absolutePath);
-    if (!info.exists()) {
-        return;
-    }
-    if (info.isDir()) {
-        QDir(absolutePath).removeRecursively();
-    } else {
-        QFile::remove(absolutePath);
-    }
-}
-
-// One function for both kinds of source, which is what lets every caller stay
-// free of "is it a file or a folder" branching.
-bool copyRecursively(const QString& source, const QString& destination, QString* errorString)
-{
-    const QFileInfo info(source);
-
-    if (!info.isDir()) {
-        if (!QFile::copy(source, destination)) {
-            setError(errorString,
-                     QStringLiteral("Could not copy the file:\n%1\n\nto\n%2")
-                         .arg(nativePath(source), nativePath(destination)));
-            return false;
-        }
-        return true;
-    }
-
-    if (!QDir().mkpath(destination)) {
-        setError(errorString,
-                 QStringLiteral("Could not create the folder:\n%1").arg(nativePath(destination)));
+    if (QDir::isAbsolutePath(relativePath)) {
         return false;
     }
 
-    // NoSymLinks deliberately: a symbolic link pointing back at an ancestor
-    // would otherwise recurse until the disk filled.
-    const QDir          sourceDir(source);
-    const QFileInfoList entries =
-        sourceDir.entryInfoList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System
-                                | QDir::NoDotAndDotDot | QDir::NoSymLinks);
+    const QString cleaned = QDir::cleanPath(relativePath);
 
-    for (const QFileInfo& entry : entries) {
-        if (!copyRecursively(entry.absoluteFilePath(),
-                             QDir(destination).filePath(entry.fileName()), errorString)) {
-            return false;
-        }
+    // "." is the root itself, and ".." or anything beginning "../" climbs out
+    // of it. Each would name a folder nobody asked to have deleted.
+    if (cleaned.isEmpty() || cleaned == QStringLiteral(".")
+        || cleaned == QStringLiteral("..")) {
+        return false;
     }
-    return true;
+    return !cleaned.startsWith(QStringLiteral("../"));
+}
+
+// Compact ISO-8601 UTC (CLAUDE.md §6.2). The usual form contains colons,
+// which are not legal in a Windows filename. The two separators are
+// concatenated rather than escaped inside one format string, so there is no
+// question of Qt reading a "T" or a "Z" as a field of its own.
+QString archiveStamp()
+{
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    return now.date().toString(QStringLiteral("yyyyMMdd")) + QStringLiteral("T")
+           + now.time().toString(QStringLiteral("hhmmss")) + QStringLiteral("Z");
 }
 
 } // namespace
@@ -167,16 +131,16 @@ bool ManagedFileStore::copyInto(const QString& root,
                          .arg(desiredName));
             return false;
         }
-        absoluteTarget = QDir(absoluteDir).filePath(nameWithIndex(desiredName, index));
+        absoluteTarget = QDir(absoluteDir).filePath(FileTree::nameWithIndex(desiredName, index));
         if (!QFileInfo::exists(absoluteTarget)) {
             break;
         }
     }
 
-    if (!copyRecursively(sourceInfo.absoluteFilePath(), absoluteTarget, errorString)) {
+    if (!FileTree::copyRecursively(sourceInfo.absoluteFilePath(), absoluteTarget, errorString)) {
         // Half a folder is worse than none: the caller is told it failed, so
         // what it would otherwise point at must not exist.
-        removeAnything(absoluteTarget);
+        FileTree::removeAnything(absoluteTarget);
         return false;
     }
 
@@ -208,7 +172,8 @@ bool ManagedFileStore::moveToArchive(const QString& root,
     const QDir    rootDir(root);
     const QString absoluteSource = rootDir.filePath(relativePath);
 
-    if (!QFileInfo::exists(absoluteSource)) {
+    const QFileInfo sourceInfo(absoluteSource);
+    if (!sourceInfo.exists()) {
         setError(errorString, QStringLiteral("The stored file or folder is no longer there:\n%1")
                                   .arg(nativePath(absoluteSource)));
         return false;
@@ -221,27 +186,25 @@ bool ManagedFileStore::moveToArchive(const QString& root,
         return false;
     }
 
-    // Compact ISO-8601 UTC (CLAUDE.md §6.2). The usual form contains colons,
-    // which are not legal in a Windows filename. The two separators are
-    // concatenated rather than escaped inside one format string, so there is
-    // no question of Qt reading a "T" or a "Z" as a field of its own.
-    const QDateTime now   = QDateTime::currentDateTimeUtc();
-    const QString   stamp = now.date().toString(QStringLiteral("yyyyMMdd"))
-                          + QStringLiteral("T") + now.time().toString(QStringLiteral("hhmmss"))
-                          + QStringLiteral("Z");
+    // §2: before the extension, not after it, so the archived copy is still a
+    // .pdf to the operating system. A folder has no extension to protect and
+    // keeps the marker at the end.
     const QString archivedName =
-        QStringLiteral("%1__archived-%2").arg(QFileInfo(absoluteSource).fileName(), stamp);
+        FileTree::nameWithMarker(sourceInfo.fileName(),
+                                 QStringLiteral("__archived-") + archiveStamp(),
+                                 sourceInfo.isDir());
 
+    // Two archives within the same second: rare, but the timestamp alone would
+    // then not be unique. The index goes before the extension too, which is
+    // what nameWithIndex() is for.
     QString absoluteTarget = QDir(archiveDir).filePath(archivedName);
     for (int index = 2; QFileInfo::exists(absoluteTarget); ++index) {
-        // Two archives within the same second: rare, but the timestamp alone
-        // would then not be unique.
         if (index > 999) {
             setError(errorString, QStringLiteral("Could not find a free name in the archive."));
             return false;
         }
         absoluteTarget =
-            QDir(archiveDir).filePath(QStringLiteral("%1_%2").arg(archivedName).arg(index));
+            QDir(archiveDir).filePath(FileTree::nameWithIndex(archivedName, index));
     }
 
     // Rename rather than copy-then-delete: it moves a file and a whole folder
@@ -250,6 +213,41 @@ bool ManagedFileStore::moveToArchive(const QString& root,
     if (!QDir().rename(absoluteSource, absoluteTarget)) {
         setError(errorString, QStringLiteral("Could not move this into the archive:\n%1")
                                   .arg(nativePath(absoluteSource)));
+        return false;
+    }
+    return true;
+}
+
+bool ManagedFileStore::deleteAt(const QString& root,
+                                const QString& relativePath,
+                                QString*       errorString)
+{
+    setError(errorString, QString());
+
+    if (root.isEmpty()) {
+        setError(errorString, QStringLiteral("No folder was given to delete this from."));
+        return false;
+    }
+
+    // "Nothing attached" must never become "delete the whole folder".
+    if (relativePath.isEmpty()) {
+        setError(errorString, QStringLiteral("There is nothing to delete."));
+        return false;
+    }
+
+    if (!isContainableRelativePath(relativePath)) {
+        setError(errorString,
+                 QStringLiteral("This stored path is not inside the vessel's folder, so it will "
+                                "not be deleted:\n%1")
+                     .arg(nativePath(relativePath)));
+        return false;
+    }
+
+    const QString absolutePath = QDir(root).filePath(relativePath);
+
+    if (!FileTree::removeAnything(absolutePath)) {
+        setError(errorString, QStringLiteral("Could not delete:\n%1")
+                                  .arg(nativePath(absolutePath)));
         return false;
     }
     return true;
@@ -282,7 +280,7 @@ bool ManagedFileStore::moveTree(const QString& sourceAbsolutePath,
 
     // Refused rather than merged. Merging two trees would quietly mix one
     // vessel's documents into another's, which is the whole thing §2.5's
-    // "already contains an attachments folder" check exists to prevent.
+    // "already in use by another vessel" check exists to prevent.
     if (QFileInfo::exists(targetAbsolutePath)) {
         setError(errorString, QStringLiteral("Something is already here:\n%1")
                                   .arg(nativePath(targetAbsolutePath)));
@@ -304,10 +302,10 @@ bool ManagedFileStore::moveTree(const QString& sourceAbsolutePath,
         return true;
     }
 
-    if (!copyRecursively(sourceAbsolutePath, targetAbsolutePath, errorString)) {
+    if (!FileTree::copyRecursively(sourceAbsolutePath, targetAbsolutePath, errorString)) {
         // The source is untouched, so taking the partial destination back out
         // leaves the vessel exactly where it was (§2.5).
-        removeAnything(targetAbsolutePath);
+        FileTree::removeAnything(targetAbsolutePath);
         return false;
     }
 
@@ -315,13 +313,111 @@ bool ManagedFileStore::moveTree(const QString& sourceAbsolutePath,
     // — a file open in another program is the usual reason — is reported as a
     // warning and not as a failure: see the header for why failing here would
     // be the worse of the two outcomes.
-    const QFileInfo sourceInfo(sourceAbsolutePath);
-    const bool      removed =
-        sourceInfo.isDir() ? QDir(sourceAbsolutePath).removeRecursively()
-                           : QFile::remove(sourceAbsolutePath);
-    if (!removed) {
+    if (!FileTree::removeAnything(sourceAbsolutePath)) {
         qWarning() << "Moved the vessel's documents but could not remove the old copy at"
                    << nativePath(sourceAbsolutePath);
+    }
+
+    return true;
+}
+
+QStringList ManagedFileStore::entriesIn(const QString& directory)
+{
+    const QDir dir(directory);
+    if (directory.isEmpty() || !dir.exists()) {
+        return {};
+    }
+
+    return dir.entryList(QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System
+                         | QDir::NoDotAndDotDot);
+}
+
+bool ManagedFileStore::moveNamedEntries(const QString&     sourceDir,
+                                        const QString&     targetDir,
+                                        const QStringList& names,
+                                        QString*           errorString)
+{
+    setError(errorString, QString());
+
+    if (names.isEmpty()) {
+        return true; // nothing to move, which is not a failure
+    }
+
+    if (sourceDir.isEmpty() || targetDir.isEmpty()) {
+        setError(errorString, QStringLiteral("No folder was given to move."));
+        return false;
+    }
+
+    // Moving a folder into itself, or into something inside itself, would
+    // consume its own source as it went.
+    if (FileTree::isSameOrInside(targetDir, sourceDir)
+        || FileTree::isSameOrInside(sourceDir, targetDir)) {
+        setError(errorString,
+                 QStringLiteral("These two folders are inside one another, so the documents "
+                                "cannot be moved between them:\n\n%1\n\n%2")
+                     .arg(nativePath(sourceDir), nativePath(targetDir)));
+        return false;
+    }
+
+    if (!QDir().mkpath(targetDir)) {
+        setError(errorString,
+                 QStringLiteral("Could not create the folder:\n%1").arg(nativePath(targetDir)));
+        return false;
+    }
+
+    // Checked in full before anything moves. A collision found half way would
+    // leave the vessel's documents split across two folders, which is the one
+    // state §2.5 exists to make impossible.
+    for (const QString& name : names) {
+        if (QFileInfo::exists(QDir(targetDir).filePath(name))) {
+            setError(errorString,
+                     QStringLiteral("This folder already contains \"%1\", so the vessel's "
+                                    "documents cannot be moved into it:\n\n%2\n\nChoose a "
+                                    "different folder.")
+                         .arg(name, nativePath(targetDir)));
+            return false;
+        }
+    }
+
+    QStringList moved;
+    for (const QString& name : names) {
+        const QString from = QDir(sourceDir).filePath(name);
+        const QString to   = QDir(targetDir).filePath(name);
+
+        if (!QFileInfo::exists(from)) {
+            continue; // named but no longer there: nothing to carry across
+        }
+
+        QString moveError;
+        if (moveTree(from, to, &moveError)) {
+            moved.append(name);
+            continue;
+        }
+
+        // Put back what has already gone across, so the failure leaves one
+        // folder holding everything rather than two holding half each.
+        QStringList couldNotRestore;
+        for (const QString& done : moved) {
+            QString restoreError;
+            if (!moveTree(QDir(targetDir).filePath(done), QDir(sourceDir).filePath(done),
+                          &restoreError)) {
+                couldNotRestore.append(done);
+            }
+        }
+
+        if (couldNotRestore.isEmpty()) {
+            setError(errorString, moveError);
+        } else {
+            // Worth saying out loud rather than summarising: some documents
+            // are now at the new folder and the vessel is still recorded
+            // against the old one.
+            setError(errorString,
+                     QStringLiteral("%1\n\nThese could not be moved back either, and are now "
+                                    "in\n%2\n\n%3")
+                         .arg(moveError, nativePath(targetDir),
+                              couldNotRestore.join(QStringLiteral(", "))));
+        }
+        return false;
     }
 
     return true;

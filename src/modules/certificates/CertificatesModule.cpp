@@ -14,7 +14,8 @@ CertificatesModule::CertificatesModule(QSqlDatabase&              database,
     , m_vessels(database, installation)
     , m_attachmentRoots(m_vessels)
     , m_attachments(database, installation)
-    , m_attachmentService(m_attachments, m_attachmentStorage, m_attachmentRoots)
+    , m_attachmentService(m_attachments, m_attachmentStorage, m_attachmentRoots, m_endorsements,
+                          m_extensions, m_appSettings)
     , m_alertProvider(m_vessels, m_certificates, m_endorsements, m_extensions, m_appSettings,
                       installation)
 {

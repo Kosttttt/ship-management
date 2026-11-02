@@ -71,6 +71,7 @@ qt_add_library(ShipCore STATIC
     src/core/VesselRepository.h       src/core/VesselRepository.cpp
     src/core/AppSetting.h
     src/core/AppSettingRepository.h   src/core/AppSettingRepository.cpp
+    src/core/FileTree.h               src/core/FileTree.cpp
     src/core/ManagedFileStore.h       src/core/ManagedFileStore.cpp
     src/core/VesselAttachmentRoots.h  src/core/VesselAttachmentRoots.cpp
 )
@@ -117,6 +118,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/data/CertificateAttachmentStorage.cpp
     src/modules/certificates/service/CertificateAttachmentService.h
     src/modules/certificates/service/CertificateAttachmentService.cpp
+    src/modules/certificates/service/CertificateDeletionService.h
+    src/modules/certificates/service/CertificateDeletionService.cpp
     src/modules/certificates/ui/CertificateEditForm.h
     src/modules/certificates/ui/CertificateEditForm.cpp
     src/modules/certificates/ui/CertificateEditDialog.h
@@ -126,6 +129,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateListRow.h
     src/modules/certificates/ui/CertificateListActions.h
     src/modules/certificates/ui/CertificateListActions.cpp
+    src/modules/certificates/ui/CertificateAttachmentActions.h
+    src/modules/certificates/ui/CertificateAttachmentActions.cpp
     src/modules/certificates/ui/ListNumberItem.h
     src/modules/certificates/ui/ListNumberItem.cpp
     src/modules/certificates/ui/DateItem.h
@@ -136,6 +141,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/EndorsementEditForm.cpp
     src/modules/certificates/ui/EndorsementEditDialog.h
     src/modules/certificates/ui/EndorsementEditDialog.cpp
+    src/modules/certificates/ui/EndorsementSection.h
+    src/modules/certificates/ui/EndorsementSection.cpp
     src/modules/certificates/ui/CertificateExtensionDialog.h
     src/modules/certificates/ui/CertificateExtensionDialog.cpp
     src/modules/certificates/ui/AttachmentChooser.h

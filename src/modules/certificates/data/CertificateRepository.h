@@ -35,6 +35,27 @@ public:
     // and created_by alone (certificate-crud-spec §6).
     bool update(const Certificate& certificate);
 
+    // Soft-deletes a certificate together with its endorsements, its active
+    // short-term extension and its active attachment row, in one transaction
+    // (certificate-attachment-addendum-2-spec §4 steps 1 to 3).
+    //
+    // All four tables belong to this module (CLAUDE.md §5), and a cascade is
+    // the parent's business, so the SQL for all four lives here rather than
+    // being three calls across three repositories with nothing holding them
+    // together. One transaction is the point: a certificate that lost its
+    // survey history but is still in the list would be a worse state than
+    // either end of the operation.
+    //
+    // The *files* are not touched here. That is CertificateDeletionService's
+    // job, and it runs afterwards: §4 is explicit that the database writes come
+    // first, the opposite way round from attaching, so a failure can never find
+    // the document already destroyed.
+    //
+    // Never a hard DELETE, for all the usual reasons (CLAUDE.md §6.4): the
+    // deletion has to replicate to the other side and the audit trail has to
+    // survive it.
+    bool softDeleteWithChildren(const QString& id);
+
     QString errorString() const;
 
 private:

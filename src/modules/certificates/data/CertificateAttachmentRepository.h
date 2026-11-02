@@ -42,6 +42,18 @@ public:
     bool attach(const QString& certificateId, const QString& relativePath,
                 QString* newId = nullptr);
 
+    // Soft-deletes whatever is currently active for this certificate without
+    // putting anything in its place
+    // (certificate-attachment-addendum-2-spec §5).
+    //
+    // The other half of attach(), and separate from it because the two mean
+    // different things: attach() records a supersession, this records that
+    // there is no document after all. Affecting zero rows is success — nothing
+    // attached is a normal case, and the menu entry that leads here is only
+    // offered when there is something, so reaching it with nothing is a race
+    // rather than an error.
+    bool detach(const QString& certificateId);
+
     QString errorString() const;
 
 private:

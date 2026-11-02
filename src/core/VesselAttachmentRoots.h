@@ -5,7 +5,8 @@
 class VesselRepository;
 
 // Which folder one vessel's documents live in, and what happens when that
-// answer changes (certificate-attachment-addendum-spec §2).
+// answer changes (certificate-attachment-addendum-spec §2, as amended by
+// certificate-attachment-addendum-2-spec §3).
 //
 // This exists because "where do this vessel's files go?" is a question about
 // vessels, and ManagedFileStore is deliberately ignorant of vessels — it moves
@@ -23,15 +24,18 @@ class VesselRepository;
 class VesselAttachmentRoots
 {
 public:
-    // The one folder the application creates inside a vessel's chosen root.
+    // The hidden file that records which vessel a folder belongs to
+    // (certificate-attachment-addendum-2-spec §3.3). It holds that vessel's
+    // id and nothing else.
     //
-    // The *layout underneath* it — attachments/<certificateId>/archive and so
-    // on — stays the certificates module's business and is written down in
-    // CertificateAttachmentStorage. This top name is here because §2.5 has to
-    // move the subtree wholesale when a vessel's folder changes, and the
-    // module cannot be the one doing that; the module builds its paths from
-    // this constant, so the string still appears exactly once.
-    static const QString kManagedSubfolder;
+    // It exists because the flattened layout removed the thing the old check
+    // looked for. Until addendum 2 a vessel's documents sat under an
+    // "attachments" subfolder, so a folder already holding one obviously
+    // belonged to another vessel; now the documents sit directly in the folder
+    // and there is nothing structural left to recognise. This file is that
+    // recognition, written once when the folder is configured and read only
+    // when a folder is being configured.
+    static const QString kMarkerFileName;
 
     explicit VesselAttachmentRoots(VesselRepository& vessels);
 
@@ -48,25 +52,34 @@ public:
     // exercise the attachment workflow without configuring a vessel at all.
     QString rootForWriting(const QString& vesselId, QString* errorString);
 
-    // Where a *stored* relative path actually is, for opening it.
+    // The root a *stored* relative path is actually found under, or an empty
+    // string when it is nowhere.
     //
-    // Not subject to the refusal above, on purpose. §2.2 requires an
-    // attachment made before this addendum shipped to go on opening, and such
-    // an attachment physically sits under the installation's own folder. So
-    // this prefers the vessel's configured folder when the file is really
-    // there and falls back to the pre-addendum location when it is not.
+    // Prefers the vessel's own configured folder and falls back to the
+    // installation's own folder, which is where an attachment made before the
+    // addendum shipped physically sits (§2.2). Existence-checked in both
+    // cases, which is what makes the fallback safe to offer at all.
     //
-    // The fallback is read-only and existence-checked. Nothing is ever written
-    // through it: that would be the silent fallback §2.2 forbids.
+    // Read-only by intention. Nothing is written through it: that would be the
+    // silent fallback §2.2 forbids. Deleting something is allowed, because a
+    // delete acts on the file that is actually there rather than choosing
+    // where a new one should go.
+    QString rootHolding(const QString& vesselId, const QString& relativePath);
+
+    // Where a stored relative path actually is, as an absolute path, for
+    // opening it. Built on rootHolding(), and not subject to the refusal
+    // above — §2.2 requires an attachment made before this addendum shipped to
+    // go on opening.
     QString resolveForOpening(const QString& vesselId, const QString& relativePath);
 
     // Points a vessel at a different folder, taking its documents with it
     // (§2.5), in the one order that cannot leave the two disagreeing:
     //
     //   1. validate the new folder — it must exist, be a folder, be writable,
-    //      and not already hold a managed subfolder of its own;
-    //   2. move the existing subtree, if there is one;
-    //   3. only then store the new path.
+    //      and not already carry another vessel's marker file (§3.3);
+    //   2. move what is in the old folder across;
+    //   3. store the new path;
+    //   4. and only then claim the folder with a marker file of its own.
     //
     // A failure at any step changes nothing at all: the stored path still
     // names the folder the files are still in. Choosing the folder a vessel is

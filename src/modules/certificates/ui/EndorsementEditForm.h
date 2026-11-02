@@ -7,6 +7,7 @@
 
 class QComboBox;
 class QDateEdit;
+class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 
@@ -27,6 +28,17 @@ public:
 
     Endorsement endorsement() const;
 
+    // Fills the fields from an endorsement already recorded, for the edit mode
+    // added by certificate-attachment-addendum-2-spec §6. The id and the
+    // certificate id ride along so that endorsement() hands back the same row
+    // rather than a new one.
+    //
+    // A stored survey type the certificate no longer requires — the
+    // requirement was unticked after the survey was recorded — is added to the
+    // combo rather than silently dropped, because an edit must not be able to
+    // change what kind of survey happened by accident.
+    void setEndorsement(const Endorsement& endorsement);
+
     bool isValid() const;
     void setFocusOnFirstField();
 
@@ -35,9 +47,11 @@ signals:
 
 private:
     QString    m_certificateId;
+    QString    m_endorsementId; // empty while adding
     SurveyType m_onlyType = SurveyType::Unset;
 
     QComboBox*      m_typeCombo = nullptr;   // null when only one type is allowed
+    QLabel*         m_typeLabel = nullptr;   // the other way round: null when there is a combo
     QDateEdit*      m_dateEdit  = nullptr;
     QLineEdit*      m_placeEdit = nullptr;
     QLineEdit*      m_surveyorEdit = nullptr;
