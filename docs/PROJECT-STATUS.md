@@ -1492,8 +1492,165 @@ prepared before `93e23c0` but not included in it: the addendum spec
 itself — which `93e23c0`'s own code comments reference by path — and the
 manual-test-checklist.md path correction from before this addendum
 began). Both confirmed genuine directly from `.git/logs/HEAD` and
-`CLAUDE.md`'s actual on-disk content, not from the report alone. **Not
-pushed** — `main` is 2 commits ahead of `origin/main`.
+`CLAUDE.md`'s actual on-disk content, not from the report alone. Pushed
+to `origin/main`, together with the verification write-up commit
+`9fac67e` below.
+
+### Attachment addendum 2 — flattened storage, Delete Certificate/Attachment, endorsement edit/delete, nearest-due-date naming ✅
+Triggered the same way the first addendum was: the developer manually
+tested the real build and reported one bug (an archived file lost its
+extension — `.pdf__archived-20261102T...` rather than
+`...__archived-20261102T....pdf`, unopenable from a file browser) and
+three feature gaps (the `attachments/<id>/` folder structure created two
+unwanted subfolders the developer never asked for; there was no way to
+delete a certificate or an attachment at all; endorsements were still
+add-only from step 6, with no way to correct or remove one). Design
+discussion — including one real misunderstanding on my side, caught and
+corrected before anything was built: I initially read "no archive
+folder should be" as "stop archiving entirely," a reversal of
+`CLAUDE.md`'s "nothing is ever actually deleted" principle for files; the
+developer actually meant "no archive *sub*folder *per certificate*,"
+i.e. keep archiving but flatten it to one shared folder — converged on
+`docs/certificate-attachment-addendum-2-spec.md`. Built, and
+independently verified file-by-file against the spec: **all 44 code
+files** in the final commit (33 modified, 11 new) read in full,
+line-by-line, against both the spec and Claude Code's own 16 stated
+judgment calls. **No defects found.**
+
+This addendum deliberately reverses part of step 12's own "nothing is
+ever actually deleted" rule for files, on the developer's explicit
+instruction: a **replace** still archives the superseded file exactly as
+before, but a **delete** (new for this addendum, for either a whole
+certificate or a single attachment) now genuinely removes the real file
+from disk, with no archive copy — because a delete exists specifically
+to correct a mistake, not to record a supersession worth a trail.
+
+- `core/FileTree` (new) — pulled out of `ManagedFileStore.cpp` along a
+  real seam (Claude Code's own split, confirmed sound): the pure
+  filename/path mechanics — `nameWithMarker()` (the bug fix: inserts the
+  disambiguating marker *before* the extension via
+  `QFileInfo::completeBaseName()`/`suffix()`, not after it),
+  `removeAnything()`, `copyRecursively()`, `isSameOrInside()` — with
+  nothing in it that touches a database or a certificate.
+- `core/ManagedFileStore` — new `deleteAt()` (a genuine delete, guarded
+  by `isContainableRelativePath()` against an absolute path, `.`, `..`,
+  or anything starting `../` — the backstop behind `CLAUDE.md` §10.1,
+  confirmed it cannot be made to resolve to the vessel's whole folder),
+  new `entriesIn()` and `moveNamedEntries()` (checks every destination
+  name before moving anything, so a vessel's documents can never end up
+  split across two folders on a mid-move collision; rolls back
+  everything already moved on any failure).
+- `core/VesselAttachmentRoots` — new `kMarkerFileName =
+  ".ship-management-vessel"`, a hidden file holding just a vessel's id,
+  replacing the old "does this folder already contain an `attachments/`
+  subfolder" ownership check now that flattening removed the structure
+  that check relied on. `changeRoot()` carries the marker with the move
+  but never with the documents themselves (confirmed by a passing test
+  that was initially a failing one during Claude Code's own development
+  — a real gap a test caught, the same class of lesson as the addendum-1
+  stale-read note above).
+- `modules/certificates/data/CertificateAttachmentStorage` — new shared
+  `kArchiveSubfolder = "archive"`, one per vessel rather than one per
+  certificate; `replaceCurrent()`/`addExtensionDocument()` now pass an
+  empty "the vessel folder itself" sentinel as the destination, which is
+  what the flattened layout means in code. New `deleteStored()`.
+- `modules/certificates/data/CertificateAttachmentRepository` — new
+  `detach()`: soft-deletes the active row with no replacement inserted,
+  under the same vessel-scope check `attach()` already uses.
+- `modules/certificates/data/CertificateRepository` — new
+  `softDeleteWithChildren()`: one transaction, soft-deleting
+  endorsements, the active extension, and the attachment row by
+  `certificate_id` before the certificate row itself, with a
+  zero-rows-affected race check. The *files* are deliberately not
+  touched here — that is `CertificateDeletionService`'s job, run
+  afterwards, so a failed database write can never find a document
+  already destroyed.
+- `modules/certificates/service/CertificateDeletionService` (new) — the
+  small service that knows the files have to go *after* the rows (the
+  opposite order from attaching, and the opposite reasoning, stated the
+  same way: a failed delete of the row must not find the file already
+  gone). Explicitly, permanently does **not** try to sweep the shared
+  `archive/` folder for a deleted certificate's older copies — once a
+  file is renamed into that shared folder there is no reliable way back
+  from it to the certificate it came from, and guessing from the
+  filename would eventually delete somebody else's document. Covered by
+  its own test, `archivedCopiesAreLeftAloneWhichIsTheKnownLimitation()`,
+  specifically so the gap reads as a decision, not an oversight.
+- `modules/certificates/service/CertificateAttachmentService` —
+  `replaceCurrent()` lost its `expiryDateForName` parameter and gained a
+  private `nameDateFor()` instead, which reads `EndorsementRepository`,
+  `CertificateExtensionRepository` and `AppSettingRepository` (three new
+  collaborators) to work out which date is soonest. New `deleteCurrent()`
+  and `deleteStoredFile()`.
+- `modules/certificates/domain/CertificateState` — new `dueDate` field,
+  set at exactly the same three call sites `daysLeft` already is (the
+  active-extension branch, the outstanding-survey branch, the
+  nothing-outstanding branch) — confirmed directly, not just read as a
+  comment's claim — specifically so the two can never disagree. This is
+  the field the attachment filename now reads: whichever of the
+  certificate's expiry, its next annual window, and its next
+  intermediate window is soonest, which is the same question the list's
+  Days Left column already answers.
+- `ui/CertificateAttachmentActions` (new, split out of
+  `CertificateListActions.cpp`) and `ui/EndorsementSection` (new, split
+  out of `CertificateEditDialog.cpp`) — both real seams, confirmed sound:
+  the first is everything about *the document* on the selected row
+  (open/attach/delete), the second is everything about *the
+  endorsements* recorded against the certificate being edited (now with
+  Edit and Delete buttons alongside the existing Add). Object names
+  carried over unchanged from before the split, which is how the
+  existing tests kept finding them with no changes of their own.
+- `ui/CertificateListActions` — new `deleteButton()` and
+  `deleteCertificate()`, last in the button row and furthest from Add
+  Certificate. Unlike Renew and the extension button, it applies **no**
+  never-expires rule and **no** active-extension rule: any certificate
+  can have been entered by mistake.
+- Endorsement edit/delete — `EndorsementRepository` gained `update()`
+  (an ordinary UPDATE onto the same row, never a new one) and
+  `softDelete()`, both addressed by the endorsement's own id via a new
+  `loadParentOfEndorsement()` helper rather than trusting a
+  `certificateId` on the struct, specifically so a correction can't
+  silently re-parent an endorsement onto a different certificate.
+  `EndorsementEditForm::setEndorsement()` offers a stored survey type
+  the certificate no longer requires rather than dropping it — including
+  correcting a fixed single-type label that could otherwise still say
+  "Annual" while editing an Intermediate row, a late fix from Claude
+  Code's own review pass, confirmed correct against its own test.
+- 3 new unit test suites (33 total, was 30), counted directly from each
+  file's `private slots:` block rather than taken from the report:
+  `tst_CertificateAttachmentNaming` (7 test functions, plus `init`/
+  `cleanup` — the nearest-due-date rule against the pure domain function
+  directly, both ways the annual/intermediate race can go, the
+  active-extension case, and the "computed once, never renamed" rule),
+  `tst_CertificateDeletion` (12 test functions — covering both delete
+  actions against every case in the spec's §9, including the accepted
+  archive limitation and the vessel-scope refusal), `tst_EndorsementEditDelete`
+  (12 test functions — the repository, the form, and the section,
+  including the stored-type-no-longer-required case for both the combo
+  and the single-type label). The remaining growth behind the overall
+  **337 → 380 (+43)** test-function count comes from new functions added
+  to the 5 modified suites (`tst_ManagedFileStore`,
+  `tst_VesselAttachmentRoots`, `tst_CertificateAttachment`,
+  `tst_CertificateAttachmentFolders`; `CertificateTestSupport.h` is
+  shared fixture code, not a suite of its own).
+  **Clean rebuild confirmed from an actually-deleted `build` directory**:
+  254/254 Ninja build steps, 0 errors, 0 warnings; ctest 100% passed,
+  33/33 suites. The one wrinkle, caught and explained by Claude Code
+  rather than by me: the rebuild script I handed over omitted
+  `-DCMAKE_BUILD_TYPE=Debug`, so this particular clean build was
+  unconfigured (closer to Release — `QT_NO_DEBUG` defined, no `-g`) rather
+  than Debug like the previous two rounds. Accepted as still valid:
+  `QVERIFY`/`QCOMPARE` are ordinary runtime checks unaffected by
+  `QT_NO_DEBUG`, the codebase has zero `Q_ASSERT` calls anywhere, and the
+  project's one `static_assert` is compile-time regardless. Not redone;
+  the build-type flag goes back into the rebuild script template for
+  next time. Both the full Ninja build log and the full raw `ctest`
+  output were pasted back and read directly, as was `git status` before
+  and after the commit.
+
+Committed as **`e0c4db7`** (45 files — 33 modified, 11 new code files,
+plus the spec doc — 4501 insertions / 640 deletions). **Not pushed** —
+`main` is 1 commit ahead of `origin/main`.
 
 ---
 
@@ -1582,8 +1739,10 @@ pushed** — `main` is 2 commits ahead of `origin/main`.
   "Certificate 15D") specifically so the full name doesn't have to be
   typed out, so the list needs to read in that order without the user
   having to click anything.
-- Endorsements are add-only for now; editing or deleting a recorded survey
-  is an open design question, deferred until something depends on it.
+- **Superseded by addendum 2.** Endorsements were add-only through step 6;
+  attachment addendum 2 added edit (an UPDATE onto the same row) and
+  delete (soft-delete), reached from the certificate's own Endorsements
+  section via Edit/Delete buttons alongside Add.
 - Extensions have no table and no parameter in `computeCertificateState()`
   yet — deferred to a dedicated build-order step (11, after Renewal)
   rather than half-building them alongside endorsements.
@@ -1699,9 +1858,13 @@ pushed** — `main` is 2 commits ahead of `origin/main`.
 - An attachment is reachable from both the certificate list (a
   standalone Attachment button) and folded into the renewal and
   extension dialogs, rather than only one of the two.
-- There is no "remove attachment entirely" action — every path is
-  "replace," never "clear to empty." Deferred, not rejected; see
-  `certificate-attachment-spec.md` §10.
+- **Superseded by addendum 2.** Step 12 through the first addendum had no
+  "remove attachment entirely" action — every path was "replace," never
+  "clear to empty" (see `certificate-attachment-spec.md` §10). Addendum
+  2 added Delete Attachment and Delete Certificate, both a genuine file
+  delete with **no** archive copy — deliberately the opposite of
+  replace, since a delete exists to correct a mistake rather than to
+  record a supersession worth a trail.
 - A vessel's attachment folder is a **hard requirement**: with none
   configured, every attach entry point refuses outright rather than
   falling back to anywhere else, including the old installation-wide
@@ -1727,6 +1890,37 @@ pushed** — `main` is 2 commits ahead of `origin/main`.
   attention" focus, and comes back now for exactly the per-vessel-folder
   cross-check use case the developer described: receive or renew a
   certificate, check its status, and decide when to act.
+- The vessel's attachment folder is now **flat** — no `attachments/`
+  wrapper, no per-certificate subfolder, no `extensions/` subfolder.
+  Everything the vessel has attached sits directly in the folder the
+  developer chose, told apart by filename alone. One subfolder survives:
+  a single shared `archive/` per vessel, not one per certificate —
+  explicitly confirmed after an early misunderstanding on my side (I
+  first read "no archive folder should be" as "stop archiving
+  entirely"; the developer meant "no archive subfolder *per
+  certificate*," i.e. keep archiving, just flatten where it lives).
+- A vessel's folder is now claimed by a hidden `.ship-management-vessel`
+  marker file rather than by its structure (there is no longer a
+  structural difference to check once the layout is flat). The marker
+  moves with a `changeRoot()` but is explicitly excluded from the
+  documents that move with it.
+- An attached file's name now carries whichever of the certificate's
+  expiry date, its next annual survey window, and its next intermediate
+  survey window is **soonest** — so the filename itself shows what needs
+  attention next, even looking at the files directly rather than at the
+  app. Computed once, at the moment of attaching; the schedule moving on
+  afterwards does not rename a file already on disk.
+- Deleting a certificate removes the real files the database still has
+  live paths for, but deliberately does **not** sweep the shared
+  `archive/` folder for that certificate's older, already-archived
+  copies — accepted as a permanent limitation, not a gap to close later,
+  because once a file is renamed into the shared archive there is no
+  reliable way back from it to the certificate it came from.
+- Deleting a certificate or an attachment is a genuine file delete with
+  no archive copy, deliberately the opposite of what replacing a
+  document does — a delete exists to correct a mistake, not to record a
+  supersession worth a trail. The database rows are still only ever
+  soft-deleted, never hard-deleted, same as everywhere else in the app.
 
 ## Outstanding technical debt
 
@@ -1845,25 +2039,37 @@ pushed** — `main` is 2 commits ahead of `origin/main`.
   cause and the same fix: a `--data-dir` argument plumbed through to all
   three. Worth adding next time `main.cpp`/startup is touched for
   another reason.
-- The attachment addendum pushed four files further past the
-  ~300-line guideline, two of them substantially: `CertificateListWidget.cpp`
-  grew from 396 to **481 lines** (the Document and Issue Date columns,
-  plus the new click handler) — the most over-guideline file in the
-  project now, and the first candidate to look at if this screen is
-  touched again. `core/VesselRepository.cpp` grew from 312 to **366
-  lines** (the new column plus `setAttachmentRootPath()`).
-  `core/ManagedFileStore.cpp` grew from 259 to **328 lines** (every
-  method taking an explicit `root` parameter, plus `moveTree()`).
-  `CertificateListActions.cpp`, already 19 lines over after step 12,
-  grew by one more line to 320. `CertificateEditDialog.cpp` crossed the
-  guideline for the first time, growing from 227 to 302 lines (the
-  attachment section now built for all three modes rather than one).
-  None split now — no obviously clean seam in any of them yet, and
-  `CertificateListActions.cpp` was already split out of
-  `CertificateListWidget.cpp` once for exactly this reason. Watching all
-  five; `CertificateListWidget.cpp` is the one most likely to need a
-  second split if Step 13 (CSV import/export) or anything later touches
-  this screen again.
+- **Updated by addendum 2** (counts below are current, verified directly
+  with `wc -l`, not carried over from the previous entry). Of the five
+  files the first addendum left over the ~300-line guideline,
+  `CertificateEditDialog.cpp` is **resolved** — down to 218 lines, since
+  `EndorsementSection` was split out of it for addendum 2's own reasons
+  and happened to pull it back under the guideline as a side effect —
+  and `CertificateListActions.cpp` **improved**, from 320 down to 306,
+  for the same reason (`CertificateAttachmentActions` was split out of
+  it). `core/VesselRepository.cpp` is **unchanged** at 366 — addendum 2
+  did not touch it. Two grew further: `core/ManagedFileStore.cpp` from
+  328 to **424 lines** (`deleteAt()`, `entriesIn()`,
+  `moveNamedEntries()`, though `FileTree.cpp`/`.h` were split out of it
+  along a real seam at the same time, which is what kept the growth to
+  this rather than more). `CertificateListWidget.cpp` from 481 to **485
+  lines** — essentially flat, and still the single most over-guideline
+  file in the project. Two more newly crossed the guideline this
+  addendum: `modules/certificates/data/EndorsementRepository.cpp`, from
+  comfortably under 300 to **414 lines** (`update()`, `softDelete()`,
+  `loadParentOfEndorsement()`), and `core/VesselAttachmentRoots.cpp`,
+  new in the first addendum and under the guideline then, now **330
+  lines** (the marker file logic, `moveNamedEntries()`-based folder
+  change). `modules/certificates/data/CertificateRepository.cpp`, long
+  since over the guideline, grew again to **402 lines**
+  (`softDeleteWithChildren()`). None split further — Claude Code's own
+  call, which I'm accepting: each is one class's whole implementation
+  with no seam that wouldn't just spread that one class across two
+  translation units, unlike the UI splits above which had a genuine
+  conceptual boundary (the document vs. the certificate's lifecycle;
+  the certificate's own fields vs. its endorsements). Watching all five;
+  `CertificateListWidget.cpp` remains the first candidate to look at if
+  this screen is touched again.
 - Step 12's new/changed files mostly stayed well under the ~300-line
   guideline (`ManagedFileStore.cpp` 259 lines, `CertificateAttachmentRepository.cpp`
   228 lines, `CertificateEditDialog.cpp` 286 lines). The one exception:
