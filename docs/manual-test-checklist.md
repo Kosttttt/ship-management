@@ -14,10 +14,22 @@ extension's own document (step 12) means exercising the extension dialog
 ## Before you start: one safety rule
 
 **Never run a manual delete, backup, or overwrite command against the
-app's real data folder** (`%APPDATA%\Ship Management\...` or wherever it
-actually resolves to — step 7's incident showed those two can silently be
-different files on this machine). That rule is about commands run *outside*
-the app, in PowerShell or a file explorer.
+app's real data folder.** When you double-click the exe from Explorer (the
+way section 1 below has you start it), that folder is:
+
+```
+%APPDATA%\Ship Management\Ship Management System
+```
+
+This was confirmed directly on this machine, not guessed — it's two
+levels deep (organization name, then application name), and `%APPDATA%`
+alone lands one level too shallow. Step 7's incident is also why this is
+spelled out explicitly rather than left as "wherever it resolves to":
+launching the app from somewhere other than Explorer — from inside
+another app's own sandboxed container, for instance — can resolve to a
+*different*, virtualized folder with the same-looking name, and this
+rule is about commands run *outside* the app, in PowerShell or a file
+explorer, against whichever one is actually live.
 
 Using the app itself — clicking Add, Edit, Save, Renew — is completely
 safe and exactly what it's built for. Go ahead and enter real-looking test
@@ -45,10 +57,16 @@ above, just extends what "sticks around" means.
 ## 1. Opening the app
 
 No need to open Qt Creator for this — just double-click
-`dist\ShipManagement\ShipManagement.exe` (the standalone build, see
-"Producing a Release build" in `docs/PROJECT-STATUS.md`). Claude Code
-refreshes it after each change; ask for that whenever you want to test
-something new.
+`dist\ShipManagement\ShipManagement.exe` from Explorer (the standalone
+build, see "Producing a Release build" in `docs/PROJECT-STATUS.md`).
+Claude Code refreshes it after each change; ask for that whenever you
+want to test something new.
+
+Launching it this way, from Explorer, is what makes the data folder path
+given above the right one. Launching the same exe from somewhere else —
+say, from inside another app's own sandboxed environment — can resolve
+to a different folder instead, and would make that path look empty even
+though nothing is actually wrong.
 
 What to check: the window opens with no error dialog, and the sidebar shows
 **Vessels** (or your one vessel's screen, if this installation is in
@@ -58,8 +76,13 @@ VESSEL mode), your registered modules, and **Settings** at the bottom.
 
 Nothing to click here — this is the plumbing everything else sits on. If
 the app opened without an error dialog, it's working. If you want to peek:
-the log file is at `logs\ship-management.log` inside the app's real data
-folder, and it should show startup lines with UTC timestamps.
+the log file is at
+
+```
+%APPDATA%\Ship Management\Ship Management System\logs\ship-management.log
+```
+
+and it should show startup lines with UTC timestamps.
 
 ## 3. First-run wizard (step 3)
 
@@ -255,11 +278,16 @@ folder; your originals are untouched.
    no file-type restriction.
 
 If you want to see where everything actually landed: open File Explorer
-and go to the same data folder step 2's log file is in (paste
-`%APPDATA%\Ship Management` into the address bar) — there should be an
-`attachments\` folder with one subfolder per certificate you attached
-something to, and an `archive\` folder inside each wherever you replaced
-something. Just looking is fine; this isn't a delete/overwrite command.
+and paste this into the address bar —
+
+```
+%APPDATA%\Ship Management\Ship Management System\attachments
+```
+
+— there should be one subfolder per certificate you attached something
+to, named with that certificate's internal ID, and an `archive\` folder
+inside each wherever you replaced something. Just looking is fine; this
+isn't a delete/overwrite command.
 
 ## If something doesn't look right
 
