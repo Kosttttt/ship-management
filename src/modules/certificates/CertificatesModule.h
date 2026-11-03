@@ -12,6 +12,9 @@
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
+#include "modules/certificates/service/CertificateCsvExporter.h"
+#include "modules/certificates/service/CertificateCsvImporter.h"
+#include "modules/certificates/service/CertificateReportBuilder.h"
 
 class QSqlDatabase;
 
@@ -69,6 +72,15 @@ private:
     CertificateAttachmentRepository m_attachments;
     CertificateAttachmentStorage    m_attachmentStorage;
     CertificateAttachmentService    m_attachmentService;
+
+    // Step 13's bulk I/O (certificate-import-export-spec §11). Owned here,
+    // alongside every other collaborator this module's screens need, so the
+    // list widget is handed finished services and never holds a database
+    // connection itself. Declared after the vessel repository and the
+    // settings, which all three are built from.
+    CertificateCsvExporter   m_csvExporter;
+    CertificateCsvImporter   m_csvImporter;
+    CertificateReportBuilder m_reportBuilder;
 
     // Declared last: it holds references to several of the above, so they must
     // already be constructed when it is built.

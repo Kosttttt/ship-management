@@ -7,8 +7,12 @@ struct CertificateState;
 
 class AppSettingRepository;
 class CertificateAttachmentService;
+class CertificateCsvExporter;
+class CertificateCsvImporter;
 class CertificateExtensionRepository;
+class CertificateIoActions;
 class CertificateListActions;
+class CertificateReportBuilder;
 class CertificateRepository;
 class EndorsementRepository;
 class InstallationContext;
@@ -39,6 +43,9 @@ public:
                           CertificateExtensionRepository& extensions,
                           CertificateAttachmentService&   attachments,
                           AppSettingRepository&           appSettings,
+                          CertificateCsvExporter&         csvExporter,
+                          CertificateCsvImporter&         csvImporter,
+                          CertificateReportBuilder&       reportBuilder,
                           const InstallationContext&      installation,
                           QWidget*                        parent = nullptr);
 
@@ -98,7 +105,8 @@ private:
     // A QObject child of this widget, so Qt's parent-child ownership deletes
     // it (CLAUDE.md §9) — and it must be constructed after m_table, which it
     // watches for selection changes.
-    CertificateListActions* m_actions = nullptr;
+    CertificateListActions* m_actions   = nullptr;
+    CertificateIoActions*   m_ioActions = nullptr;
 
     QStackedWidget* m_stack               = nullptr;
     QTableWidget*   m_table               = nullptr;

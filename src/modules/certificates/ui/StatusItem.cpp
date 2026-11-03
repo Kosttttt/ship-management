@@ -44,24 +44,11 @@ const Palette* paletteFor(DisplayStatus status)
 
 QString StatusItem::labelFor(DisplayStatus status)
 {
-    // QTableWidgetItem is not a QObject, so there is no tr() to call here.
-    switch (status) {
-    case DisplayStatus::Expired:
-        return QCoreApplication::translate("StatusItem", "Expired");
-    case DisplayStatus::SurveyOverdue:
-        return QCoreApplication::translate("StatusItem", "Survey Overdue");
-    case DisplayStatus::Critical:
-        return QCoreApplication::translate("StatusItem", "Critical");
-    case DisplayStatus::ExpiringSoon:
-        return QCoreApplication::translate("StatusItem", "Expiring Soon");
-    case DisplayStatus::SurveyDue:
-        return QCoreApplication::translate("StatusItem", "Survey Due");
-    case DisplayStatus::DueSoon:
-        return QCoreApplication::translate("StatusItem", "Due Soon");
-    case DisplayStatus::Valid:
-        return QCoreApplication::translate("StatusItem", "Valid");
-    }
-    return QString();
+    // The labels themselves moved to the domain layer, so that the PDF
+    // statement can use the same words without a service including a widget
+    // header (certificate-import-export-spec §8). This stays as the name
+    // every test and every caller in this layer already knows.
+    return displayStatusLabel(status);
 }
 
 StatusItem::StatusItem(DisplayStatus status)

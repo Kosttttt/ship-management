@@ -660,7 +660,8 @@ void TestCertificateAttachment::theAttachmentButtonNeedsASelection()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* button =
@@ -685,7 +686,8 @@ void TestCertificateAttachment::openIsOfferedOnlyWhenSomethingIsAttached()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* openAction = widget.findChild<QAction*>(QStringLiteral("openAttachmentAction"));

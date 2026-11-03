@@ -1,6 +1,7 @@
 #include "modules/certificates/data/CertificateRepository.h"
 
 #include "core/InstallationContext.h"
+#include "modules/certificates/domain/CertificateValidation.h"
 
 #include <QDateTime>
 #include <QSqlDatabase>
@@ -169,6 +170,45 @@ bool CertificateRepository::findById(const QString& id, std::optional<Certificat
     return true;
 }
 
+bool CertificateRepository::listDeletedIds(const QString& vesselId, QSet<QString>* ids)
+{
+    m_errorString.clear();
+    ids->clear();
+
+    // The one question list() cannot answer, because it exists to hide these
+    // rows: has this id been here and been deleted?
+    // certificate-import-export-spec §5.1 needs the difference, so that a
+    // re-imported row whose certificate was deleted in the meantime reads as
+    // "New (previously deleted)" rather than looking like a lost match. Read
+    // once per import, the same way the live list is, and scope-filtered the
+    // same way too.
+    QString sql = QStringLiteral("SELECT id FROM certificate"
+                                 " WHERE vessel_id = ? AND is_deleted = 1");
+
+    const bool scoped = isScopedToOneVessel();
+    if (scoped) {
+        sql += QStringLiteral(" AND vessel_id = ?");
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(sql);
+    query.addBindValue(vesselId);
+    if (scoped) {
+        query.addBindValue(m_installation.vesselScope());
+    }
+
+    if (!query.exec()) {
+        m_errorString = QStringLiteral("Could not read the deleted certificates:\n%1")
+                            .arg(query.lastError().text());
+        return false;
+    }
+
+    while (query.next()) {
+        ids->insert(query.value(0).toString());
+    }
+    return true;
+}
+
 bool CertificateRepository::checkVesselAllowed(const QString& vesselId)
 {
     if (vesselId.isEmpty()) {
@@ -185,41 +225,12 @@ bool CertificateRepository::checkVesselAllowed(const QString& vesselId)
 
 bool CertificateRepository::validate(const Certificate& certificate)
 {
-    if (certificate.name.trimmed().isEmpty()) {
-        m_errorString = QStringLiteral("A certificate name is required.");
-        return false;
-    }
-    if (certificate.category == CertificateCategory::Unset) {
-        m_errorString = QStringLiteral("A category is required.");
-        return false;
-    }
-    if (!certificate.issueDate.isValid()) {
-        m_errorString = QStringLiteral("An issue date is required.");
-        return false;
-    }
-
-    // The form's validator refuses the keystroke, so this only fires for a
-    // value that arrived another way — a CSV import, in a later step.
-    if (!CertificateListNumber::isValid(certificate.listNumber.trimmed())) {
-        m_errorString = QStringLiteral(
-            "\"%1\" is not a valid number.\n\n"
-            "A number is digits, optionally followed by letters — 15, 3A, 15D.")
-                            .arg(certificate.listNumber);
-        return false;
-    }
-
-    // The friendly version of the migration's CHECK constraint. The constraint
-    // stays as the backstop; this is the path a user actually sees.
-    if (certificate.neverExpires()
-        && (certificate.requiresAnnualSurvey || certificate.requiresIntermediateSurvey)) {
-        m_errorString = QStringLiteral(
-            "A certificate with no expiry cannot require a survey.\n\n"
-            "Surveys are scheduled against anniversaries of the expiry date, so there is "
-            "nothing to schedule against.");
-        return false;
-    }
-
-    return true;
+    // The rules themselves live in the domain layer, so that CSV import's
+    // preview can ask the same question without attempting a write
+    // (certificate-import-export-spec §5.5). This stays as the write path's
+    // own gate: every create() and update() still goes through it, and a
+    // refusal still lands in errorString() for the dialog to show.
+    return validateCertificate(certificate, &m_errorString);
 }
 
 bool CertificateRepository::create(const Certificate& certificate, QString* newId)

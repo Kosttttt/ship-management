@@ -4,6 +4,7 @@
 #include "modules/certificates/domain/Certificate.h"
 
 #include <QList>
+#include <QSet>
 #include <QString>
 
 #include <optional>
@@ -25,6 +26,13 @@ public:
     // successful answer.
     bool list(const QString& vesselId, QList<Certificate>* certificates);
     bool findById(const QString& id, std::optional<Certificate>* certificate);
+
+    // The ids of this vessel's soft-deleted certificates — the one question
+    // list() exists to hide the answer to. CSV import needs the difference
+    // between "this id was never here" and "it was here and was deleted"
+    // (certificate-import-export-spec §5.1). Scope-filtered exactly as list()
+    // is, and read once per import rather than once per row.
+    bool listDeletedIds(const QString& vesselId, QSet<QString>* ids);
 
     // Writes refuse outright, with a message, when the certificate belongs to
     // another vessel under VESSEL mode. A silent empty result would be wrong

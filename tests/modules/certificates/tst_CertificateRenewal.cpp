@@ -197,7 +197,8 @@ void TestCertificateRenewal::successfulRenewalMovesDatesAndClearsSurveys()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -234,7 +235,8 @@ void TestCertificateRenewal::cancellingTheConfirmationChangesNothing()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -269,7 +271,8 @@ void TestCertificateRenewal::cancellingTheEditDialogChangesNothing()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -301,7 +304,8 @@ void TestCertificateRenewal::renewIsDisabledWithNoSelection()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(!renewButtonOf(widget)->isEnabled(), "nothing selected, so nothing to renew");
@@ -334,7 +338,8 @@ void TestCertificateRenewal::renewIsDisabledForACertificateThatNeverExpires()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     // Row 0 is "1" (Tonnage, never expires); row 1 is "2" (Load Line).
@@ -361,7 +366,8 @@ void TestCertificateRenewal::confirmationNamesTheSurveyCountOnlyWhenThereAreSome
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -451,7 +457,8 @@ void TestCertificateRenewal::renewedCertificateComesBackAsValid()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidget* table = tableOf(widget);
@@ -493,7 +500,8 @@ void TestCertificateRenewal::doubleClickStillOpensTheOrdinaryEditDialog()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QString capturedTitle;

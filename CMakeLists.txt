@@ -18,7 +18,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # CLAUDE.md §2: Qt 6 Widgets for the GUI, Qt SQL for SQLite.
-find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)
+# PrintSupport is what QPrinter lives in — needed from step 13 for the PDF
+# statement (certificate-import-export-spec §8). Not a third-party dependency:
+# CLAUDE.md §2 names QTextDocument + QPrinter as this project's reporting stack.
+find_package(Qt6 REQUIRED COMPONENTS Widgets Sql PrintSupport)
 
 # Turns on Qt's code generators, most importantly the meta-object compiler
 # (moc). Without it, any class using Q_OBJECT fails to link.
@@ -71,6 +74,8 @@ qt_add_library(ShipCore STATIC
     src/core/VesselRepository.h       src/core/VesselRepository.cpp
     src/core/AppSetting.h
     src/core/AppSettingRepository.h   src/core/AppSettingRepository.cpp
+    src/core/CsvFile.h                src/core/CsvFile.cpp
+    src/core/TransactionScope.h
     src/core/FileTree.h               src/core/FileTree.cpp
     src/core/ManagedFileStore.h       src/core/ManagedFileStore.cpp
     src/core/VesselAttachmentRoots.h  src/core/VesselAttachmentRoots.cpp
@@ -104,6 +109,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/domain/CertificateExtension.h
     src/modules/certificates/domain/CertificateState.h
     src/modules/certificates/domain/CertificateState.cpp
+    src/modules/certificates/domain/CertificateValidation.h
+    src/modules/certificates/domain/CertificateValidation.cpp
     src/modules/certificates/domain/SurveySchedule.h
     src/modules/certificates/domain/SurveySchedule.cpp
     src/modules/certificates/data/CertificateRepository.h
@@ -116,6 +123,18 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/data/CertificateAttachmentRepository.cpp
     src/modules/certificates/data/CertificateAttachmentStorage.h
     src/modules/certificates/data/CertificateAttachmentStorage.cpp
+    src/modules/certificates/service/CertificateCsvValues.h
+    src/modules/certificates/service/CertificateCsvValues.cpp
+    src/modules/certificates/service/CertificateCsvFormat.h
+    src/modules/certificates/service/CertificateCsvFormat.cpp
+    src/modules/certificates/service/CertificateCsvFileChecks.h
+    src/modules/certificates/service/CertificateCsvFileChecks.cpp
+    src/modules/certificates/service/CertificateCsvExporter.h
+    src/modules/certificates/service/CertificateCsvExporter.cpp
+    src/modules/certificates/service/CertificateCsvImporter.h
+    src/modules/certificates/service/CertificateCsvImporter.cpp
+    src/modules/certificates/service/CertificateReportBuilder.h
+    src/modules/certificates/service/CertificateReportBuilder.cpp
     src/modules/certificates/service/CertificateAttachmentService.h
     src/modules/certificates/service/CertificateAttachmentService.cpp
     src/modules/certificates/service/CertificateDeletionService.h
@@ -127,6 +146,10 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateListWidget.h
     src/modules/certificates/ui/CertificateListWidget.cpp
     src/modules/certificates/ui/CertificateListRow.h
+    src/modules/certificates/ui/CertificateIoActions.h
+    src/modules/certificates/ui/CertificateIoActions.cpp
+    src/modules/certificates/ui/CertificateImportPreviewDialog.h
+    src/modules/certificates/ui/CertificateImportPreviewDialog.cpp
     src/modules/certificates/ui/CertificateListActions.h
     src/modules/certificates/ui/CertificateListActions.cpp
     src/modules/certificates/ui/CertificateAttachmentActions.h
@@ -151,7 +174,7 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/AttachmentSourceField.cpp
 )
 
-target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets)
+target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets Qt6::PrintSupport)
 
 # ---------------------------------------------------------------------------
 # ShipApp — the shell: MainWindow, the module registry, the wizard, vessels.

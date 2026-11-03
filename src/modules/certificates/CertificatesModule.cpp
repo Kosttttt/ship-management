@@ -16,6 +16,9 @@ CertificatesModule::CertificatesModule(QSqlDatabase&              database,
     , m_attachments(database, installation)
     , m_attachmentService(m_attachments, m_attachmentStorage, m_attachmentRoots, m_endorsements,
                           m_extensions, m_appSettings)
+    , m_csvExporter(m_certificates, m_endorsements, m_vessels)
+    , m_csvImporter(database, m_certificates, m_endorsements, m_vessels)
+    , m_reportBuilder(m_certificates, m_endorsements, m_extensions, m_appSettings, m_vessels)
     , m_alertProvider(m_vessels, m_certificates, m_endorsements, m_extensions, m_appSettings,
                       installation)
 {
@@ -41,7 +44,8 @@ QIcon CertificatesModule::icon() const
 QWidget* CertificatesModule::createMainWidget(QWidget* parent)
 {
     return new CertificateListWidget(m_certificates, m_endorsements, m_extensions,
-                                     m_attachmentService, m_appSettings, m_installation, parent);
+                                     m_attachmentService, m_appSettings, m_csvExporter,
+                                     m_csvImporter, m_reportBuilder, m_installation, parent);
 }
 
 QList<Migration> CertificatesModule::migrations() const

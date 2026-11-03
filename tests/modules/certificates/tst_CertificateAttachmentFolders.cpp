@@ -435,7 +435,8 @@ void TestCertificateAttachmentFolders::theDocumentColumnMarksOnlyTheRowsThatHave
         sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* table = widget.findChild<QTableWidget*>(QStringLiteral("certificateTable"));
@@ -475,7 +476,8 @@ void TestCertificateAttachmentFolders::clickingAnEmptyDocumentCellDoesNothing()
                     QStringLiteral("Without"));
 
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* table = widget.findChild<QTableWidget*>(QStringLiteral("certificateTable"));
@@ -520,7 +522,8 @@ void TestCertificateAttachmentFolders::theIssueDateColumnSortsChronologically()
                                 QDate(2026, 3, 5), QDate(2031, 1, 1), false);
 
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* table = widget.findChild<QTableWidget*>(QStringLiteral("certificateTable"));

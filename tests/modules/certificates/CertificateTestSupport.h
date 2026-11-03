@@ -9,9 +9,13 @@
 #include "modules/certificates/data/CertificateAttachmentRepository.h"
 #include "modules/certificates/data/CertificateAttachmentStorage.h"
 #include "modules/certificates/data/CertificateExtensionRepository.h"
+#include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/domain/Certificate.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
+#include "modules/certificates/service/CertificateCsvExporter.h"
+#include "modules/certificates/service/CertificateCsvImporter.h"
+#include "modules/certificates/service/CertificateReportBuilder.h"
 
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -74,6 +78,33 @@ inline InstallationContext vesselContext(const QString& vesselId)
     record.vesselId        = vesselId;
     record.vesselImoNumber = QStringLiteral("9074729");
     return InstallationContext(record);
+}
+
+
+// A vessel row, bypassing the repository for the same reason
+// seedCertificate() below does. The import and export suites need a real ship
+// with a real IMO number, because the IMO is what the file is sanity-checked
+// against (certificate-import-export-spec §7).
+inline QString seedVessel(QSqlDatabase&  db,
+                          const QString& id,
+                          const QString& name,
+                          const QString& imoNumber)
+{
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral(
+        "INSERT INTO vessel (id, name, imo_number, created_at, created_by, updated_at,"
+        " updated_by, is_deleted, origin_node, revision)"
+        " VALUES (?, ?, ?, '2026-01-01T00:00:00Z', 'SEED', '2026-01-01T00:00:00Z', 'SEED',"
+        " 0, 'OFFICE', 1)"));
+    query.addBindValue(id);
+    query.addBindValue(name);
+    query.addBindValue(imoNumber);
+
+    if (!query.exec()) {
+        qWarning() << "vessel seed failed:" << query.lastError().text();
+        return QString();
+    }
+    return id;
 }
 
 // A valid certificate, ready to have one field spoiled by a test.
@@ -212,6 +243,10 @@ public:
         , endorsements(db, context)
         , extensions(db, context)
         , appSettings(db)
+        , certificates(db, context)
+        , csvExporter(certificates, endorsements, vessels)
+        , csvImporter(db, certificates, endorsements, vessels)
+        , reportBuilder(certificates, endorsements, extensions, appSettings, vessels)
         , repository(db, context)
         , service(repository, storage, roots, endorsements, extensions, appSettings)
     {
@@ -262,6 +297,17 @@ public:
     EndorsementRepository          endorsements;
     CertificateExtensionRepository extensions;
     AppSettingRepository           appSettings;
+
+    // Step 13's bulk I/O, so every suite that builds a CertificateListWidget
+    // has the three services its constructor now asks for
+    // (certificate-import-export-spec §11). They need a CertificateRepository
+    // of their own, which is why one appears here even though most suites
+    // also make one locally: a repository holds no state beyond its last
+    // error message, so a second one on the same connection costs nothing.
+    CertificateRepository    certificates;
+    CertificateCsvExporter   csvExporter;
+    CertificateCsvImporter   csvImporter;
+    CertificateReportBuilder reportBuilder;
 
     CertificateAttachmentRepository repository;
     CertificateAttachmentStorage    storage;

@@ -101,6 +101,16 @@ struct CertificateState {
     std::optional<QDate> activeExtensionExpiry;
 };
 
+// The visible label for a status — "Expired", "Survey Due", and so on.
+//
+// Here rather than on StatusItem, where it used to live, because two things
+// outside the table now need the same words: the PDF statement
+// (certificate-import-export-spec §8), which is built in the service layer
+// and so cannot include a ui/ header, and the tests, which name what they
+// expect to see. StatusItem::labelFor() calls this, so there is still exactly
+// one set of labels.
+QString displayStatusLabel(DisplayStatus status);
+
 // `today` is a parameter, never QDate::currentDate() inside the function.
 // That is what makes every rule testable.
 //

@@ -97,7 +97,8 @@ void TestCertificateListWidget::officeWithNoVesselShowsThePromptNotAnEmptyTable(
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
 
     QVERIFY2(showingPrompt(widget),
              "with no vessel chosen the screen must say so, not show an empty table");
@@ -116,7 +117,8 @@ void TestCertificateListWidget::choosingAVesselShowsThatVesselsCertificates()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     QVERIFY(!showingPrompt(widget));
@@ -135,7 +137,8 @@ void TestCertificateListWidget::switchingVesselReloadsForTheNewVessel()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
 
     widget.setVesselId(QStringLiteral("v1"));
     QCOMPARE(rowsShown(widget), 2);
@@ -158,7 +161,8 @@ void TestCertificateListWidget::clearingTheSelectionReturnsToThePrompt()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
     QVERIFY(!showingPrompt(widget));
 
@@ -181,7 +185,8 @@ void TestCertificateListWidget::aVesselWithNoCertificatesShowsAnEmptyTableNotThe
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v-with-nothing"));
 
     QVERIFY(!showingPrompt(widget));
@@ -200,7 +205,8 @@ void TestCertificateListWidget::vesselModeOpensStraightToItsOwnList()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
 
     // No selector exists in VESSEL mode, so the widget must already be scoped.
     QVERIFY2(!showingPrompt(widget), "a vessel installation never sees the prompt");
@@ -234,7 +240,8 @@ void TestCertificateListWidget::defaultSortIsByListNumberNotByName()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     const QStringList expected{QStringLiteral("3"), QStringLiteral("3A"), QStringLiteral("3B"),
@@ -263,7 +270,8 @@ void TestCertificateListWidget::certificatesWithoutAListNumberSortLast()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     const QStringList numbers = columnContents(widget, 0);
@@ -290,7 +298,8 @@ void TestCertificateListWidget::columnsAreNumberNameIssueStatusExpirySurveyDaysD
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(repository, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("vs"));
 
     // certificate-list-status-spec §3. Issue Date and Category left this

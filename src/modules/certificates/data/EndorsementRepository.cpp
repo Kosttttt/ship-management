@@ -1,6 +1,7 @@
 #include "modules/certificates/data/EndorsementRepository.h"
 
 #include "core/InstallationContext.h"
+#include "modules/certificates/domain/CertificateValidation.h"
 
 #include <QDateTime>
 #include <QSqlDatabase>
@@ -179,25 +180,11 @@ bool EndorsementRepository::loadParentCertificate(const QString& certificateId,
 bool EndorsementRepository::validate(const Endorsement& endorsement,
                                      const QDate&       certificateIssueDate)
 {
-    if (endorsement.surveyType == SurveyType::Unset) {
-        m_errorString = QStringLiteral("A survey type is required.");
-        return false;
-    }
-    if (!endorsement.endorsementDate.isValid()) {
-        m_errorString = QStringLiteral("An endorsement date is required.");
-        return false;
-    }
-
-    // certificate-control-spec.md §4.8 item 5: a survey cannot have happened
-    // before the certificate existed.
-    if (certificateIssueDate.isValid() && endorsement.endorsementDate < certificateIssueDate) {
-        m_errorString = QStringLiteral(
-            "The endorsement date is before the certificate was issued on %1.")
-                            .arg(certificateIssueDate.toString(QStringLiteral("dd MMM yyyy")));
-        return false;
-    }
-
-    return true;
+    // In the domain layer for the same reason CertificateRepository::validate()
+    // is: CSV import's preview has to know whether a survey date in the file
+    // would be accepted before anything is written
+    // (certificate-import-export-spec §6). This stays the write path's gate.
+    return validateEndorsement(endorsement, certificateIssueDate, &m_errorString);
 }
 
 bool EndorsementRepository::create(const Endorsement& endorsement, QString* newId)

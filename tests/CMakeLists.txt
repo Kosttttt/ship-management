@@ -99,3 +99,24 @@ ship_add_migrations(tst_VesselAttachmentRoots)
 ship_add_migrations(tst_AttachmentFolderSettings)
 ship_add_migrations(tst_EndorsementRepository)
 ship_add_migrations(tst_EndorsementUi)
+
+# Step 13: CSV import/export and the PDF statement
+# (certificate-import-export-spec §9).
+add_ship_test(tst_CsvFile core/tst_CsvFile.cpp)
+add_ship_test(tst_CertificateCsvFormat
+    modules/certificates/tst_CertificateCsvFormat.cpp ShipCertificates)
+add_ship_test(tst_CertificateCsvExport
+    modules/certificates/tst_CertificateCsvExport.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateCsvExport)
+add_ship_test(tst_CertificateCsvImport
+    modules/certificates/tst_CertificateCsvImport.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateCsvImport)
+add_ship_test(tst_CertificateCsvImportSurveys
+    modules/certificates/tst_CertificateCsvImportSurveys.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateCsvImportSurveys)
+add_ship_test(tst_CertificateReport
+    modules/certificates/tst_CertificateReport.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateReport)
+add_ship_test(tst_CertificateIoActions
+    modules/certificates/tst_CertificateIoActions.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateIoActions)

@@ -1649,8 +1649,315 @@ to correct a mistake, not to record a supersession worth a trail.
   and after the commit.
 
 Committed as **`e0c4db7`** (45 files — 33 modified, 11 new code files,
-plus the spec doc — 4501 insertions / 640 deletions). **Not pushed** —
-`main` is 1 commit ahead of `origin/main`.
+plus the spec doc — 4501 insertions / 640 deletions). Pushed to
+`origin/main`, together with the verification write-up commit `1463028`
+below, and in turn with both rounds that followed it.
+
+### Survey deadline fix — Days Left and attachment naming always count to window close ✅
+
+Triggered by the developer manually testing the refreshed addendum-2
+build: a certificate whose annual survey window hadn't opened yet had
+its attached file named after the date the window *opens* — a year or
+more before any real deadline. Diagnosed as original step 6/11 logic
+(`CertificateState::dueDate`/`daysLeft` switched between the window's
+opening and its closing date depending on whether today was before or
+after the opening), not an addendum-2-only bug — addendum 2's
+`nameDateFor()` just started reading the same field, which is what
+surfaced it. Confirmed with the developer before writing anything: the
+window's **close** is the real deadline (the last day the survey can
+still be done); the opening is a heads-up, which is what should still
+drive `SurveySeverity`/the colour, not the number.
+
+Spec: `docs/certificate-survey-deadline-fix.md`.
+
+- The entire production change is one line, in `CertificateState.cpp`'s
+  outstanding-survey branch: `dueDate` is now unconditionally
+  `reported.window.closes`, dropping the old before/after-opening
+  ternary. The two branches around it (active extension, nothing
+  outstanding) were already correct and untouched.
+- `CertificateState.h`'s `dueDate`/`daysLeft` comments rewritten to state
+  the single rule — a fix Claude Code made on its own initiative, beyond
+  what the spec required, and confirmed correct against its own
+  description.
+- Three test functions changed, not the two the spec named — Claude
+  Code's full read of `tst_CertificateAttachmentNaming.cpp` (as the spec
+  specifically asked for, rather than a blind find-and-replace) turned up
+  a third: `anAlreadyAttachedFileIsNotRenamedWhenTheScheduleMoves()`,
+  which really was exercising the pre-opening case and needed the same
+  change. `theIntermediateWindowWinsWhenItIsTheOneDue()` was checked and
+  confirmed to need no change, since today is already inside that window
+  in that test either way.
+- `tst_CertificateStateSurvey.cpp`: one function changed
+  (`daysLeftAlwaysCountsToTheWindowClose()`), with an explicit `!= 10`
+  regression guard proving the fix actually changes behaviour rather
+  than merely restating a weaker assertion.
+- `tst_CertificateListStatus.cpp`: one function changed
+  (`upcomingSurveyWindowIsShownLongBeforeItOpens()`);
+  `tst_CertificateListWidget.cpp` needed no change (its only Days Left
+  reference is the column header text) — both confirmed by direct search
+  rather than assumption, per the spec.
+- `certificate-control-spec.md` §4.4 rewritten to the single
+  always-counts-to-close rule; `certificate-attachment-addendum-2-spec.md`
+  §7 given a correction note rather than a rewrite, preserving its
+  "single source of truth" bullet.
+- **Verified independently, file by file**: all 7 changed files (2
+  production, 4 test, 2 docs — `tst_CertificateListWidget.cpp` needed no
+  change) read in full. Zero defects found.
+- Full clean rebuild + `ctest` run as part of Claude Code's own report;
+  no separate ritual re-requested, since the change was small, isolated,
+  and already proven both ways — before/after, with the exact numbers
+  the spec predicted (273 → ~455 days on the certificate that surfaced
+  the bug).
+
+Committed as **`95739fd`** (7 files) and pushed.
+
+### InstallationContext storage fix — held by value, not by reference ✅
+
+A separate, real bug surfaced as a side effect of the deadline-fix
+round: every class taking an `InstallationContext` in its constructor
+stored it as a `const InstallationContext&` member, which dangles the
+instant a caller passes a temporary — the normal way to construct one
+(`CertificateRepository repo(db, officeContext());`). Survives an
+unoptimised build because the stack slot usually still holds the old
+bytes; breaks under `-O2`, where the slot is reused. This had already
+caused a real Release-build crash in `tst_CertificateAttachmentNaming`
+and silently-wrong VESSEL-mode scope filtering in two other suites,
+found and only partially fixed in an earlier, untracked round (the
+shared `AttachmentFixture` properly fixed; `tst_AttachmentFolderSettings.cpp`
+and `tst_EndorsementEditDelete.cpp` each had only one call site of
+several patched).
+
+Two options were weighed: naming a local at each of the ~50 affected
+test call sites (mechanical, test-only), or changing every affected
+class to hold the context by value instead (a small production change).
+Chose the latter — `InstallationContext` is immutable with no setters,
+so copying it is free of consequence, and it closes the whole backlog at
+the type boundary rather than relying on every future caller
+remembering the lifetime rule, which this very round's history showed
+doesn't reliably hold.
+
+Spec: `docs/installation-context-storage-fix.md`.
+
+- The grep the spec asked for (don't trust the "7 repositories" estimate)
+  turned up **8** classes: the five repositories named in the spec
+  (`VesselRepository`, `CertificateRepository`, `EndorsementRepository`,
+  `CertificateExtensionRepository`, `CertificateAttachmentRepository`)
+  plus three non-repository classes with the identical bug shape —
+  `VesselDetailPage`, `CertificateAlertProvider`, `CertificatesModule`.
+  None of the three had ever actually hit the bug in production (each is
+  constructed once, from something that outlives it), but the hazard was
+  identical.
+- Each class's constructor signature is unchanged (`const
+  InstallationContext&` parameter, as `CLAUDE.md` §9 asks for passing);
+  only the member's own type changed, from reference to value. Every
+  header needed its forward declaration of `InstallationContext`
+  replaced with a real `#include`, since a value member needs the
+  complete type.
+- The explanatory comment lives once, on `InstallationContext` itself,
+  with a one-line pointer at each of the 8 members — chosen over 8
+  copies of the same five-line rationale.
+- The two partially-fixed test files from the earlier round were
+  reverted to their original, pre-that-round form rather than finished
+  off call-site by call-site: this makes the fix in each repository the
+  thing being tested (the exact code that crashed in Release now
+  passes), and avoids leaving 1-of-5 and 1-of-11 call sites looking
+  specially correct for no remaining reason.
+- A fourth stale comment, outside the spec's own list — in
+  `tst_CertificateAttachmentNaming.cpp`, committed during the
+  deadline-fix round — asserted the now-false claim that repositories
+  store the context by reference. Found and corrected by Claude Code's
+  own sweep, not the spec.
+- One process note: a first attempt to edit the three near-identical
+  repository headers with a scripted `perl -0pi` pass double-encoded
+  their existing UTF-8 `§` characters (`§5` → `Â§5`). Caught in
+  verification, the three files reverted and redone as ordinary edits; a
+  follow-up grep for `Â`/`â€` across `src/` and `tests/` came back clean.
+- **Verified independently**: all 13 changed files (9 production, 4
+  test) read in full against the report's claims. Confirmed, via the
+  files' own timestamps on disk rather than the report, that exactly 13
+  files were touched — correcting the report's own first count of "11."
+- Full clean rebuild in both Debug and Release from an actually-deleted
+  `build`/`build-release`, `ctest` 33/33 in both. The three
+  originally-affected suites re-run individually in Release and
+  confirmed passing while constructing straight from a temporary — direct
+  proof of the repository fix, not a workaround: `tst_CertificateAttachmentNaming`
+  (previously `SEGFAULT 0xC0000005`), `tst_AttachmentFolderSettings`
+  (previously returned 2 vessels, expected 1), `tst_EndorsementEditDelete`
+  (previously read another vessel's row).
+
+Committed as **`ad76f4c`** (13 files: 11 code + the two spec docs for
+this fix and the deadline fix, both of which had been referenced by
+name in earlier commits — `95739fd` included — without ever being added
+themselves; 389 insertions / 40 deletions) and pushed (`95739fd..ad76f4c`).
+
+### Step 13 — CSV import/export & PDF export ✅
+
+Per `CLAUDE.md` §11's build order. Design discussion held first, over
+several rounds: CSV before `.xlsx` (reconfirmed), import/export scoped
+to one selected vessel rather than the whole fleet, available in **both**
+installation modes rather than office-only, and PDF export added to the
+step's scope at the developer's request — a simple current-state
+statement for handing to a third party (a surveyor, a port state
+inspector), not the fuller reporting step `CLAUDE.md` §11 still has
+planned separately as step 14.
+
+Spec: `docs/certificate-import-export-spec.md`. Went through two real
+revisions before implementation, both worth recording because of what
+they changed:
+
+- **v1.0 → v1.1, a real design defect, caught by Claude Code's own
+  review of the spec before writing any code.** v1.0 specified
+  `Last Annual Survey`/`Last Intermediate Survey` as single-date
+  columns. `SurveySchedule::evaluateAnnual()` matches each anniversary
+  to the *earliest* still-unclaimed endorsement of the matching type, in
+  date order — so a single "most recent" date for a certificate that is
+  mid-cycle (several annuals already done, more still to come) would be
+  claimed by the *first* anniversary, leaving every earlier one to come
+  back falsely `Overdue`, with a fabricated "completed late" note
+  invented from a date that was never actually that anniversary's own
+  survey. Verified directly against `SurveySchedule.cpp` before
+  accepting the correction. Fixed in v1.1 by replacing both columns with
+  semicolon-separated date lists — `Annual Surveys`, `Intermediate
+  Surveys` — so an import feeds the real survey history into the exact
+  matching logic live data entry already uses, with no special case.
+  `tst_CertificateCsvImportSurveys.cpp`'s
+  `asingleMostRecentDateWouldHaveReportedTheSameShipOverdue()` proves
+  the regression directly, as a counterfactual against the same
+  certificate the positive test uses.
+  - The same review surfaced roughly a dozen smaller corrections, all
+    independently verified against the actual source before being
+    accepted: `findById()` is unscoped in OFFICE mode, so row-matching
+    had to go through `list(vesselId)` instead, never `findById()`; no
+    callable validator existed before `create()`/`update()` (`validate()`
+    was private, and the dialog never called a separate one), which the
+    preview screen needs; the CSV dialect, header-matching rules, and a
+    missing cross-field rule (blank expiry paired with a survey flag)
+    were all unspecified; `previous_certificate_id` doesn't exist as a
+    column at all, not merely "out of scope"; `list()` sorts by name, not
+    by list number, so export has to sort explicitly; and the PDF needs
+    more collaborators than first named (see below).
+- **My own spec undercounted the PDF's collaborators.** v1.1 said four
+  repositories (`CertificateRepository`, `EndorsementRepository`,
+  `CertificateExtensionRepository`, `AppSettingRepository`).
+  `CertificateReportBuilder` correctly takes a fifth, `VesselRepository`,
+  for the vessel name and IMO in the heading — content the spec itself
+  required but didn't connect to the collaborator count. Caught in my
+  own verification of the implementation, not by Claude Code; the code
+  was right, the spec's own list was inconsistent with itself.
+
+Implementation, verified independently and file by file against the
+actual source (not taken from the report):
+
+- `validateCertificate()`/`validateEndorsement()` extracted from the two
+  repositories' private `validate()` methods into
+  `modules/certificates/domain/CertificateValidation.h/.cpp`, moved
+  verbatim, each repository's own `validate()` now one line delegating
+  to the domain function. This is what lets the import preview ask
+  "would this be accepted" without attempting a write, and it's the only
+  change to existing production *rules* in this step — confirmed no
+  rule's behaviour changed, only where it lives.
+  - Claude Code additionally extracted `validateEndorsement()`, not just
+    `validateCertificate()` as the spec's own wording emphasised, because
+    §6's "preview validates a survey date exactly as the Add Endorsement
+    dialog would" needs it too — caught by Claude Code's own test, which
+    found a survey dated before its certificate's issue date previewing
+    as importable before the fix. Correct call; the spec's emphasis was
+    just on the certificate side, not a scope boundary.
+- `CertificateRepository::listDeletedIds()` — a new, scope-filtered
+  repository method (identical filter to `list()`), added because
+  neither `list()` nor `findById()` can answer "was this id here and
+  deleted," which the "New (previously deleted)" preview outcome needs.
+  A genuinely new repository method the spec didn't anticipate by name,
+  but it doesn't contradict anything the spec promised about
+  `EndorsementRepository` specifically.
+- `core/CsvFile.h/.cpp` — a hand-rolled RFC 4180 reader/writer (Qt ships
+  none), CRLF + UTF-8 BOM on write, CRLF-or-LF and optional BOM on read.
+  Placed in `core/`, not the certificates module, on the same test
+  `CLAUDE.md` §5 already uses elsewhere: a CSV file is not a certificate
+  idea, and the modules still to come (spares, purchasing) will want
+  tabular I/O of their own.
+- `core/TransactionScope.h` — a small header-only RAII transaction
+  (commit-or-rollback-on-scope-exit), for the one case in this module
+  where two repositories have to succeed or fail together and neither
+  owns both tables. Also core, for the same reason as `CsvFile`.
+- `modules/certificates/service/`: `CertificateCsvValues` (cell-level
+  codecs: dates, booleans, the semicolon date-list syntax),
+  `CertificateCsvFormat` (the column list, header mapping, row
+  parsing), `CertificateCsvFileChecks` (the two whole-file refusals —
+  Vessel IMO mismatch, duplicate Id — run before any row is parsed),
+  `CertificateCsvExporter`, `CertificateCsvImporter` (holds a
+  `QSqlDatabase&` solely for the `TransactionScope` around its write
+  loop; issues no SQL of its own, every write goes through
+  `CertificateRepository`/`EndorsementRepository`), and
+  `CertificateReportBuilder` (the PDF statement, `QTextDocument` +
+  `QPrinter`, per `CLAUDE.md` §2 — landscape A4, generation date/time in
+  the heading).
+- `modules/certificates/ui/`: `CertificateIoActions` (the three
+  buttons — Import CSV, Export CSV, Export PDF — gated only on "a
+  vessel is selected," in both installation modes, split out of
+  `CertificateListWidget` along the same seam `CertificateListActions`
+  already uses) and `CertificateImportPreviewDialog` (the mandatory
+  dry-run preview; blocked entirely while any row is Invalid; per-row
+  overwrite tick defaulting to unchecked/skip).
+- Row-matching confirmed to go through `list(vesselId)` read once into
+  memory, never `findById()` — closes the cross-vessel corruption risk
+  the spec review flagged, and reads directly on why the "no foreign
+  key on `certificate.vessel_id`" trade-off (see "Decisions confirmed
+  by the developer") stays low-risk: import never bypasses the
+  repository's own scope checks to reach the table directly.
+- `CertificateState.h/.cpp` gained `displayStatusLabel()`, the status
+  text pulled out of `StatusItem` (which now just delegates to it) so
+  the PDF statement — built in the service layer, which can't include a
+  `ui/` header — shows the same words as the screen from one shared
+  source rather than a second copy.
+- Two new files split to stay under `CLAUDE.md` §9's ~300-line
+  guideline before they were ever committed: `CertificateCsvFormat.cpp`
+  (would have been 355; the cell codecs became `CertificateCsvValues`,
+  now 286/75) and `CertificateCsvImporter.cpp` (would have been 382; the
+  whole-file refusals became `CertificateCsvFileChecks`, now 297/74).
+  Both confirmed at those exact line counts directly, not taken from
+  the report.
+- **A reporting discrepancy, caught in verification, not a code
+  defect.** The implementation report claimed "seven suites registered,
+  six with migrations." Counted the actual `ship_add_migrations()` calls
+  in `tests/CMakeLists.txt` directly: it's five, not six —
+  `tst_CsvFile` and `tst_CertificateCsvFormat` correctly have none,
+  since both test pure functions with no database. The code is right;
+  the sentence describing it undercounted by one, the same shape of
+  small miscount as the "11 vs. 13 files" one two rounds ago.
+- **Verified independently**: every new and changed production file
+  read in full against the actual source on disk — the importer, the
+  format/value/file-check trio, the exporter, the report builder, both
+  new UI classes, both repository `validate()` delegations, the new
+  `listDeletedIds()` method, `CertificateState`/`StatusItem`'s label
+  move, `CertificatesModule`'s wiring, `CertificateListWidget`'s new
+  button row and constructor, and both `CMakeLists.txt` files. The
+  central design fix was verified two ways: by reading
+  `CertificateCsvImporter.cpp`/`CertificateCsvFormat.cpp` directly, and
+  by reading `tst_CertificateCsvImportSurveys.cpp`'s mid-cycle test and
+  its counterfactual, which exercises the exact regression the fix
+  exists to prevent.
+- Full clean Debug + Release rebuild and `ctest`, both reported
+  40/40 passing (118 new test functions across 7 new suites, 33
+  pre-existing suites unchanged) — taken from Claude Code's own report,
+  not independently re-run, since the file-by-file read above already
+  covered the part of the report most likely to be wrong (the design
+  itself) rather than the part a test run would catch (whether it
+  compiles and the assertions hold).
+- One small, optional polish item, not acted on: `TransactionScope::commit()`
+  marks the transaction closed (`m_open = false`) before calling
+  `QSqlDatabase::commit()`, so if the underlying commit itself fails,
+  the destructor never attempts a rollback, leaving the transaction's
+  real state with the driver ambiguous. Rare in practice — `commit()`
+  failing at all against a local SQLite file is already an edge case the
+  importer surfaces as an error — but worth a one-line fix (check the
+  commit's own result before clearing `m_open`) if this class gains a
+  second caller.
+
+Not committed yet at the time of writing — this entry was prepared
+alongside the verification above so it can go into the same commit as
+the code, per the project's usual practice of committing the status
+update together with the step it describes.
 
 ---
 
@@ -1728,6 +2035,18 @@ plus the spec doc — 4501 insertions / 640 deletions). **Not pushed** —
   every future writer remembering to call the repository. Revisit this when
   step 11 (CSV import) or the sync engine is designed, since those are the
   first paths that write outside the repository's own validation.
+  **Updated by step 13.** CSV import (renumbered to step 13) turned out
+  not to be the bypass this worried about: `CertificateCsvImporter`
+  issues no SQL of its own, and every write goes through
+  `CertificateRepository::create()`/`update()`, which still runs
+  `checkVesselAllowed()` on every call. The vessel on a row is also
+  always the one selected on screen, never read from the file, so a
+  crafted `Vessel IMO` or `Id` cell cannot aim a write at another
+  vessel's data even without a database-level FK. The gap an FK would
+  still close — nothing below the repository layer enforces it — remains
+  exactly as described above; it's just that step 13 didn't turn out to
+  be a path that reaches below that layer. The sync engine, whenever it
+  arrives, is still the next real candidate to revisit this against.
 - The "No." field (`list_number`) is a single free-typed box with a live
   validator, not two separate boxes for number and letter — tried, rejected
   by the developer as fiddly to fill in during data entry. The format
@@ -2099,6 +2418,39 @@ plus the spec doc — 4501 insertions / 640 deletions). **Not pushed** —
   fine" — is the thing to trust from now on; two different
   should-be-fine claims (mine, both times) turned out wrong before this
   one was actually verified against the raw bytes.
+- **Resolved.** The `InstallationContext`-by-reference dangling bug
+  (see "InstallationContext storage fix" above) is closed at the type
+  level — every class that stores one now holds it by value, so no
+  future call site can reintroduce it, unlike the ~50-call-site
+  mechanical alternative that was considered and rejected. Neither this
+  fix nor the survey-deadline fix added any new file to the over-300-line
+  list above; both touched are small (the changed repository headers are
+  all under 85 lines; `CertificateState.cpp` is still ~230 lines).
+- `modules/certificates/ui/CertificateListWidget.cpp` grew again in step
+  13, from 485 to **510 lines** — the new IO button row and the three
+  extra constructor parameters. Still the single most over-guideline
+  file in the project, now by a wider margin; accepted as shipped for
+  the same reason as before (no seam left as clean as the ones already
+  pulled out: `CertificateListActions`, `CertificateIoActions`). The one
+  that does look real now: the row-rendering logic (`fillRow()` and the
+  column-filling code around it) is a plausible further split, the same
+  shape as the actions classes already extracted. Worth a dedicated pass
+  before this file grows again, rather than folding it into a future
+  step's own changes.
+- Step 13's own new files mostly landed well clear of the guideline
+  (`CertificateCsvExporter.cpp` 104 lines, `CertificateCsvFileChecks.cpp`
+  74, `CertificateCsvValues.cpp` 75, `CertificateIoActions.cpp` 184,
+  `CertificateImportPreviewDialog.cpp` 174) — two were split before
+  being committed to stay under it (`CertificateCsvFormat.cpp` 286,
+  `CertificateCsvImporter.cpp` 297, both noted above). No new size debt
+  from this step beyond `CertificateListWidget.cpp`'s continued growth.
+- `core/TransactionScope::commit()` clears its own "transaction open"
+  flag before calling the underlying `QSqlDatabase::commit()`, so a
+  failed commit (not yet seen in practice) would leave the destructor
+  unable to roll back. Low priority — the one caller today
+  (`CertificateCsvImporter::runImport()`) already surfaces a commit
+  failure as its own error — but worth tightening if this class gains a
+  second caller.
 
 ---
 
@@ -2138,24 +2490,35 @@ were all updated to match.
 
 ## Next step
 
-**Step 13 — CSV import/export.** The certificate module now covers the
-full lifecycle a working certificate goes through: tracking, alerting,
-renewing, bridging a short-term gap, and attaching its real paperwork.
-Per `CLAUDE.md` §11, this step adds bulk tabular I/O — importing a fleet
-or a vessel's certificates from a CSV file, and exporting the current
-list back out to one.
+**Step 14 — Reports.** `CLAUDE.md` §11 still has a dedicated reporting
+step planned beyond what step 13 just delivered. Step 13's PDF export
+(`CertificateReportBuilder`) is deliberately a cut-down "current state,
+one vessel, as of now" statement for handing to a third party — no
+fleet view, no filtering, no per-certificate history, no print preview.
+Whatever step 14 turns out to need beyond that is narrower in scope
+than it would have been before step 13 existed, since the basic
+QTextDocument/QPrinter plumbing, the PDF page setup, and the
+status-label sharing between the screen and a document are all already
+in place and reusable.
 
 No implementation spec written yet, and no design discussion held —
 bring it up here first, the same way every step since step 3 has gone.
-Worth deciding early: what a CSV row maps to (one certificate per row,
-presumably, but endorsements/extensions/attachments are a separate
-question), how validation failures are reported for a bulk operation
-rather than the single friendly-message-per-field pattern every dialog
-here uses today, whether import is add-only or can also update existing
-certificates (and if so, matched by what — there's no natural external
-key), and the technical-debt note above about `certificate.vessel_id`
-having no foreign key: CSV import is the first write path that doesn't
-go through a dialog, so this is the moment that trade-off was flagged to
-be revisited.
+Worth deciding early: whether this step is "the same statement, but for
+every vessel in the fleet" (OFFICE mode only, naturally), a proper print
+preview before export, per-certificate history (every endorsement, not
+just current status), or some combination — and whether any of that
+belongs in this step at all versus being additional scope on
+`CertificateReportBuilder` whenever a concrete need for it shows up.
+
+Also still open, carried over from step 13's own design discussion and
+explicitly deferred rather than decided: the developer's proposal to
+rework the endorsement model to keep only the most recent survey per
+track, raised while discussing what the CSV survey columns should look
+like. Deferred specifically so it wouldn't get folded into step 13's
+scope — it's a genuinely separate design question (what the
+`endorsement` table and `SurveySchedule`'s matching algorithm look like
+going forward) and deserves its own dedicated discussion, not a decision
+made as a side effect of designing an import format around today's
+model.
 
 Full build order is in `CLAUDE.md` §11.

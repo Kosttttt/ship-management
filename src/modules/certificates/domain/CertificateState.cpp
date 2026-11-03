@@ -228,3 +228,24 @@ CertificateState computeCertificateState(const Certificate&          certificate
 
     return state;
 }
+
+QString displayStatusLabel(DisplayStatus status)
+{
+    switch (status) {
+    case DisplayStatus::Expired:
+        return QCoreApplication::translate("CertificateState", "Expired");
+    case DisplayStatus::SurveyOverdue:
+        return QCoreApplication::translate("CertificateState", "Survey Overdue");
+    case DisplayStatus::Critical:
+        return QCoreApplication::translate("CertificateState", "Critical");
+    case DisplayStatus::ExpiringSoon:
+        return QCoreApplication::translate("CertificateState", "Expiring Soon");
+    case DisplayStatus::SurveyDue:
+        return QCoreApplication::translate("CertificateState", "Survey Due");
+    case DisplayStatus::DueSoon:
+        return QCoreApplication::translate("CertificateState", "Due Soon");
+    case DisplayStatus::Valid:
+        return QCoreApplication::translate("CertificateState", "Valid");
+    }
+    return QString();
+}

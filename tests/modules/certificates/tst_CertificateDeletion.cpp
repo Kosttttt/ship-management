@@ -212,7 +212,8 @@ void TestCertificateDeletion::theDocumentColumnAndTheOpenEntryBothGoBackToEmpty(
         certificate, sourceFile(QStringLiteral("scan.pdf"), QStringLiteral("page one")), false));
 
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* table = widget.findChild<QTableWidget*>(QStringLiteral("certificateTable"));
@@ -493,7 +494,8 @@ void TestCertificateDeletion::theDeleteButtonNeedsASelectionAndIgnoresTheOtherRu
                                 QDate(2026, 2, 4), QDate(), /*requiresAnnual=*/false);
 
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(QStringLiteral("v1"));
 
     auto* deleteButton =

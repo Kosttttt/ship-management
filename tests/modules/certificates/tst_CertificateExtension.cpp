@@ -222,7 +222,8 @@ void TestCertificateExtension::startingAnExtensionShowsItsDateWithTheShortTermSu
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -284,7 +285,8 @@ void TestCertificateExtension::extensionButtonIsDisabledForACertificateThatNever
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(!extensionButtonOf(widget)->isEnabled(), "disabled with nothing selected");
@@ -313,7 +315,8 @@ void TestCertificateExtension::resolvingRevertsTheListToTheCertificatesOwnExpiry
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 
@@ -395,7 +398,8 @@ void TestCertificateExtension::renewIsDisabledWhileAnExtensionIsActive()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     tableOf(widget)->selectRow(0);
 

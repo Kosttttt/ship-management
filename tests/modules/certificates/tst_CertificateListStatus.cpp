@@ -121,7 +121,8 @@ void TestCertificateListStatus::neverExpiringCertificateShowsValidWithBlankSurve
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(tableOf(widget)->rowCount(), 1);
@@ -153,7 +154,8 @@ void TestCertificateListStatus::upcomingSurveyWindowIsShownLongBeforeItOpens()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Valid));
@@ -193,7 +195,8 @@ void TestCertificateListStatus::missedAnnualSurveyShowsSurveyOverdueWithNegative
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::SurveyOverdue));
@@ -219,7 +222,8 @@ void TestCertificateListStatus::expiredCertificateShowsExpiredWithNegativeDaysLe
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Expired));
@@ -246,7 +250,8 @@ void TestCertificateListStatus::overdueSurveyOutranksAnImminentExpiry()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::SurveyOverdue));
@@ -274,7 +279,8 @@ void TestCertificateListStatus::everyTrackSatisfiedLeavesSurveyColumnsBlank()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QVERIFY2(cell(widget, 0, From).isEmpty(), "only the renewal remains, so there is no window");
@@ -303,7 +309,8 @@ void TestCertificateListStatus::filterOnAnAllValidVesselShowsAnEmptyTableNotTheP
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     QCOMPARE(tableOf(widget)->rowCount(), 2);
 
@@ -331,7 +338,8 @@ void TestCertificateListStatus::filterKeepsRowsThatNeedAttention()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
     QCOMPARE(tableOf(widget)->rowCount(), 2);
 
@@ -371,7 +379,8 @@ void TestCertificateListStatus::statusColumnSortsBySeverityNotAlphabetically()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidget* table = tableOf(widget);
@@ -411,7 +420,8 @@ void TestCertificateListStatus::defaultSortIsStillListNumberAscending()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     // No header clicked: still the company numbering order, not alphabetical
@@ -435,7 +445,8 @@ void TestCertificateListStatus::validRowsCarryNoBackgroundHighlight()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     // "Valid means no highlight" (§4): the cell keeps the default row
@@ -460,7 +471,8 @@ void TestCertificateListStatus::urgentRowsCarryABackgroundHighlight()
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     QTableWidgetItem* status = tableOf(widget)->item(0, Status);
@@ -490,7 +502,8 @@ void TestCertificateListStatus::editedThresholdsChangeWhatTheListShows()
 
         AttachmentFixture attachments(db, context);
         CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                     appSettings, context);
+                                     appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
         widget.setVesselId(m_vesselId);
         QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::Critical));
     }
@@ -504,7 +517,8 @@ void TestCertificateListStatus::editedThresholdsChangeWhatTheListShows()
 
         AttachmentFixture attachments(db, context);
         CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                     appSettings, context);
+                                     appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
         widget.setVesselId(m_vesselId);
         QCOMPARE(cell(widget, 0, Status), StatusItem::labelFor(DisplayStatus::ExpiringSoon));
     }
@@ -535,7 +549,8 @@ void TestCertificateListStatus::unreadableSettingsFallBackToTheHardcodedDefaults
 
     AttachmentFixture attachments(db, context);
     CertificateListWidget widget(certificates, endorsements, extensions, attachments.service,
-                                 appSettings, context);
+                                 appSettings, attachments.csvExporter,
+                                 attachments.csvImporter, attachments.reportBuilder, context);
     widget.setVesselId(m_vesselId);
 
     // Still renders, and under the 30-day default 10 days out is Critical.

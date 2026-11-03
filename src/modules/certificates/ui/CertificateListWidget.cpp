@@ -8,6 +8,7 @@
 #include "modules/certificates/domain/CertificateState.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
+#include "modules/certificates/ui/CertificateIoActions.h"
 #include "modules/certificates/ui/CertificateListActions.h"
 #include "modules/certificates/ui/CertificateListRow.h"
 #include "modules/certificates/ui/DateItem.h"
@@ -99,6 +100,9 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
                                              CertificateExtensionRepository& extensions,
                                              CertificateAttachmentService&   attachments,
                                              AppSettingRepository&           appSettings,
+                                             CertificateCsvExporter&         csvExporter,
+                                             CertificateCsvImporter&         csvImporter,
+                                             CertificateReportBuilder&       reportBuilder,
                                              const InstallationContext&      installation,
                                              QWidget*                        parent)
     : QWidget(parent)
@@ -138,6 +142,13 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     m_actions = new CertificateListActions(m_repository, m_endorsements, m_extensions,
                                            m_attachments, m_table, this);
 
+    // Import and export are driven by which vessel is on screen rather than
+    // by which row is selected, which is why they are their own object
+    // instead of three more buttons on CertificateListActions
+    // (certificate-import-export-spec §1). The services themselves are owned
+    // by the module: a widget never holds a database connection.
+    m_ioActions = new CertificateIoActions(csvExporter, csvImporter, reportBuilder, this);
+
     auto* hint = new QLabel(tr("Double-click a certificate to edit it."), this);
     hint->setEnabled(false); // renders as secondary text
 
@@ -159,10 +170,21 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     controlRow->addStretch();
     controlRow->addWidget(m_needsAttentionCheck);
 
+    // A row of their own rather than a ninth button beside Delete: these
+    // three act on the whole vessel, and mixing them in with the buttons that
+    // act on one selected certificate would invite exactly the wrong click.
+    auto* ioRow = new QHBoxLayout;
+    ioRow->setContentsMargins(0, 0, 0, 0);
+    ioRow->addWidget(m_ioActions->importCsvButton());
+    ioRow->addWidget(m_ioActions->exportCsvButton());
+    ioRow->addWidget(m_ioActions->exportPdfButton());
+    ioRow->addStretch();
+
     auto* listPage       = new QWidget(this);
     auto* listPageLayout = new QVBoxLayout(listPage);
     listPageLayout->setContentsMargins(0, 0, 0, 0);
     listPageLayout->addLayout(controlRow);
+    listPageLayout->addLayout(ioRow);
     listPageLayout->addWidget(m_table);
     listPageLayout->addWidget(hint);
 
@@ -192,6 +214,8 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
             &CertificateListWidget::openAttachmentIfDocumentColumn);
     // The actions own the button clicks and the selection watching; all this
     // widget has to know is that something changed and the list is now stale.
+    connect(m_ioActions, &CertificateIoActions::listChanged, this,
+            &CertificateListWidget::reload);
     connect(m_actions, &CertificateListActions::listChanged, this,
             &CertificateListWidget::reload);
     // The filter works on computed severity, which is never stored, so it can
@@ -211,6 +235,7 @@ void CertificateListWidget::setVesselId(const QString& vesselId)
 {
     m_vesselId = vesselId;
     m_actions->setVesselId(vesselId);
+    m_ioActions->setVesselId(vesselId);
     reload();
 }
 
