@@ -196,16 +196,19 @@ CertificateState computeCertificateState(const Certificate&          certificate
         state.windowOpens     = reported.window.opens;
         state.windowCloses    = reported.window.closes;
 
-        // §4.4: until the window opens, count to the opening; once open (or
-        // past), count to the close, which goes negative when overdue.
+        // §4.4: once a survey is outstanding, the deadline is when its window
+        // closes — whether or not the window has opened yet. The opening is a
+        // heads-up, not a deadline: nothing goes wrong on that date, and the
+        // survey can still be carried out right up to the close. daysLeft goes
+        // negative once that close is past, which is what makes it overdue.
         //
         // dueDate is that same date, named, so that anything else needing to
         // know "what is next" — the attachment filename, under addendum 2 §7 —
-        // asks rather than guesses. An outstanding window always falls before
-        // expiry (the last anniversary is a year before it), so this is also
-        // the soonest of the three dates §7 lists.
-        state.dueDate  = (today < reported.window.opens) ? reported.window.opens
-                                                         : reported.window.closes;
+        // asks rather than guesses. An outstanding window always closes before
+        // expiry (the last anniversary is a year before it, and the window
+        // reaches three months past its anniversary), so this is also the
+        // soonest of the three dates §7 lists.
+        state.dueDate  = reported.window.closes;
         state.daysLeft = today.daysTo(state.dueDate);
     } else {
         // Nothing outstanding: the next action is the renewal before expiry.

@@ -161,10 +161,17 @@ void TestCertificateListStatus::upcomingSurveyWindowIsShownLongBeforeItOpens()
     QVERIFY2(!cell(widget, 0, To).isEmpty(), "the window is shown regardless of urgency");
 
     // The first anniversary is one year out; its window opens three months
-    // before that.
-    const QDate expectedOpens = today.addYears(1).addMonths(-3);
+    // before that and closes three months after it.
+    const QDate expectedOpens  = today.addYears(1).addMonths(-3);
+    const QDate expectedCloses = today.addYears(1).addMonths(3);
     QCOMPARE(cell(widget, 0, From), expectedOpens.toString(QStringLiteral("dd MMM yyyy")));
-    QCOMPARE(cell(widget, 0, Days).toInt(), today.daysTo(expectedOpens));
+    QCOMPARE(cell(widget, 0, To), expectedCloses.toString(QStringLiteral("dd MMM yyyy")));
+
+    // Days Left counts to the window's close — the deadline — and not to the
+    // opening, even this far ahead of it (certificate-survey-deadline-fix.md
+    // §3). The Survey From column above is what tells the crew when the
+    // window opens; this number is how long they have left.
+    QCOMPARE(cell(widget, 0, Days).toInt(), today.daysTo(expectedCloses));
 }
 
 void TestCertificateListStatus::missedAnnualSurveyShowsSurveyOverdueWithNegativeDaysLeft()

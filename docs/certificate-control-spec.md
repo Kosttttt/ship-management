@@ -230,11 +230,29 @@ database** (`CLAUDE.md` §6.7).
 
 ### 4.4 The "Days Left" column
 
-Always shows the most actionable number:
+Always shows the days remaining until the next real **deadline** — the last
+date on which something can still be done before the certificate becomes
+invalid:
 
-- survey window **not yet open** → days until the window **opens** (plan ahead)
-- survey window **open** → days until the window **closes** (how urgent)
-- no survey required → days until **expiry**
+- a survey **outstanding** → days until that window **closes**, whether or not
+  the window has opened yet. It goes negative once the window has closed,
+  which is how long the survey has been overdue.
+- no survey outstanding → days until **expiry**
+- an active short-term extension → days until the **extension** expires
+  (`certificate-extension-spec` §2)
+
+A window's **opening** is deliberately not used here. It is a heads-up, not a
+deadline: nothing goes wrong on that date and the survey can still be carried
+out right up to the close. The opening is what the Survey From column shows,
+and what turns the row `DUE SOON` (§4.3) — the colour says "start planning",
+this number says "this is how long you have".
+
+> Corrected by `certificate-survey-deadline-fix.md`. Until that fix this
+> column counted to the window's *opening* while the window was still shut,
+> switching to the close only once it was open. That made the number smaller
+> than the time actually available, and — once
+> `certificate-attachment-addendum-2-spec` §7 began reading the same value —
+> named attached documents after a date that was not a deadline.
 
 ### 4.5 Determining the next required survey
 

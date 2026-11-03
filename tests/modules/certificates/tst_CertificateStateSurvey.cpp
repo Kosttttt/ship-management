@@ -36,7 +36,7 @@ private slots:
     void additionalModeKeepsTheTracksIndependent();
 
     // §4.4
-    void daysLeftCountsToWindowOpeningThenToItsClose();
+    void daysLeftAlwaysCountsToTheWindowClose();
 };
 
 void TestCertificateStateSurvey::windowBoundariesAreInclusive()
@@ -266,23 +266,50 @@ void TestCertificateStateSurvey::additionalModeKeepsTheTracksIndependent()
     QCOMPARE(state.nextAnniversary, second);
 }
 
-void TestCertificateStateSurvey::daysLeftCountsToWindowOpeningThenToItsClose()
+void TestCertificateStateSurvey::daysLeftAlwaysCountsToTheWindowClose()
 {
+    // §4.4, as corrected by certificate-survey-deadline-fix.md: one rule for
+    // the whole life of an outstanding survey. The close is the deadline — the
+    // last day the survey can still be done — so that is what the number
+    // counts to, whether or not the window has opened yet. The opening is a
+    // heads-up and drives the colour (SurveySeverity), not this number.
     const Certificate certificate = certificateExpiring(QDate(2031, 2, 4));
     const QDate       first       = anniversary(certificate, 1);
+    const QDate       closes      = windowCloses(first);
 
-    // Before the window opens: days until it opens (plan ahead).
-    const QDate before = windowOpens(first).addDays(-10);
-    QCOMPARE(computeCertificateState(certificate, {}, AlertThresholds(), before).daysLeft, 10);
+    // Before the window opens: still the close, not the opening. This is the
+    // case the fix changed, so it is asserted both ways round — the old
+    // behaviour would have given 10 here.
+    const QDate            before      = windowOpens(first).addDays(-10);
+    const CertificateState beforeState =
+        computeCertificateState(certificate, {}, AlertThresholds(), before);
+    QCOMPARE(beforeState.survey, SurveySeverity::DueSoon);
+    QCOMPARE(beforeState.daysLeft, before.daysTo(closes));
+    QVERIFY2(beforeState.daysLeft != 10, "days left must not count to the window opening");
 
-    // Once open: days until it closes (how urgent).
+    // Once open: unchanged, days until it closes.
     const QDate inside = windowOpens(first).addDays(10);
     QCOMPARE(computeCertificateState(certificate, {}, AlertThresholds(), inside).daysLeft,
-             inside.daysTo(windowCloses(first)));
+             inside.daysTo(closes));
 
-    // Overdue: negative, i.e. how long ago it closed.
-    const QDate after = windowCloses(first).addDays(7);
+    // Overdue: negative, i.e. how long ago it closed. Also unchanged.
+    const QDate after = closes.addDays(7);
     QCOMPARE(computeCertificateState(certificate, {}, AlertThresholds(), after).daysLeft, -7);
+
+    // Still true the far side of the opening, where the old rule would have
+    // produced a NotDue row counting to a date a year before anything is due.
+    const QDate farOut = windowOpens(first).addDays(-200);
+    const CertificateState farState =
+        computeCertificateState(certificate, {}, AlertThresholds(), farOut);
+    QCOMPARE(farState.survey, SurveySeverity::NotDue);
+    QCOMPARE(farState.daysLeft, farOut.daysTo(closes));
+
+    // dueDate is the same date by name, in every one of those four states:
+    // it is the field addendum 2 §7 names an attached file after.
+    QCOMPARE(beforeState.dueDate, closes);
+    QCOMPARE(farState.dueDate, closes);
+    QCOMPARE(computeCertificateState(certificate, {}, AlertThresholds(), inside).dueDate, closes);
+    QCOMPARE(computeCertificateState(certificate, {}, AlertThresholds(), after).dueDate, closes);
 }
 
 QTEST_APPLESS_MAIN(TestCertificateStateSurvey)

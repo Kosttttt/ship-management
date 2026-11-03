@@ -92,7 +92,11 @@ private:
     Certificate load(const QString& id)
     {
         QSqlDatabase               db = database();
-        CertificateRepository      certificates(db, officeContext());
+        // The context is a named local, never a temporary: the repository stores
+        // it as a const reference, so a temporary would be destroyed at the end of
+        // this declaration and every later call would read freed memory.
+        const InstallationContext  context = officeContext();
+        CertificateRepository      certificates(db, context);
         std::optional<Certificate> loaded;
         certificates.findById(id, &loaded);
         return loaded.value_or(Certificate{});
@@ -137,15 +141,21 @@ void TestCertificateAttachmentNaming::theDueDateIsAlwaysTheDateDaysLeftCountsTo(
     QCOMPARE(state.dueDate, plain.expiryDate);
     QCOMPARE(state.daysLeft, m_today.daysTo(state.dueDate));
 
-    // A survey outstanding: the window, which always falls before expiry
-    // because the last anniversary is a year before it.
+    // A survey outstanding: the date that window closes. Asserted exactly,
+    // not merely as "before expiry" — the old before/after-the-opening switch
+    // also satisfied that weaker claim, so it could not have caught the bug
+    // certificate-survey-deadline-fix.md describes. Today is well before this
+    // window opens, which is precisely the case that used to be wrong.
     Certificate withSurvey      = plain;
     withSurvey.issueDate        = m_today;
     withSurvey.expiryDate       = m_today.addYears(5);
     withSurvey.requiresAnnualSurvey = true;
 
+    const QDate firstAnniversary = withSurvey.expiryDate.addYears(-4);
+    QVERIFY(m_today < windowOpens(firstAnniversary));
+
     state = computeCertificateState(withSurvey, {}, thresholds, m_today);
-    QVERIFY(state.dueDate.isValid());
+    QCOMPARE(state.dueDate, windowCloses(firstAnniversary));
     QCOMPARE(state.daysLeft, m_today.daysTo(state.dueDate));
     QVERIFY2(state.dueDate < withSurvey.expiryDate, qPrintable(state.dueDate.toString()));
 
@@ -192,14 +202,19 @@ void TestCertificateAttachmentNaming::theAnnualWindowWinsWhenItOpensFirst()
                                 /*requiresAnnual=*/true, /*requiresIntermediate=*/true);
 
     // The anniversaries are expiry minus 4, 3, 2 and 1 years. Nothing is
-    // recorded, so the first of them is outstanding and its window opens three
-    // months before it.
+    // recorded, so the first of them is outstanding, and its deadline is the
+    // day its window closes — three months *after* the anniversary, not the
+    // three-months-before opening (certificate-survey-deadline-fix.md §3).
     const QDate firstAnniversary = expiry.addYears(-4);
-    const QDate expected         = windowOpens(firstAnniversary);
+    const QDate expected         = windowCloses(firstAnniversary);
 
     // Sanity, so a failure below is about the rule and not about the dates:
-    // the intermediate window opens a year later than this.
+    // this annual window closes before the intermediate window even opens, so
+    // the annual is unambiguously the one that needs attention next.
     QVERIFY2(expected < windowOpens(expiry.addYears(-3)), qPrintable(expected.toString()));
+    // And the window really has not opened yet, which is the case the fix
+    // changed — today is still a good nine months short of it.
+    QVERIFY(m_today < windowOpens(firstAnniversary));
 
     AttachmentFixture attachments(db, officeContext());
     QVERIFY2(attachments.service.replaceCurrent(load(QStringLiteral("c1")),
@@ -240,8 +255,11 @@ void TestCertificateAttachmentNaming::theIntermediateWindowWinsWhenItIsTheOneDue
 
     // The intermediate window runs from the second anniversary's opening to
     // the third's closing (certificate-control-spec §3.2), and today is inside
-    // it. No intermediate survey has been recorded, so it is outstanding —
-    // and an open window counts to its closing date (§4.4).
+    // it. No intermediate survey has been recorded, so it is outstanding — and
+    // an outstanding window always counts to its closing date (§4.4). This
+    // expectation did not move with certificate-survey-deadline-fix.md: today
+    // is already past the opening here, so the old before/after switch picked
+    // the close as well.
     const QDate intermediateOpens  = windowOpens(second);
     const QDate intermediateCloses = windowCloses(third);
     QVERIFY(m_today >= intermediateOpens);
@@ -330,7 +348,7 @@ void TestCertificateAttachmentNaming::anAlreadyAttachedFileIsNotRenamedWhenTheSc
     const QString storedBefore = activePathOf(db, QStringLiteral("c1"));
     QCOMPARE(storedBefore,
              expectedName(QStringLiteral("15D"), QStringLiteral("Load_Line"),
-                          windowOpens(expiry.addYears(-4))));
+                          windowCloses(expiry.addYears(-4))));
 
     // The first annual signed off, which moves the next window a year out.
     seedEndorsement(db, QStringLiteral("e1"), QStringLiteral("c1"), QStringLiteral("ANNUAL"),
@@ -348,7 +366,7 @@ void TestCertificateAttachmentNaming::anAlreadyAttachedFileIsNotRenamedWhenTheSc
                                                sourceFile(QStringLiteral("newer.pdf")), false));
     QCOMPARE(activePathOf(db, QStringLiteral("c1")),
              expectedName(QStringLiteral("15D"), QStringLiteral("Load_Line"),
-                          windowOpens(expiry.addYears(-3))));
+                          windowCloses(expiry.addYears(-3))));
 }
 
 QTEST_MAIN(TestCertificateAttachmentNaming)

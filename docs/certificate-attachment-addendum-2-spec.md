@@ -156,6 +156,17 @@ survey window's open date, the next intermediate survey window's open
 date) is soonest — so the name reflects what actually needs attention
 next, not just when the certificate itself runs out.
 
+> **Correction — see `certificate-survey-deadline-fix.md`.** Where the
+> paragraph above says a survey window's *open* date, read its **close**
+> date. A survey window is named after the day it closes, which is the
+> deadline, whether or not the window has opened yet; its opening is only
+> a heads-up. The rest of this section is unaffected — in particular the
+> first bullet below still holds exactly as written, because the fix was
+> made in `computeCertificateState()`'s `dueDate`, so this section's
+> single-source-of-truth reading of that field is what carried the
+> correction through. Nothing renames a file already on disk, per the
+> last bullet.
+
 - Reuses whatever date `computeCertificateState()` already derives for
   `daysLeft` — the single source of truth the list's own Days Left
   column already depends on — rather than a second, independent

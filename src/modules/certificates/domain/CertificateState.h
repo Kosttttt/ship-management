@@ -68,9 +68,11 @@ struct CertificateState {
     QDate windowOpens;
     QDate windowCloses;
 
-    // §4.4: days until the window opens, or until it closes once open, or
-    // until expiry when no survey is outstanding. Negative when the date it
-    // counts to has already passed.
+    // §4.4: days until the next real deadline — the close of an outstanding
+    // survey window, or expiry when no survey is outstanding. Never the
+    // window's opening, which is a heads-up rather than a deadline
+    // (certificate-survey-deadline-fix.md). Negative when the date it counts
+    // to has already passed.
     int daysLeft = 0;
 
     // The calendar date daysLeft above counts to — the one thing that needs
