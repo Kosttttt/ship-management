@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/InstallationContext.h"
 #include "modules/certificates/domain/Certificate.h"
 
 #include <QList>
@@ -7,7 +8,6 @@
 
 #include <optional>
 
-class InstallationContext;
 class QSqlDatabase;
 
 // The only file in this module containing SQL (CLAUDE.md §4 rule 2).
@@ -63,7 +63,8 @@ private:
     bool checkVesselAllowed(const QString& vesselId);
     bool isScopedToOneVessel() const;
 
-    QSqlDatabase&              m_database;
-    const InstallationContext& m_installation;
-    QString                    m_errorString;
+    QSqlDatabase&       m_database;
+    // By value, never by reference — see InstallationContext.h.
+    InstallationContext m_installation;
+    QString             m_errorString;
 };

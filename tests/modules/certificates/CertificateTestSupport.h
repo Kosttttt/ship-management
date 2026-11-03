@@ -206,12 +206,13 @@ class AttachmentFixture
 {
 public:
     AttachmentFixture(QSqlDatabase& db, const InstallationContext& installation)
-        : vessels(db, installation)
+        : context(installation)
+        , vessels(db, context)
         , roots(vessels)
-        , endorsements(db, installation)
-        , extensions(db, installation)
+        , endorsements(db, context)
+        , extensions(db, context)
         , appSettings(db)
-        , repository(db, installation)
+        , repository(db, context)
         , service(repository, storage, roots, endorsements, extensions, appSettings)
     {
         QVERIFY2(temporaryRoot.isValid(), "could not create a temporary managed data folder");
@@ -230,6 +231,22 @@ public:
     QString rootPath() const { return temporaryRoot.path(); }
 
     QTemporaryDir temporaryRoot;
+
+    // One named copy of the installation context, shared by every repository
+    // below.
+    //
+    // This is a convenience, not a correctness requirement. It was once the
+    // latter: repositories used to store the context as a
+    // `const InstallationContext&`, so passing a temporary — which
+    // `AttachmentFixture f(db, officeContext());` does — left them holding a
+    // dangling reference. Repositories now hold their context by value
+    // (installation-context-storage-fix.md), so that whole hazard is gone and
+    // no caller has to think about the lifetime of what it passes in.
+    //
+    // Kept because one named value is clearer than handing `installation` to
+    // five constructors in turn, and because it makes it obvious that all five
+    // are scoped identically.
+    InstallationContext context;
 
     // Declared in dependency order: the folder resolution is built from the
     // vessel repository, and the service from the resolution, and C++

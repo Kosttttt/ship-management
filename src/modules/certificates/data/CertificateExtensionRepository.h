@@ -1,12 +1,12 @@
 #pragma once
 
+#include "core/InstallationContext.h"
 #include "modules/certificates/domain/CertificateExtension.h"
 
 #include <QString>
 
 #include <optional>
 
-class InstallationContext;
 class QSqlDatabase;
 
 // Reads and writes short-term extensions (certificate-extension-spec §5).
@@ -47,7 +47,8 @@ private:
 
     bool isScopedToOneVessel() const;
 
-    QSqlDatabase&              m_database;
-    const InstallationContext& m_installation;
-    QString                    m_errorString;
+    QSqlDatabase&       m_database;
+    // By value, never by reference — see InstallationContext.h.
+    InstallationContext m_installation;
+    QString             m_errorString;
 };

@@ -24,6 +24,26 @@ struct InstallationRecord {
 // never changed afterwards: installation mode is permanent
 // (first-run-wizard-spec §7). There are no setters, so nothing later in the
 // program can quietly reassign the vessel this copy belongs to.
+//
+// A class that keeps one of these holds it BY VALUE, never as a
+// `const InstallationContext&` member, even though taking it as a
+// `const InstallationContext&` *parameter* is right and unchanged
+// (installation-context-storage-fix.md).
+//
+// A reference member only works while the caller keeps the original alive, and
+// the natural way to construct a repository is
+// `CertificateRepository repo(db, officeContext());` — where that argument is
+// a temporary destroyed at the closing semicolon, leaving the member dangling.
+// Every later call then reads freed memory. That survives an unoptimised build,
+// because the stack slot usually still holds the old bytes, and breaks under
+// -O2 where the slot gets reused: it turned into an access violation in one
+// test suite and, worse, into VESSEL-mode queries that silently returned
+// another vessel's rows — the exact failure CLAUDE.md §3's scope filtering
+// exists to prevent.
+//
+// Holding it by value makes that impossible to write. It costs nothing: the
+// fields are ref-counted QStrings, the copy happens once per construction, and
+// because there are no setters a copy can never drift from its original.
 class InstallationContext
 {
 public:

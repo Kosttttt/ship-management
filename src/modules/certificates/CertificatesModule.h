@@ -2,6 +2,7 @@
 
 #include "app/IModule.h"
 #include "core/AppSettingRepository.h"
+#include "core/InstallationContext.h"
 #include "core/VesselAttachmentRoots.h"
 #include "core/VesselRepository.h"
 #include "modules/certificates/CertificateAlertProvider.h"
@@ -12,7 +13,6 @@
 #include "modules/certificates/data/EndorsementRepository.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
 
-class InstallationContext;
 class QSqlDatabase;
 
 // The Certificate Control module — the first and, so far, only IModule.
@@ -35,7 +35,10 @@ public:
     QList<AlertProvider*> alertProviders() override;
 
 private:
-    const InstallationContext&     m_installation;
+    // By value, never by reference — see InstallationContext.h. Still declared
+    // first, because the repositories below are constructed from it and C++
+    // initialises members in declaration order.
+    InstallationContext            m_installation;
     CertificateRepository          m_certificates;
     EndorsementRepository          m_endorsements;
     CertificateExtensionRepository m_extensions;

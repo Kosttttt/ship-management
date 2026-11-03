@@ -1,12 +1,12 @@
 #pragma once
 
 #include "app/AlertProvider.h"
+#include "core/InstallationContext.h"
 
 class AppSettingRepository;
 class CertificateExtensionRepository;
 class CertificateRepository;
 class EndorsementRepository;
-class InstallationContext;
 class VesselRepository;
 
 // The certificates module's answer to "what needs attention, per vessel"
@@ -39,6 +39,7 @@ private:
     // opens. Not const: findActiveFor() records its own error string.
     CertificateExtensionRepository& m_extensions;
 
-    AppSettingRepository&      m_appSettings;
-    const InstallationContext& m_installation;
+    AppSettingRepository& m_appSettings;
+    // By value, never by reference — see InstallationContext.h.
+    InstallationContext   m_installation;
 };

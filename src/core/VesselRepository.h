@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/InstallationContext.h"
 #include "core/Vessel.h"
 
 #include <QList>
@@ -7,7 +8,6 @@
 
 #include <optional>
 
-class InstallationContext;
 class QSqlDatabase;
 
 // Reads and writes the vessel table. The only file containing SQL for it
@@ -59,7 +59,8 @@ private:
     bool isImoNumberTaken(const QString& imoNumber, const QString& excludeId, bool* taken);
     bool isScopedToOneVessel() const;
 
-    QSqlDatabase&              m_database;
-    const InstallationContext& m_installation;
-    QString                    m_errorString;
+    QSqlDatabase&       m_database;
+    // By value, never by reference — see InstallationContext.h.
+    InstallationContext m_installation;
+    QString             m_errorString;
 };

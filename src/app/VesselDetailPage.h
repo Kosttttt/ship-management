@@ -1,8 +1,9 @@
 #pragma once
 
+#include "core/InstallationContext.h"
+
 #include <QWidget>
 
-class InstallationContext;
 class VesselEditForm;
 class VesselRepository;
 class QLabel;
@@ -28,9 +29,10 @@ public:
 private:
     void save();
 
-    VesselRepository&          m_repository;
-    const InstallationContext& m_installation;
-    VesselEditForm*            m_form        = nullptr;
-    QPushButton*               m_saveButton  = nullptr;
-    QLabel*                    m_statusLabel = nullptr;
+    VesselRepository&   m_repository;
+    // By value, never by reference — see InstallationContext.h.
+    InstallationContext m_installation;
+    VesselEditForm*     m_form        = nullptr;
+    QPushButton*        m_saveButton  = nullptr;
+    QLabel*             m_statusLabel = nullptr;
 };

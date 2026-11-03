@@ -92,11 +92,7 @@ private:
     Certificate load(const QString& id)
     {
         QSqlDatabase               db = database();
-        // The context is a named local, never a temporary: the repository stores
-        // it as a const reference, so a temporary would be destroyed at the end of
-        // this declaration and every later call would read freed memory.
-        const InstallationContext  context = officeContext();
-        CertificateRepository      certificates(db, context);
+        CertificateRepository      certificates(db, officeContext());
         std::optional<Certificate> loaded;
         certificates.findById(id, &loaded);
         return loaded.value_or(Certificate{});
