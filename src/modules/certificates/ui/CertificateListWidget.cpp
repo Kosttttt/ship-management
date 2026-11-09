@@ -14,6 +14,7 @@
 #include "modules/certificates/ui/DateItem.h"
 #include "modules/certificates/ui/ListNumberItem.h"
 #include "modules/certificates/ui/StatusItem.h"
+#include "modules/certificates/ui/TableHeaderSettings.h"
 
 #include <QCheckBox>
 #include <QDesktopServices>
@@ -55,6 +56,27 @@ enum class Column {
 };
 
 constexpr int kColumnCount = 9;
+
+// usability-fixes §1: the widths a user sees before they drag anything, in
+// Column order. Name is deliberately far wider than the rest - it is the one
+// column that routinely holds something long ("International Oil Pollution
+// Prevention Certificate"), and the old equal-share Stretch mode is exactly
+// what clipped it. Expiry Date is the second widest because an active
+// short-term extension writes a date plus a suffix into that one cell.
+//
+// Starting points, not settings: whatever the user drags these to is what
+// they get next time (TableHeaderSettings).
+constexpr int kDefaultColumnWidths[kColumnCount] = {
+    64,  // No.
+    320, // Name
+    104, // Issue Date
+    124, // Status
+    176, // Expiry Date
+    104, // Survey From
+    104, // Survey To
+    80,  // Days Left
+    84   // Document
+};
 
 // The row data in CertificateListRow.h rides on the first cell, which is this
 // column. Asserted rather than assumed, since the two are declared apart.
@@ -121,21 +143,43 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
                                         tr("Expiry Date"), tr("Survey From"), tr("Survey To"),
                                         tr("Days Left"), tr("Document")});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    // usability-fixes §2: ordinary Ctrl/Shift-click multi-select, so a batch
+    // of certificates entered by mistake can be cleaned up from inside the
+    // application. Only Delete acts on more than one; every other action here
+    // stays single-certificate, which CertificateListActions enforces by
+    // treating "more than one selected" as no selection at all.
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers); // edited via the dialog
     m_table->verticalHeader()->setVisible(false);
     m_table->setSortingEnabled(true);
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    // usability-fixes §1: Interactive, not Stretch or ResizeToContents. Both
+    // of those actively disable dragging a column border, and Stretch divides
+    // the width equally regardless of what a column holds, which clipped long
+    // certificate names with no way to see the rest.
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    // The last column absorbs whatever width is left over, so widening the
+    // window does not leave dead space to the right of Document.
+    m_table->horizontalHeader()->setStretchLastSection(true);
+
+    // Starting widths only - the user drags from here, and whatever they drag
+    // to is remembered (below). Name gets by far the most, because it is the
+    // one column that routinely needs it.
+    for (int column = 0; column < kColumnCount; ++column) {
+        m_table->horizontalHeader()->resizeSection(column, kDefaultColumnWidths[column]);
+    }
+
     // The reference number is the whole point of the field, so it is the sort
     // a user gets without clicking anything (certificate-crud-spec §8.2).
     // Any header click still re-sorts by that column, as before.
-    m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::ListNumber),
-                                                      QHeaderView::ResizeToContents);
-    // The Document column holds one glyph or nothing at all (§4), so stretching
-    // it would waste a fifth of the table on a column that is mostly empty.
-    m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::Attachment),
-                                                      QHeaderView::ResizeToContents);
     m_table->sortByColumn(static_cast<int>(Column::ListNumber), Qt::AscendingOrder);
+
+    // Last, so a returning user's own layout wins over the defaults just set
+    // (§1). Saving starts only after restoring, or restoring would fire the
+    // header's own signals and write a half-applied layout straight back.
+    m_headerSettings = new TableHeaderSettings(
+        m_table->horizontalHeader(), QStringLiteral("ui/certificateList/headerState"), this);
+    m_headerSettings->restore();
+    m_headerSettings->startSaving();
 
     // After the table, which it watches for selection changes. It owns the
     // Renew, extension and attachment buttons; this widget only places them.

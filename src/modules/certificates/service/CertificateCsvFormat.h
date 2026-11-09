@@ -63,9 +63,18 @@ bool mapHeader(const QStringList& headerCells, QHash<QString, int>* columnIndex,
 // rules (dates, booleans, category and mode codes, the semicolon lists) and
 // then the shared validateCertificate() rules, so one call gives a complete
 // verdict for one row.
+//
+// allowPlaceholderIssueDate is the opt-in from
+// certificate-list-usability-fixes.md §3: with it set, a row whose Issue Date
+// cell is *empty* gets the flagged placeholder date and note from
+// CertificateIssueDatePlaceholder instead of being refused. A cell that holds
+// something unreadable is still refused either way — that is a typo, and the
+// whole point of §5.3 is not to guess at those. Off by default, so every
+// existing caller is unchanged.
 bool parseRow(const QStringList&         cells,
               const QHash<QString, int>& columnIndex,
               CertificateCsvRow*         row,
-              QString*                   reason);
+              QString*                   reason,
+              bool                       allowPlaceholderIssueDate = false);
 
 } // namespace CertificateCsvFormat

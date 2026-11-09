@@ -14,6 +14,7 @@ class CertificateIoActions;
 class CertificateListActions;
 class CertificateReportBuilder;
 class CertificateRepository;
+class TableHeaderSettings;
 class EndorsementRepository;
 class InstallationContext;
 class QCheckBox;
@@ -107,6 +108,11 @@ private:
     // watches for selection changes.
     CertificateListActions* m_actions   = nullptr;
     CertificateIoActions*   m_ioActions = nullptr;
+
+    // Remembers the column widths the user drags, under its own QSettings
+    // key (certificate-list-usability-fixes.md §1). A QObject child of this
+    // widget, like the two action objects above.
+    TableHeaderSettings*    m_headerSettings = nullptr;
 
     QStackedWidget* m_stack               = nullptr;
     QTableWidget*   m_table               = nullptr;

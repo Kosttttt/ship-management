@@ -123,6 +123,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/data/CertificateAttachmentRepository.cpp
     src/modules/certificates/data/CertificateAttachmentStorage.h
     src/modules/certificates/data/CertificateAttachmentStorage.cpp
+    src/modules/certificates/service/CertificateIssueDatePlaceholder.h
+    src/modules/certificates/service/CertificateIssueDatePlaceholder.cpp
     src/modules/certificates/service/CertificateCsvValues.h
     src/modules/certificates/service/CertificateCsvValues.cpp
     src/modules/certificates/service/CertificateCsvFormat.h
@@ -135,6 +137,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/service/CertificateCsvImporter.cpp
     src/modules/certificates/service/CertificateReportBuilder.h
     src/modules/certificates/service/CertificateReportBuilder.cpp
+    src/modules/certificates/service/CertificateBulkDeletion.h
+    src/modules/certificates/service/CertificateBulkDeletion.cpp
     src/modules/certificates/service/CertificateAttachmentService.h
     src/modules/certificates/service/CertificateAttachmentService.cpp
     src/modules/certificates/service/CertificateDeletionService.h
@@ -152,12 +156,18 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateImportPreviewDialog.cpp
     src/modules/certificates/ui/CertificateListActions.h
     src/modules/certificates/ui/CertificateListActions.cpp
+    src/modules/certificates/ui/CertificateSelection.h
+    src/modules/certificates/ui/CertificateSelection.cpp
+    src/modules/certificates/ui/CertificateDeleteActions.h
+    src/modules/certificates/ui/CertificateDeleteActions.cpp
     src/modules/certificates/ui/CertificateAttachmentActions.h
     src/modules/certificates/ui/CertificateAttachmentActions.cpp
     src/modules/certificates/ui/ListNumberItem.h
     src/modules/certificates/ui/ListNumberItem.cpp
     src/modules/certificates/ui/DateItem.h
     src/modules/certificates/ui/DateItem.cpp
+    src/modules/certificates/ui/TableHeaderSettings.h
+    src/modules/certificates/ui/TableHeaderSettings.cpp
     src/modules/certificates/ui/StatusItem.h
     src/modules/certificates/ui/StatusItem.cpp
     src/modules/certificates/ui/EndorsementEditForm.h

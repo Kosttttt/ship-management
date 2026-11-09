@@ -117,12 +117,36 @@ bool CertificateCsvImporter::buildPreview(const QString&            vesselId,
         return false;
     }
 
+    // Both kept on the preview so the placeholder checkbox can re-evaluate
+    // every row in the open dialog without re-reading the file
+    // (certificate-list-usability-fixes.md §3).
+    preview->vesselId    = vesselId;
+    preview->columnIndex = columnIndex;
+
     for (int index = 0; index < dataRows.size(); ++index) {
         CertificateImportRow row;
         row.rowNumber = index + 1;
+        row.cells     = dataRows.at(index);
 
-        if (!CertificateCsvFormat::parseRow(dataRows.at(index), columnIndex, &row.parsed,
-                                            &row.reason)) {
+        const bool valid =
+            CertificateCsvFormat::parseRow(row.cells, columnIndex, &row.parsed, &row.reason);
+
+        // Worked out whether the row parsed or not: parseRow() fills fileId
+        // before anything in it can fail, so even a rejected row knows which
+        // certificate it claimed to be — which is what lets the placeholder
+        // option put a rescued row straight into its real outcome (§3).
+        if (row.parsed.fileId.isEmpty()) {
+            row.outcomeIfValid = ImportRowOutcome::New;
+        } else if (liveIds.contains(row.parsed.fileId)) {
+            row.outcomeIfValid = ImportRowOutcome::Match;
+            row.matchedId      = row.parsed.fileId;
+        } else if (deletedIds.contains(row.parsed.fileId)) {
+            row.outcomeIfValid = ImportRowOutcome::NewPreviouslyDeleted;
+        } else {
+            row.outcomeIfValid = ImportRowOutcome::New;
+        }
+
+        if (!valid) {
             row.outcome = ImportRowOutcome::Invalid;
             preview->rows.append(row);
             continue;
@@ -131,17 +155,7 @@ bool CertificateCsvImporter::buildPreview(const QString&            vesselId,
         // The vessel comes from the selection, always, so that nothing in the
         // file can decide what a row belongs to (§7).
         row.parsed.certificate.vesselId = vesselId;
-
-        if (row.parsed.fileId.isEmpty()) {
-            row.outcome = ImportRowOutcome::New;
-        } else if (liveIds.contains(row.parsed.fileId)) {
-            row.outcome   = ImportRowOutcome::Match;
-            row.matchedId = row.parsed.fileId;
-        } else if (deletedIds.contains(row.parsed.fileId)) {
-            row.outcome = ImportRowOutcome::NewPreviouslyDeleted;
-        } else {
-            row.outcome = ImportRowOutcome::New;
-        }
+        row.outcome                     = row.outcomeIfValid;
 
         preview->rows.append(row);
     }

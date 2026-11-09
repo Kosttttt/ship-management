@@ -292,6 +292,17 @@ by number stay together at the top rather than scattered behind blank
 entries. Clicking the column header still re-sorts by whichever column was
 clicked, same as every other sortable column already.
 
+As of `certificate-list-usability-fixes.md` §1, this default is exactly
+that — a default, not a permanent rule. `TableHeaderSettings` persists the
+header's whole state, sort column included, the same way it persists
+column widths: the first time the list is ever opened it sorts by
+`list_number` ascending as described above, but the moment a user clicks a
+different column header, that is what they get back the next time they
+open the app on this computer, until they sort it again. This is
+deliberate — it treats "how I last arranged this list" as one setting, not
+two — so this section describes the starting point a fresh install shows,
+not a sort the application re-imposes every time it runs.
+
 ### 8.3 Issue Date column added to the list
 
 `issue_date` has been stored since migration 003; it just wasn't shown.

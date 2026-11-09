@@ -3,7 +3,7 @@
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
 #include "modules/certificates/ui/AttachmentChooser.h"
-#include "modules/certificates/ui/CertificateListRow.h"
+#include "modules/certificates/ui/CertificateSelection.h"
 
 #include <QDesktopServices>
 #include <QDir>
@@ -72,14 +72,14 @@ void CertificateAttachmentActions::setVesselId(const QString& vesselId)
 
 QString CertificateAttachmentActions::selectedCertificateId() const
 {
-    const QModelIndexList selected = m_table->selectionModel()->selectedRows();
-    if (selected.isEmpty()) {
-        return QString();
-    }
-
-    QTableWidgetItem* item = m_table->item(selected.first().row(), CertificateRow::kDataColumn);
-    return item == nullptr ? QString()
-                           : item->data(CertificateRow::kCertificateIdRole).toString();
+    // Asks CertificateSelection rather than reading the selection itself, so
+    // this button obeys the same multi-select rule as Renew and the extension
+    // button: attaching a document to "the first of six selected rows" is not
+    // a thing anyone means, so more than one selected reads as none
+    // (certificate-list-usability-fixes.md §2). Before that change this class
+    // kept its own copy of this lookup, which is exactly how it would have
+    // been the one button left acting on a row the user had not singled out.
+    return CertificateSelection::singleCertificateId(m_table);
 }
 
 void CertificateAttachmentActions::updateState()

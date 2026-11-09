@@ -1,5 +1,8 @@
 #include "modules/certificates/ui/CertificateImportPreviewDialog.h"
 
+#include "modules/certificates/service/CertificateIssueDatePlaceholder.h"
+
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -8,7 +11,6 @@
 #include <QVBoxLayout>
 
 namespace {
-
 enum class Column {
     RowNumber = 0,
     ListNumber = 1,
@@ -83,6 +85,20 @@ CertificateImportPreviewDialog::CertificateImportPreviewDialog(
     m_table->horizontalHeader()->setSectionResizeMode(static_cast<int>(Column::Detail),
                                                       QHeaderView::Stretch);
 
+    // certificate-list-usability-fixes.md §3. Unticked by default, and that
+    // default matters: a missing issue date is as often a data-entry slip
+    // worth catching as it is a deliberate gap, so nothing is papered over
+    // unless the user says so for this file.
+    m_placeholderCheck = new QCheckBox(
+        tr("Fill in a placeholder issue date (1990-01-01) for rows with none, and flag it "
+           "in Notes"),
+        this);
+    m_placeholderCheck->setObjectName(QStringLiteral("importPlaceholderIssueDateCheck"));
+    m_placeholderCheck->setChecked(false);
+    m_placeholderCheck->setToolTip(
+        tr("Only rows whose single problem is a missing issue date are affected. A row with "
+           "an unreadable date, or any other problem, stays Invalid."));
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     m_importButton = buttons->addButton(tr("&Import"), QDialogButtonBox::AcceptRole);
     m_importButton->setObjectName(QStringLiteral("importConfirmButton"));
@@ -90,10 +106,13 @@ CertificateImportPreviewDialog::CertificateImportPreviewDialog(
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(m_summary);
     layout->addWidget(m_table);
+    layout->addWidget(m_placeholderCheck);
     layout->addWidget(buttons);
 
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(m_placeholderCheck, &QCheckBox::toggled, this,
+            &CertificateImportPreviewDialog::placeholderToggled);
 
     fillTable();
     resize(900, 500);
@@ -158,17 +177,34 @@ void CertificateImportPreviewDialog::fillTable()
     m_importButton->setEnabled(invalid == 0 && !m_preview.rows.isEmpty());
 }
 
-CertificateImportPreview CertificateImportPreviewDialog::decisions() const
+void CertificateImportPreviewDialog::applyTicks(CertificateImportPreview* target) const
 {
-    CertificateImportPreview resolved = m_preview;
-
-    for (int row = 0; row < resolved.rows.size(); ++row) {
-        if (resolved.rows[row].outcome != ImportRowOutcome::Match) {
+    for (int row = 0; row < target->rows.size() && row < m_table->rowCount(); ++row) {
+        if (target->rows[row].outcome != ImportRowOutcome::Match) {
             continue;
         }
         const QTableWidgetItem* item = m_table->item(row, static_cast<int>(Column::Overwrite));
-        resolved.rows[row].overwrite = item != nullptr && item->checkState() == Qt::Checked;
+        target->rows[row].overwrite = item != nullptr && item->checkState() == Qt::Checked;
     }
+}
 
+void CertificateImportPreviewDialog::placeholderToggled(bool on)
+{
+    // Read the ticks back first: fillTable() below rebuilds every cell, and a
+    // match the user had already ticked must not quietly become a skip again.
+    applyTicks(&m_preview);
+
+    // §3: the rule is the service layer's. All this knows is that the answer
+    // may have changed for some rows, and that the table has to be redrawn —
+    // which also refreshes the summary line and the Import button.
+    applyIssueDatePlaceholder(&m_preview, on);
+
+    fillTable();
+}
+
+CertificateImportPreview CertificateImportPreviewDialog::decisions() const
+{
+    CertificateImportPreview resolved = m_preview;
+    applyTicks(&resolved);
     return resolved;
 }

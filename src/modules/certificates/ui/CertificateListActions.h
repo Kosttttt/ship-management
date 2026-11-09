@@ -1,13 +1,12 @@
 #pragma once
 
-#include "modules/certificates/service/CertificateDeletionService.h"
-
 #include <QDate>
 #include <QObject>
 #include <QString>
 
 class CertificateAttachmentActions;
 class CertificateAttachmentService;
+class CertificateDeleteActions;
 class CertificateExtensionRepository;
 class CertificateRepository;
 class EndorsementRepository;
@@ -33,6 +32,13 @@ class QWidget;
 // This class still owns that object and still hands its button on, so the
 // widget laying the row out never had to learn about the change.
 //
+// Delete went the same way in turn, into CertificateDeleteActions, when
+// certificate-list-usability-fixes.md §2 taught it to act on a whole
+// selection: a plural confirmation, a best-effort loop and a combined summary
+// would have put this file back over the guideline on its own. Delete is also
+// now the only action here that is not about exactly one certificate, which
+// makes it the odd one out rather than one of a set.
+//
 // It owns its buttons so that the enablement rules and the labels live next to
 // the code that acts on them; the widget asks for them by accessor and puts
 // them in its own layout. Object names are unchanged from when they lived in
@@ -54,8 +60,10 @@ public:
     QPushButton* renewButton() const;
     QPushButton* extensionButton() const;
 
-    // addendum 2 §4. Last in the row, and the only button here that destroys
-    // anything, which is why it asks first and says what it is about to do.
+    // Owned by CertificateDeleteActions. Last in the row, and the only button
+    // here that destroys anything, which is why it asks first and says what it
+    // is about to do (addendum 2 §4). The one action that works on a whole
+    // selection rather than on one certificate (usability-fixes §2).
     QPushButton* deleteButton() const;
 
     // Owned by CertificateAttachmentActions, passed through so that the widget
@@ -83,26 +91,31 @@ signals:
 private:
     void renewCertificate();
     void startOrResolveExtension();
-    void deleteCertificate();
 
     void updateRenewButtonState();
     void updateExtensionButtonState();
-    void updateDeleteButtonState();
 
-    // The selected row, or -1. Based on the selection rather than the
-    // "current" focus cell, which Qt can set without anything appearing
-    // selected.
-    int selectedRow() const;
+    // The three accessors below all ask CertificateSelection, which is where
+    // the multi-select rule lives: "more than one row selected" reports no
+    // selection at all, exactly as "none" does
+    // (certificate-list-usability-fixes.md §2). That one rule is what
+    // disables Renew and the extension button the moment a second row is
+    // picked, with nothing else here needing to change - both actions are
+    // inherently about one certificate.
+    //
+    // Kept as named members rather than call sites reaching into the
+    // namespace directly, because the names are what make the rules below
+    // readable.
 
-    // The first cell of the selected row — where all the row data lives — or
-    // null when there is no selection.
+    // The first cell of the single selected row — where all the row data
+    // lives — or null when none, or more than one, is selected.
     QTableWidgetItem* selectedDataItem() const;
 
-    // The id on the row currently selected, or empty when there is none.
+    // The id on that row, or empty on the same terms.
     QString selectedCertificateId() const;
 
-    // The active extension's expiry on the selected row, or an invalid date
-    // when there is no selection or no extension.
+    // The active extension's expiry on that row, or an invalid date when
+    // there is none.
     QDate selectedExtensionExpiry() const;
 
     CertificateRepository&          m_repository;
@@ -110,20 +123,16 @@ private:
     CertificateExtensionRepository& m_extensions;
     CertificateAttachmentService&   m_attachments;
 
-    // A value member rather than something handed in: it is built from
-    // exactly the collaborators this class already holds, so plumbing it down
-    // from the module and through the list widget would add two parameters
-    // and tell nobody anything.
-    CertificateDeletionService m_deletion;
-
     QTableWidget* m_table        = nullptr;
     QWidget*      m_dialogParent = nullptr;
     QString       m_vesselId;
 
     QPushButton* m_renewButton     = nullptr;
     QPushButton* m_extensionButton = nullptr;
-    QPushButton* m_deleteButton    = nullptr;
 
-    // A QObject child of dialogParent, like this class itself.
+    // Both QObject children of dialogParent, like this class itself. Each
+    // owns its own button and the rules for enabling it; this class only
+    // passes those buttons on and forwards their listChanged().
     CertificateAttachmentActions* m_attachmentActions = nullptr;
+    CertificateDeleteActions*     m_deleteActions     = nullptr;
 };

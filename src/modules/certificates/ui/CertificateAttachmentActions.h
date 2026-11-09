@@ -71,7 +71,8 @@ private:
     // name.
     void attachFrom(const QString& sourcePath, bool sourceIsFolder);
 
-    // The selected row's certificate id, or empty when there is no selection.
+    // The single selected row's certificate id, or empty when nothing is
+    // selected — or when more than one row is (usability-fixes §2).
     QString selectedCertificateId() const;
 
     CertificateRepository&        m_repository;

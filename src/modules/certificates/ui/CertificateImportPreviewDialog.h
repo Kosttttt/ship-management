@@ -4,6 +4,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QLabel;
 class QPushButton;
 class QTableWidget;
@@ -36,9 +37,21 @@ public:
 private:
     void fillTable();
 
+    // The user's per-row overwrite ticks, read back out of the table onto a
+    // copy of the preview. Used both by decisions() and by the placeholder
+    // checkbox, which must not throw those ticks away when it rebuilds the
+    // table underneath them.
+    void applyTicks(CertificateImportPreview* target) const;
+
+    // certificate-list-usability-fixes.md §3: re-evaluates every row with the
+    // placeholder rule on or off and redraws. The rule itself lives in the
+    // service layer; this only asks.
+    void placeholderToggled(bool on);
+
     CertificateImportPreview m_preview;
 
-    QTableWidget* m_table         = nullptr;
-    QLabel*       m_summary       = nullptr;
-    QPushButton*  m_importButton  = nullptr;
+    QTableWidget* m_table            = nullptr;
+    QLabel*       m_summary          = nullptr;
+    QPushButton*  m_importButton     = nullptr;
+    QCheckBox*    m_placeholderCheck = nullptr;
 };

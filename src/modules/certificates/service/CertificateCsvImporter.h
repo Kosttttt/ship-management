@@ -2,7 +2,9 @@
 
 #include "modules/certificates/service/CertificateCsvFormat.h"
 
+#include <QHash>
 #include <QList>
+#include <QStringList>
 #include <QString>
 
 class CertificateRepository;
@@ -45,11 +47,34 @@ struct CertificateImportRow
     // Match only: the user's per-row choice. False — skip — is the default
     // that §5.5 requires, so an unattended import can never overwrite.
     bool overwrite = false;
+
+    // The row exactly as the file held it, kept so the preview can be
+    // re-evaluated without re-reading the file
+    // (certificate-list-usability-fixes.md §3 - the placeholder checkbox).
+    // Empty on a row assembled by hand rather than parsed, which is then left
+    // alone by any re-evaluation.
+    QStringList cells;
+
+    // What this row's Id makes it when it parses: New, Match or New
+    // (previously deleted). Never Invalid. Worked out once, when the preview
+    // was built and the vessel's live and deleted id sets were in hand, so
+    // that toggling the placeholder option can put a rescued row back into
+    // its real outcome without going near the database again.
+    ImportRowOutcome outcomeIfValid = ImportRowOutcome::New;
 };
 
 struct CertificateImportPreview
 {
     QList<CertificateImportRow> rows;
+
+    // Which vessel the rows were previewed against — the one selected on
+    // screen, never anything from the file (§7). Kept so a re-evaluation can
+    // put it back on a row it has just rebuilt from the raw cells.
+    QString vesselId;
+
+    // Where each known column sits in `cells`, from mapHeader(). Kept for the
+    // same reason as the cells themselves.
+    QHash<QString, int> columnIndex;
 
     // §5.5: the whole import is blocked while any row is Invalid.
     bool hasInvalidRows() const;

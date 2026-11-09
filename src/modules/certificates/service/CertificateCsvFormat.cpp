@@ -3,6 +3,7 @@
 #include "modules/certificates/domain/CertificateValidation.h"
 #include "modules/certificates/domain/Endorsement.h"
 #include "modules/certificates/service/CertificateCsvValues.h"
+#include "modules/certificates/service/CertificateIssueDatePlaceholder.h"
 
 namespace {
 
@@ -139,7 +140,8 @@ bool CertificateCsvFormat::mapHeader(const QStringList&   headerCells,
 bool CertificateCsvFormat::parseRow(const QStringList&         cells,
                                     const QHash<QString, int>& columnIndex,
                                     CertificateCsvRow*         row,
-                                    QString*                   reason)
+                                    QString*                   reason,
+                                    bool                       allowPlaceholderIssueDate)
 {
     *row = CertificateCsvRow();
 
@@ -186,6 +188,20 @@ bool CertificateCsvFormat::parseRow(const QStringList&         cells,
         *reason =
             QStringLiteral("\"%1\" is not a date in YYYY-MM-DD form (Issue Date).").arg(issueCell);
         return false;
+    }
+
+    // usability-fixes §3, and only for a cell that is genuinely empty: the
+    // unreadable case has already been refused just above, because a typo is
+    // the thing worth catching rather than papering over.
+    //
+    // Applied here rather than after validation so that everything downstream
+    // sees the placeholder as this row's issue date - the no-expiry-with-a-
+    // survey rule, and the "a survey cannot predate the certificate" check on
+    // the survey lists, both of which would otherwise be judging a date the
+    // import is about to change.
+    if (issueCell.isEmpty() && allowPlaceholderIssueDate) {
+        certificate.issueDate = CertificateIssueDatePlaceholder::date();
+        certificate.notes     = CertificateIssueDatePlaceholder::noteFor(certificate.notes);
     }
 
     const QString expiryCell = trimmedCell(QStringLiteral("Expiry Date"));

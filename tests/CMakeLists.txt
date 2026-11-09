@@ -120,3 +120,14 @@ ship_add_migrations(tst_CertificateReport)
 add_ship_test(tst_CertificateIoActions
     modules/certificates/tst_CertificateIoActions.cpp ShipCertificates)
 ship_add_migrations(tst_CertificateIoActions)
+
+# Certificate list usability fixes (certificate-list-usability-fixes.md).
+add_ship_test(tst_CertificateListColumns
+    modules/certificates/tst_CertificateListColumns.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateListColumns)
+add_ship_test(tst_CertificateBulkDelete
+    modules/certificates/tst_CertificateBulkDelete.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateBulkDelete)
+add_ship_test(tst_CertificateImportPlaceholder
+    modules/certificates/tst_CertificateImportPlaceholder.cpp ShipCertificates)
+ship_add_migrations(tst_CertificateImportPlaceholder)
