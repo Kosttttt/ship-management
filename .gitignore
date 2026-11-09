@@ -5,3 +5,8 @@ dist/
 *.db
 *.db-journal
 .DS_Store
+
+# Scratch output used while preparing a CSV import by hand — may hold real
+# fleet data and is never something the app itself produces, so it must
+# not end up in git history.
+Claude outputs/
