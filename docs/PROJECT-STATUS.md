@@ -2140,6 +2140,183 @@ extension button, and Attachment while Delete stays live.
 
 ---
 
+### Certificate list number — prefixed codes (`S1`, `P.6`, `EU.9`, …) ✅
+
+Raised by a real bulk import, not a hypothetical: the developer's first
+attempt to import V UNO's corrected certificate list, now carrying real
+exported ids and the developer's own reference numbers, rejected exactly
+60 of 247 rows — every one of them for the identical reason. The
+developer's company reference document, the **S-14 Monthly Certification
+Status Report** (fleet-wide, not vessel-specific), uses eight prefixed
+annexes alongside the plain `1`–`169` the "No." field already handled:
+`S1`–`S19` (Statements), `P.1`–`P.48` (Plans and Documents), `EU.1`–`EU.9`
+(EU Directives), `US.1`–`US.12` (USA Federal), `USCA.1`–`USCA.4`
+(California), `USAL.1`–`USAL.2` (Alaska), `PC.1`–`PC.2` (Panama Canal),
+`IS.1`–`IS.2` (Israel). Not every vessel carries every annex, but the
+numbering scheme itself is the company's fixed standard.
+
+**Decided with the developer, not assumed:** the sort order groups by
+prefix in the S-14 sheet's own section order (a fixed priority list, not
+alphabetical — alphabetical would put California before Alaska before
+Panama; the sheet doesn't), and scope is the format/sort fix only — no
+pick-list or catalogue of the sheet's ~200 entries anywhere in the app.
+That second point matters on its own: it keeps this change from quietly
+reopening the "no shared `certificate_type` table" decision from step 5,
+which was rejected for exactly the reason a catalogue feature would have
+revived — different vessels legitimately need different rules for what
+looks like the same certificate.
+
+Spec: `docs/certificate-list-number-prefix-spec.md`, cross-referenced from
+`certificate-crud-spec.md` §8.2.
+
+Implementation, verified independently against the actual source before
+either commit, not taken from the report:
+
+- `CertificateListNumber::pattern()` (`domain/Certificate.h/.cpp`) widened
+  from `(?:[0-9]+[A-Za-z]*)?` to `(?:(?:[A-Za-z]{1,6}[.]?)?[0-9]+[A-Za-z]*)?`
+  — an optional 1–6 letter prefix, with or without a trailing dot matched
+  exactly as the sheet writes it (`S1` has none, the rest do), then digits,
+  then optional trailing letters, still fully optional so blank stays
+  valid. Shared verbatim by the live `QRegularExpressionValidator` on
+  `CertificateEditForm`'s `m_listNumberEdit` — confirmed directly that call
+  site needed no edit of its own, exactly as the spec predicted, because
+  that sharing is the whole reason the rule lives in the domain.
+- `splitListNumber()` rewritten around one anchored regex with three
+  captures (prefix, digits, trailing letters), replacing the old
+  leading-digit-count loop, which could no longer assume position 0 is a
+  digit. The prefix is normalised for comparison only — uppercased, dot
+  stripped — so `p.6`, `P6`, and `P.6` are one certificate for ordering
+  purposes while all three remain valid to type and are stored exactly as
+  written, the same call already made for `3a`/`3A`.
+- New `groupOrder()`: the fixed nine-entry list (plain, `S`, `P`, `EU`,
+  `US`, `USCA`, `USAL`, `PC`, `IS`) matching the sheet's own section order.
+  `groupRankOf()` falls back to "after every known group" for anything not
+  on the list, so a ninth annex the sheet doesn't have yet is never lost or
+  rejected — it sorts at the bottom until the list is updated, which is the
+  one place this spec needs revisiting if that happens. `lessThan()` now
+  compares blank → group rank → prefix (the tiebreak two unknown prefixes
+  need, since they share one rank) → number → letters.
+- `CertificateValidation.cpp`'s error message reworded to describe the
+  prefix and give a real example from each shape (`15, 3A, 15D, S1, P.6,
+  EU.9`).
+- New migration **`011_widen_certificate_list_number_check.sql`** (136
+  lines) — migration 004 is already applied and committed and is never
+  edited (`CLAUDE.md` §6.6; `MigrationRunner` enforces this itself by
+  checksum), and SQLite cannot `ALTER` a `CHECK` in place, so this is the
+  standard rebuild: a new table with every column from 003+004 in the same
+  order, an explicit column-by-column `INSERT…SELECT` (never relying on
+  the two tables happening to agree on column order), drop, rename,
+  `ix_certificate_vessel` recreated. **This is the first migration in the
+  project that rewrites an existing table rather than only creating one or
+  adding a column.** Verified independently that no table references
+  `certificate` with a `FOREIGN KEY` — checked `endorsement`,
+  `certificate_extension`, and `certificate_attachment`'s own migrations
+  directly, all three deliberately omit the `REFERENCES` clause for
+  reasons already on record — so the drop-and-rename cannot cascade into a
+  child table.
+- The new `CHECK` is **deliberately looser than `isValid()`**, not a
+  translation of it: SQLite's `GLOB` has no repetition counts and no
+  alternation, so "1–6 letters, optional dot, digits, optional letters" as
+  one reliable pattern isn't expressible. It checks only what `GLOB` can
+  express dependably — letters/digits/dots only, at most one dot, at least
+  one digit — the same "defence in depth, the inner layer is the one that
+  actually matters" reasoning already used for `certificate.vessel_id`
+  having no foreign key. Logically, this is **strictly** looser than the
+  old `CHECK`, not merely different: anything the old rule admitted was
+  letters-and-digits-only starting with a digit, which necessarily has
+  zero dots and at least one digit — so no row stored anywhere, on either
+  machine, can be blocked by this migration. That reasoning, not just the
+  empirical proof below, is what makes the work-laptop database provably
+  safe even though it was never directly inspected.
+- **The migration proven twice**, against real data, through the project's
+  actual `MigrationRunner` rather than hand-run SQL — not against an empty
+  schema either time:
+  - Against a throwaway copy of the **dev machine's** live database (743
+    certificates, 7 vessels, 37 endorsements): row count unchanged, every
+    row identical field-for-field across all 23 columns via `QSqlRecord`
+    rather than a named list, column names/order identical,
+    `ix_certificate_vessel` recreated, `PRAGMA integrity_check = ok`, no FK
+    violations, the new codes all accept, the old rejects (`15-D`, `P..1`,
+    `ABC`, `'15 D'`) still reject, and a second run applies nothing
+    (checksum no-op). Source file confirmed byte-identical and untouched
+    afterward (417,792 bytes, same mtime, before and after); the copy was
+    then deleted since it held real fleet data.
+  - A **portable proof kit** (`dist/migration-proof-kit/`, deliberately
+    under the already-`.gitignore`d `dist/`) built so the developer can run
+    the identical proof against the **work laptop's** own database, not
+    just take the dev machine's word for it. Two real hazards were caught
+    and fixed during the kit's own rehearsal, not left for the developer to
+    hit cold: the `.bat` couldn't find its own exe because Windows doesn't
+    always search the current directory (fixed with `%~dp0` absolute
+    paths), and pointed at an empty or wrong file, the harness printed a
+    wall of `FAIL` lines that read as though the migration had destroyed
+    something — two guards (no `certificate` table; already at version 11+)
+    now stop with one plain sentence and exit cleanly instead. All three
+    failure paths plus the no-database-present path were tested before the
+    dress rehearsal against a real copy of the dev machine's own database,
+    run exactly as the developer will run it, end to end, `.bat` included.
+    **Verified independently that the kit's snapshot of migration 011 is
+    byte-identical to the committed file** — hashed both copies myself
+    (`md5sum`), not taken from the report: `5a5142a9…` on both sides — so
+    the kit proves the file that actually shipped, not a stale copy taken
+    before the last edit.
+- Tests: `tst_CertificateListNumber.cpp` extended with 22 accept rows
+  (one real code from every annex, a lowercase prefix, the 6-letter
+  boundary, a prefix without its dot) and 17 reject rows, plus six new
+  sort functions proving the full worked example from the spec, the
+  unknown-prefix fallback, and the unknown-vs-unknown tiebreak.
+  `tst_CertificateRepositoryValidation.cpp` gained the same accept/reject
+  coverage at the repository level plus two tests writing straight past
+  `validateCertificate()` with a raw `INSERT` — one proving the widened
+  `CHECK` accepts every real annex code, one proving it still refuses what
+  `GLOB` can actually catch — the same role the existing no-expiry
+  `CHECK`'s own test already plays. `tst_CertificateCsvFormat.cpp`'s
+  invalid-`No.` example was replaced (its old example, a letter before the
+  first digit, is now simply a one-letter prefix and is valid) and
+  prefixed codes added to the valid set.
+- **One existing assertion had to flip from reject to accept, in three
+  files, and there's no way around it.** A letter before the first digit
+  (the headline invalid case in the original rule) is now structurally
+  identical to a one-letter prefix like `S1` — there is no pattern that
+  accepts `S1` and refuses it. Moved to the accepted side in
+  `tst_CertificateListNumber.cpp`, `tst_CertificateRepositoryValidation.cpp`,
+  and `tst_CertificateCsvFormat.cpp`, each with a comment explaining why,
+  rather than carving out an exception to avoid the flip.
+- **A real mistake in my own spec, caught during implementation, not
+  before it shipped.** §5 originally named `"6P"` as a case to keep
+  refusing. Wrong: `6P` is plain "digits, then letters" — the ordinary
+  `15D` shape — and has always been valid. The invariant that actually
+  needs a test is a digit reappearing *after* letters (`3A1`, `1A2B`,
+  which would make the split ambiguous), which is what the spec and the
+  test suite both assert now. Corrected directly in the spec, not through
+  Claude Code, since it's a documentation fix rather than a code change —
+  and it took two attempts: the first edit reported success but never
+  actually landed on disk, caught only because Claude Code read the file
+  fresh before committing it and found the old text still there.
+- Full clean Debug + Release rebuild from nothing (both trees deleted and
+  confirmed absent first, per `CLAUDE.md` §10.1) and `ctest`, **43/43
+  passing in both**, zero configure/build warnings in either.
+- Committed as **`8f16dfb`** (10 files: `CMakeLists.txt`, the new
+  migration, `Certificate.h/.cpp`, `CertificateValidation.cpp`, the three
+  test files, the new spec, and the `certificate-crud-spec.md` pointer;
+  +744/−36) — kept separate from **`d9aae0b`**, which is the previous
+  round's (usability fixes) `PROJECT-STATUS.md` write-up rather than this
+  one, committed first so it doesn't read as buried inside this round's
+  feature commit. Both staged-file lists were read back before committing
+  — 1 file, then exactly the intended 10 — confirming nothing from
+  `Claude outputs/` or `dist/` was swept in either time. **Not pushed**;
+  `main` is two commits ahead of the remote, pending the developer's
+  go-ahead once the work-laptop proof comes back green.
+
+Production files stayed small: `Certificate.h` 106 lines, `Certificate.cpp`
+196, `CertificateValidation.cpp` 68, migration 011 itself 136. No new entry
+for the size-debt list below. `CertificateListWidget.cpp` is untouched by
+this round and remains the project's single most over-guideline file at
+554 lines — still worth its own small round, not bolted onto a feature,
+whenever that's next.
+
+---
+
 ## Decisions confirmed by the developer
 
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
@@ -2231,6 +2408,24 @@ extension button, and Attachment while Delete stays live.
   by the developer as fiddly to fill in during data entry. The format
   restriction (digits, then letters) is what makes a single box safe: it
   guarantees the value can always be split unambiguously for sorting.
+  **Updated by the list-number-prefix round.** The restriction is wider
+  now — an optional short letter prefix, with or without a dot, ahead of
+  the digits — to match the developer's own company-wide reference
+  numbering (`S1`, `P.6`, `EU.9`, and six more annexes). The single-box
+  reasoning above is unchanged; only what the box accepts grew.
+- Certificates sort by group before they sort by number: the plain numbers
+  first, then each of the company reference sheet's eight prefixed annexes
+  together, in that sheet's own section order — not alphabetically. The
+  developer chose this explicitly over the simpler, zero-maintenance
+  alphabetical alternative, so the list's shape matches the paper form
+  it's replacing rather than an arbitrary (if tidier) ordering.
+- No pick-list or catalogue was built from the developer's S-14 reference
+  sheet, by explicit choice — every certificate on every vessel is still
+  typed in by hand. Widening what the "No." field accepts was judged
+  worth doing on its own; building a shared list of the sheet's ~200
+  entries to choose from was judged a separate, bigger feature, and one
+  that would reopen step 5's "no shared `certificate_type` table"
+  decision rather than sit quietly alongside it.
 - The certificate list's default sort changed from Name to `list_number`
   ascending. This matters to the developer beyond convenience — the fleet
   refers to certificates by this number in day-to-day communication (e.g.
