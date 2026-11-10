@@ -23,7 +23,8 @@ bool validateCertificate(const Certificate& certificate, QString* reason)
     if (!CertificateListNumber::isValid(certificate.listNumber.trimmed())) {
         *reason = QStringLiteral(
             "\"%1\" is not a valid number.\n\n"
-            "A number is digits, optionally followed by letters — 15, 3A, 15D.")
+            "A number is an optional short prefix, then digits, then letters — "
+            "15, 3A, 15D, S1, P.6, EU.9.")
                       .arg(certificate.listNumber);
         return false;
     }

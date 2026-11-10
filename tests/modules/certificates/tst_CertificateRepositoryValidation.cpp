@@ -33,6 +33,10 @@ private slots:
     void rejectsInvalidListNumbers();
     void listNumberSurvivesARoundTrip();
 
+    // prefix-spec §5
+    void theWidenedCheckAcceptsPrefixedNumbersWrittenDirectly();
+    void theWidenedCheckStillRefusesWhatGlobCanCatch();
+
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
     QString      m_connectionName;
@@ -214,6 +218,23 @@ void TestCertificateRepositoryValidation::acceptsValidListNumbers_data()
     QTest::newRow("digit")          << "3";
     QTest::newRow("digit letter")   << "3A";
     QTest::newRow("digits letter")  << "15D";
+
+    // prefix-spec §1: one real code from each annex on the company's S-14
+    // sheet. All of these were refused by the old rule, which is what the
+    // first bulk import ran into.
+    QTest::newRow("S prefix")       << "S1";
+    QTest::newRow("P prefix")       << "P.48";
+    QTest::newRow("EU prefix")      << "EU.9";
+    QTest::newRow("US prefix")      << "US.12";
+    QTest::newRow("USCA prefix")    << "USCA.4";
+    QTest::newRow("USAL prefix")    << "USAL.2";
+    QTest::newRow("PC prefix")      << "PC.2";
+    QTest::newRow("IS prefix")      << "IS.2";
+    QTest::newRow("lowercase prefix") << "p.6";
+    // A letter before the first digit used to be the headline rejection. It
+    // is a one-letter prefix now, and there is no way to accept S1 and still
+    // refuse this.
+    QTest::newRow("one-letter prefix") << "A15";
 }
 
 void TestCertificateRepositoryValidation::acceptsValidListNumbers()
@@ -234,16 +255,21 @@ void TestCertificateRepositoryValidation::acceptsValidListNumbers()
 void TestCertificateRepositoryValidation::rejectsInvalidListNumbers_data()
 {
     QTest::addColumn<QString>("listNumber");
-    // A letter before the first digit.
-    QTest::newRow("letter first")       << "A15";
-    QTest::newRow("letters only")       << "ABC";
+    // No digits at all, prefix or not: nothing to sort by.
+    QTest::newRow("letters only")          << "ABC";
+    QTest::newRow("prefix with no digits") << "P.";
     // A digit after a letter.
-    QTest::newRow("digit after letter") << "3A1";
-    // Characters that are neither digits nor letters.
-    QTest::newRow("hyphen")             << "15-D";
-    QTest::newRow("slash")              << "15/D";
-    QTest::newRow("space inside")       << "15 D";
-    QTest::newRow("punctuation")        << "15.";
+    QTest::newRow("digit after letter")    << "3A1";
+    // The dot belongs to the prefix, and there is only ever one of it.
+    QTest::newRow("two dots")              << "P..1";
+    QTest::newRow("dot after digits")      << "15.D";
+    // A prefix longer than prefix-spec §2 allows.
+    QTest::newRow("prefix too long")       << "ABCDEFG.1";
+    // Characters that are neither digits, letters, nor the prefix's dot.
+    QTest::newRow("hyphen")                << "15-D";
+    QTest::newRow("slash")                 << "15/D";
+    QTest::newRow("space inside")          << "15 D";
+    QTest::newRow("punctuation")           << "15.";
 }
 
 void TestCertificateRepositoryValidation::rejectsInvalidListNumbers()
@@ -299,3 +325,50 @@ void TestCertificateRepositoryValidation::listNumberSurvivesARoundTrip()
 
 QTEST_MAIN(TestCertificateRepositoryValidation)
 #include "tst_CertificateRepositoryValidation.moc"
+
+// prefix-spec §5. The migration's CHECK is the last net, and the one thing it
+// must not do is refuse a real code that arrived by a route which never
+// consults validateCertificate() — a raw INSERT here, a future ship-to-shore
+// sync in practice. Exactly the role the no-expiry CHECK's own test plays.
+void TestCertificateRepositoryValidation::theWidenedCheckAcceptsPrefixedNumbersWrittenDirectly()
+{
+    QSqlDatabase db = database();
+
+    // One real code from each of the eight annexes on the S-14 sheet.
+    const QStringList codes{QStringLiteral("S1"),     QStringLiteral("P.48"),
+                            QStringLiteral("EU.9"),   QStringLiteral("US.12"),
+                            QStringLiteral("USCA.4"), QStringLiteral("USAL.2"),
+                            QStringLiteral("PC.2"),   QStringLiteral("IS.2")};
+
+    for (const QString& code : codes) {
+        const QString id = QStringLiteral("raw-%1").arg(code);
+        QVERIFY2(!seedCertificate(db, id, QStringLiteral("v1"), QStringLiteral("Written past"),
+                                  false, code)
+                      .isEmpty(),
+                 qPrintable(code));
+    }
+
+    QCOMPARE(rowCountOf(db, QStringLiteral("certificate")), codes.size());
+}
+
+// Looser than isValid() on purpose (§4), but not absent. These are the three
+// things GLOB can still express dependably, and all three still bite.
+void TestCertificateRepositoryValidation::theWidenedCheckStillRefusesWhatGlobCanCatch()
+{
+    QSqlDatabase db = database();
+
+    const QStringList rubbish{
+        QStringLiteral("15-D"), // a character that is not a letter, digit or dot
+        QStringLiteral("P..1"), // more than one dot
+        QStringLiteral("ABC")   // no digit anywhere
+    };
+
+    for (const QString& value : rubbish) {
+        QVERIFY2(seedCertificate(db, QStringLiteral("raw"), QStringLiteral("v1"),
+                                 QStringLiteral("Written past"), false, value)
+                     .isEmpty(),
+                 qPrintable(value));
+    }
+
+    QCOMPARE(rowCountOf(db, QStringLiteral("certificate")), 0);
+}

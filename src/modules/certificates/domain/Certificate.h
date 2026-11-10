@@ -72,13 +72,20 @@ IntermediateMode intermediateModeFromCode(const QString& code);
 
 } // namespace CertificateCodes
 
-// The rules for the "No." field (certificate-crud-spec §8.2). They live in the
-// domain because three layers need exactly the same rule and must not drift:
-// the form's validator, the repository's check before writing, and the list's
-// sort order.
+// The rules for the "No." field — the company reference number
+// (certificate-crud-spec §8.2, widened by
+// certificate-list-number-prefix-spec.md).
+//
+// They live in the domain because four places need exactly the same rule and
+// must not drift: the form's validator, the repository's check before
+// writing, the CSV importer, and the list's sort order.
 namespace CertificateListNumber {
 
-// "one or more digits, followed by zero or more letters" — or nothing at all.
+// An optional short letter prefix, then digits, then optional trailing
+// letters — "15", "3A", "S1", "P.6", "USCA.4" — or nothing at all.
+// prefix-spec §2 has the format and why it is this shape; this is the single
+// definition every other layer is built from.
+//
 // Handed to the form's QLineEdit validator so an invalid character never
 // appears on screen in the first place.
 QString pattern();
@@ -86,8 +93,12 @@ QString pattern();
 // Blank counts as valid: the field is optional.
 bool isValid(const QString& value);
 
-// Orders by the leading number first, then the trailing letters, so "3" <
-// "3A" < "3B" < "9" < "15D". Plain text comparison gets this backwards.
+// Orders by prefix group first, then by number, then by trailing letters —
+// so the plain numbers come first, then each prefixed annex in the order the
+// company's own S-14 sheet lists them. prefix-spec §3 has the group priority
+// list, the fallback for a prefix not on it, and the worked example this is
+// tested against. Plain text comparison gets all of this wrong.
+//
 // A blank number sorts after every certificate that has one, keeping the ones
 // the fleet refers to by number together at the top.
 bool lessThan(const QString& left, const QString& right);

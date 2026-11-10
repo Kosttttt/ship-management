@@ -45,6 +45,7 @@ set(SHIP_MIGRATION_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/008_create_certificate_attachment.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/009_add_certificate_extension_attachment_path.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/010_add_vessel_attachment_root_path.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/011_widen_certificate_list_number_check.sql
 )
 
 # Compiles the migrations into a target, reachable at ":/migrations/...".

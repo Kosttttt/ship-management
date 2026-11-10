@@ -434,7 +434,8 @@ void TestCertificateCsvFormat::anInvalidListNumberIsRefused()
     // validateCertificate() was written for.
     const QHash<QString, int> columnIndex = fullHeader();
 
-    for (const QString& bad : {QStringLiteral("A1"), QStringLiteral("15/D")}) {
+    for (const QString& bad : {QStringLiteral("15/D"), QStringLiteral("P..1"),
+                               QStringLiteral("ABC")}) {
         QStringList cells                     = validRow();
         cells[columnOf(QStringLiteral("No."))] = bad;
 
@@ -445,9 +446,14 @@ void TestCertificateCsvFormat::anInvalidListNumberIsRefused()
         QVERIFY(reason.contains(bad));
     }
 
-    // And the valid shapes still pass.
+    // And the valid shapes still pass - including the prefixed codes
+    // certificate-list-number-prefix-spec.md widened the format to accept,
+    // which reach the importer as plain text in this column like any other
+    // list number and need no code of their own here (that spec's §6).
     for (const QString& good : {QStringLiteral("15"), QStringLiteral("3A"),
-                                QStringLiteral("15D"), QString()}) {
+                                QStringLiteral("15D"), QStringLiteral("S1"),
+                                QStringLiteral("P.48"), QStringLiteral("USCA.4"),
+                                QString()}) {
         QStringList cells                     = validRow();
         cells[columnOf(QStringLiteral("No."))] = good;
 
@@ -455,6 +461,7 @@ void TestCertificateCsvFormat::anInvalidListNumberIsRefused()
         QString           reason;
         QVERIFY2(CertificateCsvFormat::parseRow(cells, columnIndex, &row, &reason),
                  qPrintable(reason));
+        QCOMPARE(row.certificate.listNumber, good);
     }
 }
 

@@ -303,6 +303,16 @@ deliberate — it treats "how I last arranged this list" as one setting, not
 two — so this section describes the starting point a fresh install shows,
 not a sort the application re-imposes every time it runs.
 
+As of `certificate-list-number-prefix-spec.md`, the format above is also
+only the *starting* rule. The developer's own company reference numbering
+("S-14 Monthly Certification Status Report") uses eight prefixed annexes
+(`S1`, `P.6`, `EU.9`, `US.12`, `USCA.4`, `USAL.2`, `PC.2`, `IS.2`) alongside
+the plain numbers described here, and `CertificateListNumber::isValid()`
+accepts all of them. The sort order groups by prefix, in that same
+document's own section order, with the plain numbers above still sorting
+first. See that spec for the exact pattern, the sort rule, and the
+migration that widens the database's own backstop `CHECK` to match.
+
 ### 8.3 Issue Date column added to the list
 
 `issue_date` has been stored since migration 003; it just wasn't shown.
