@@ -7,10 +7,12 @@
 #include "core/MigrationRunner.h"
 #include "core/Vessel.h"
 #include "core/VesselRepository.h"
+#include "modules/certificates/ui/CertificateListWidget.h"
 
 #include <QApplication>
 #include <QComboBox>
 #include <QDialog>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSqlDatabase>
@@ -34,6 +36,12 @@ private slots:
     void vesselsChangedDoesNotFireWhenTheDialogIsCancelled();
     void selectorGainsANewVesselWithoutARestart();
     void selectorKeepsItsSelectionByIdAcrossARefresh();
+
+    // vessel-archive-spec §4 and §8: archiving the vessel that is currently
+    // on screen. The path already exists — this proves it still fires once
+    // archive() is a thing that can happen.
+    void archivingTheSelectedVesselEmptiesTheCertificatesScreen();
+    void archivingAVesselRemovesItFromTheSelector();
 
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
@@ -247,6 +255,97 @@ void TestVesselSelectorRefresh::selectorKeepsItsSelectionByIdAcrossARefresh()
     QCOMPARE(selector->currentData().toString(), QStringLiteral("v2"));
     QCOMPARE(selector->currentIndex(), 2);
     QVERIFY(selector->currentText().contains(QStringLiteral("Zulu")));
+}
+
+void TestVesselSelectorRefresh::archivingTheSelectedVesselEmptiesTheCertificatesScreen()
+{
+    seedVessel(QStringLiteral("v1"), QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+    seedVessel(QStringLiteral("v2"), QStringLiteral("MV Zulu"), QStringLiteral("9319466"));
+
+    QSqlDatabase              db      = database();
+    const InstallationContext context = officeContext();
+    VesselRepository          vessels(db, context);
+    ModuleRegistry            registry(db, context);
+
+    AppSettingRepository appSettings(db);
+    MainWindow           window(context, vessels, appSettings, registry);
+
+    auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
+    QVERIFY(selector != nullptr);
+    auto* certificates = window.findChild<CertificateListWidget*>();
+    QVERIFY(certificates != nullptr);
+
+    // Looking at MV Zulu, the way a user would be.
+    const int zuluIndex = selector->findData(QStringLiteral("v2"));
+    QVERIFY(zuluIndex >= 0);
+    selector->setCurrentIndex(zuluIndex);
+    QCOMPARE(certificates->vesselId(), QStringLiteral("v2"));
+
+    // Archive the very vessel on screen, through the repository, then tell
+    // the screen the fleet changed — exactly what VesselListWidget does.
+    QVERIFY2(vessels.archive(QStringLiteral("v2")), qPrintable(vessels.errorString()));
+    auto* list = window.findChild<VesselListWidget*>();
+    QVERIFY(list != nullptr);
+    emit list->vesselsChanged();
+
+    // The selection is gone and the certificates screen has been pointed at
+    // nothing, rather than left showing an archived vessel's data.
+    QCOMPARE(selector->count(), 1);
+    QCOMPARE(selector->currentIndex(), -1);
+    QCOMPARE(certificates->vesselId(), QString());
+
+    // And it comes back, still selectable, after a restore.
+    QVERIFY2(vessels.restore(QStringLiteral("v2")), qPrintable(vessels.errorString()));
+    emit list->vesselsChanged();
+    QCOMPARE(selector->count(), 2);
+    QVERIFY(selector->findData(QStringLiteral("v2")) >= 0);
+}
+
+void TestVesselSelectorRefresh::archivingAVesselRemovesItFromTheSelector()
+{
+    seedVessel(QStringLiteral("v1"), QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+    seedVessel(QStringLiteral("v2"), QStringLiteral("MV Zulu"), QStringLiteral("9319466"));
+
+    QSqlDatabase              db      = database();
+    const InstallationContext context = officeContext();
+    VesselRepository          vessels(db, context);
+    ModuleRegistry            registry(db, context);
+
+    AppSettingRepository appSettings(db);
+    MainWindow           window(context, vessels, appSettings, registry);
+
+    auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
+    QCOMPARE(selector->count(), 2);
+
+    auto* list = window.findChild<VesselListWidget*>();
+    QVERIFY(list != nullptr);
+    QSignalSpy spy(list, &VesselListWidget::vesselsChanged);
+
+    // Driven through the screen's own button rather than the repository, so
+    // this covers the wiring too: select the row, press Archive, answer Yes.
+    auto* table = list->findChild<QTableWidget*>();
+    QVERIFY(table != nullptr);
+    QCOMPARE(table->rowCount(), 2);
+    table->selectRow(0);
+
+    const QList<QPushButton*> buttons = list->findChildren<QPushButton*>();
+    QVERIFY(buttons.size() >= 2);
+    QPushButton* actionButton = buttons.value(1);
+    QVERIFY(actionButton != nullptr);
+    QVERIFY(actionButton->isEnabled());
+
+    // The confirmation is modal, so it is answered from a timer the same way
+    // the vessel dialog is above.
+    QTimer::singleShot(0, []() {
+        auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (box != nullptr) {
+            box->button(QMessageBox::Yes)->click();
+        }
+    });
+    actionButton->click();
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(selector->count(), 1);
 }
 
 QTEST_MAIN(TestVesselSelectorRefresh)

@@ -7,6 +7,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QStringList>
 #include <QUuid>
 
 namespace {
@@ -15,9 +16,14 @@ namespace {
 // SYSTEM — the precedent set by migration records and the first-run wizard.
 const QString kSystemUser = QStringLiteral("SYSTEM");
 
+// Positional, and read back positionally in vesselFromRow(). Anything new
+// goes on the END of this list, never into the middle of it: inserting a
+// column anywhere else shifts every field after it by one, and nothing about
+// that mistake looks wrong at a glance — each field simply starts reading the
+// column to its right (vessel-archive-spec §6).
 const QString kSelectColumns = QStringLiteral(
     "id, name, imo_number, call_sign, gross_tonnage, port_of_registry, flag_state,"
-    " attachment_root_path");
+    " attachment_root_path, is_deleted");
 
 QString nowUtc()
 {
@@ -50,6 +56,8 @@ Vessel vesselFromRow(const QSqlQuery& query)
     // NULL reads back as an empty string, which is exactly what "not
     // configured yet" means (certificate-attachment-addendum-spec §2.3).
     vessel.attachmentRootPath = query.value(7).toString();
+    // Appended last, so every index above keeps the column it always had.
+    vessel.isArchived = query.value(8).toInt() != 0;
     return vessel;
 }
 
@@ -66,18 +74,31 @@ bool VesselRepository::isScopedToOneVessel() const
     return m_installation.isConfigured() && m_installation.mode() == InstallationMode::Vessel;
 }
 
-bool VesselRepository::list(QList<Vessel>* vessels)
+bool VesselRepository::list(QList<Vessel>* vessels, bool includeArchived)
 {
     m_errorString.clear();
     vessels->clear();
 
-    // is_deleted = 0 is here from day one even though nothing can set it yet:
-    // a query that forgets it becomes a silent bug the day deactivation lands.
-    QString sql = QStringLiteral("SELECT %1 FROM vessel WHERE is_deleted = 0").arg(kSelectColumns);
+    // The day that comment warned about arrived: archive() sets is_deleted
+    // now. The filter stays the default, so every caller written before this
+    // one keeps the fleet it always had; only a caller that deliberately asks
+    // sees archived vessels (vessel-archive-spec §6).
+    // Built from whichever filters actually apply, rather than from a
+    // "WHERE 1 = 1" that exists only to let the next line start with AND.
+    QStringList conditions;
+    if (!includeArchived) {
+        conditions << QStringLiteral("is_deleted = 0");
+    }
 
+    // The scope filter is never optional (CLAUDE.md §3).
     const bool scoped = isScopedToOneVessel();
     if (scoped) {
-        sql += QStringLiteral(" AND id = ?");
+        conditions << QStringLiteral("id = ?");
+    }
+
+    QString sql = QStringLiteral("SELECT %1 FROM vessel").arg(kSelectColumns);
+    if (!conditions.isEmpty()) {
+        sql += QStringLiteral(" WHERE ") + conditions.join(QStringLiteral(" AND "));
     }
     sql += QStringLiteral(" ORDER BY name COLLATE NOCASE");
 
@@ -99,16 +120,22 @@ bool VesselRepository::list(QList<Vessel>* vessels)
     return true;
 }
 
-bool VesselRepository::findById(const QString& id, std::optional<Vessel>* vessel)
+bool VesselRepository::findById(const QString& id, std::optional<Vessel>* vessel,
+                                bool includeArchived)
 {
     m_errorString.clear();
     vessel->reset();
 
-    QString sql = QStringLiteral("SELECT %1 FROM vessel WHERE id = ? AND is_deleted = 0")
-                      .arg(kSelectColumns);
+    QString sql =
+        QStringLiteral("SELECT %1 FROM vessel WHERE id = ?").arg(kSelectColumns);
+    if (!includeArchived) {
+        sql += QStringLiteral(" AND is_deleted = 0");
+    }
 
     // The scope filter is applied here too, so asking for another vessel's id
-    // by any route returns nothing rather than that vessel's data.
+    // by any route returns nothing rather than that vessel's data. This is
+    // not relaxed by includeArchived: seeing archived rows is a different
+    // question from seeing another ship's rows.
     const bool scoped = isScopedToOneVessel();
     if (scoped) {
         sql += QStringLiteral(" AND id = ?");
@@ -354,6 +381,140 @@ bool VesselRepository::setAttachmentRootPath(const QString& vesselId,
 
     if (query.numRowsAffected() == 0) {
         m_errorString = QStringLiteral("This vessel no longer exists, so no folder was stored.");
+        return false;
+    }
+
+    return true;
+}
+
+bool VesselRepository::archive(const QString& vesselId)
+{
+    m_errorString.clear();
+
+    if (vesselId.isEmpty()) {
+        m_errorString = QStringLiteral("No vessel was given, so nothing was archived.");
+        return false;
+    }
+
+    // The bare check create() uses, not update()'s "scoped and not my own id"
+    // form: a VESSEL installation may not archive any vessel, its own
+    // included. This is fleet management (vessel-archive-spec §3).
+    if (isScopedToOneVessel()) {
+        m_errorString =
+            QStringLiteral("A vessel installation cannot archive or restore a vessel.");
+        return false;
+    }
+
+    // Read the row before writing, including archived rows, so that "there is
+    // no such vessel" and "it is already archived" can be told apart and said
+    // honestly. numRowsAffected() cannot distinguish them — both come back
+    // zero — which is why update()'s single combined message is not reused
+    // here (vessel-archive-spec §6).
+    std::optional<Vessel> existing;
+    if (!findById(vesselId, &existing, /*includeArchived=*/true)) {
+        return false;
+    }
+    if (!existing.has_value()) {
+        m_errorString = QStringLiteral("This vessel is no longer in the database.");
+        return false;
+    }
+    if (existing->isArchived) {
+        m_errorString = QStringLiteral("This vessel is already archived.");
+        return false;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE vessel SET"
+        "  is_deleted = 1,"
+        "  updated_at = ?, updated_by = ?, revision = revision + 1"
+        " WHERE id = ? AND is_deleted = 0"));
+    query.addBindValue(nowUtc());
+    query.addBindValue(kSystemUser);
+    query.addBindValue(vesselId);
+
+    if (!query.exec()) {
+        m_errorString =
+            QStringLiteral("Could not archive the vessel:\n%1").arg(query.lastError().text());
+        return false;
+    }
+
+    // The pre-read above already ruled out both reasons this could be zero.
+    // Kept as the backstop for the gap between the two statements rather than
+    // as the primary check.
+    if (query.numRowsAffected() == 0) {
+        m_errorString = QStringLiteral("This vessel could not be archived.");
+        return false;
+    }
+
+    return true;
+}
+
+bool VesselRepository::restore(const QString& vesselId)
+{
+    m_errorString.clear();
+
+    if (vesselId.isEmpty()) {
+        m_errorString = QStringLiteral("No vessel was given, so nothing was restored.");
+        return false;
+    }
+
+    if (isScopedToOneVessel()) {
+        m_errorString =
+            QStringLiteral("A vessel installation cannot archive or restore a vessel.");
+        return false;
+    }
+
+    std::optional<Vessel> existing;
+    if (!findById(vesselId, &existing, /*includeArchived=*/true)) {
+        return false;
+    }
+    if (!existing.has_value()) {
+        m_errorString = QStringLiteral("This vessel is no longer in the database.");
+        return false;
+    }
+    if (!existing->isArchived) {
+        m_errorString = QStringLiteral("This vessel is not archived.");
+        return false;
+    }
+
+    // Kept as a backstop, though it cannot currently fire: migrations/002
+    // declares imo_number UNIQUE with no is_deleted condition, so nothing can
+    // claim this number while the vessel sits archived, and the restore can
+    // never lose a race for it. vessel-archive-spec §6 predicts the opposite
+    // — see anArchivedVesselStillHoldsItsImoNumber() in
+    // tst_VesselRepositoryWrites for why it does not hold.
+    //
+    // Left in rather than removed: it costs one query, it is the same check
+    // create() and update() make, and if that UNIQUE is ever relaxed to a
+    // partial index this becomes load-bearing on the same day.
+    bool taken = false;
+    if (!isImoNumberTaken(existing->imoNumber, vesselId, &taken)) {
+        return false;
+    }
+    if (taken) {
+        m_errorString = QStringLiteral("This IMO number already belongs to another vessel.");
+        return false;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE vessel SET"
+        "  is_deleted = 0,"
+        "  updated_at = ?, updated_by = ?, revision = revision + 1"
+        " WHERE id = ? AND is_deleted = 1"));
+    query.addBindValue(nowUtc());
+    query.addBindValue(kSystemUser);
+    query.addBindValue(vesselId);
+
+    if (!query.exec()) {
+        m_errorString =
+            QStringLiteral("Could not restore the vessel:\n%1").arg(query.lastError().text());
+        return false;
+    }
+
+    if (query.numRowsAffected() == 0) {
+        m_errorString = QStringLiteral("This vessel could not be restored.");
         return false;
     }
 

@@ -22,6 +22,12 @@ private slots:
     void listExcludesDeletedRows();
     void findByIdExcludesDeletedRows();
 
+    // vessel-archive-spec §3: fleet management, refused outright at the
+    // repository for a VESSEL installation — its own ship included.
+    void archiveIsRefusedInVesselMode();
+    void restoreIsRefusedInVesselMode();
+    void archiveIsRefusedForTheInstallationsOwnVessel();
+
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
     QString      m_connectionName;
@@ -118,6 +124,65 @@ void TestVesselRepositoryScope::findByIdExcludesDeletedRows()
     std::optional<Vessel> found;
     QVERIFY(repository.findById(goneId, &found));
     QVERIFY(!found.has_value());
+}
+
+void TestVesselRepositoryScope::archiveIsRefusedInVesselMode()
+{
+    QSqlDatabase  db    = database();
+    const QString ownId = seedVessel(db, QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+    const QString other = seedVessel(db, QStringLiteral("MV Bravo"), QStringLiteral("9319466"));
+
+    const InstallationContext context = vesselContext(ownId, QStringLiteral("9074729"));
+    VesselRepository          repository(db, context);
+
+    QVERIFY(!repository.archive(other));
+    QCOMPARE(repository.errorString(),
+             QStringLiteral("A vessel installation cannot archive or restore a vessel."));
+
+    // Refused, and nothing written: the row is still active.
+    const InstallationContext office = officeContext();
+    VesselRepository          officeRepository(db, office);
+    std::optional<Vessel>     found;
+    QVERIFY(officeRepository.findById(other, &found));
+    QVERIFY(found.has_value());
+    QVERIFY(!found->isArchived);
+}
+
+void TestVesselRepositoryScope::restoreIsRefusedInVesselMode()
+{
+    QSqlDatabase  db     = database();
+    const QString ownId  = seedVessel(db, QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+    const QString goneId = seedVessel(db, QStringLiteral("MV Bravo"), QStringLiteral("9319466"));
+    markDeleted(db, goneId);
+
+    const InstallationContext context = vesselContext(ownId, QStringLiteral("9074729"));
+    VesselRepository          repository(db, context);
+
+    QVERIFY(!repository.restore(goneId));
+    QCOMPARE(repository.errorString(),
+             QStringLiteral("A vessel installation cannot archive or restore a vessel."));
+}
+
+void TestVesselRepositoryScope::archiveIsRefusedForTheInstallationsOwnVessel()
+{
+    QSqlDatabase  db    = database();
+    const QString ownId = seedVessel(db, QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+
+    const InstallationContext context = vesselContext(ownId, QStringLiteral("9074729"));
+    VesselRepository          repository(db, context);
+
+    // The distinction that matters: update() lets a VESSEL installation touch
+    // its own row, archive() does not let it touch anything. A bare
+    // isScopedToOneVessel() check is what makes this case fail too — the
+    // looser "scoped and not my own id" form would have let it through.
+    QVERIFY(!repository.archive(ownId));
+    QCOMPARE(repository.errorString(),
+             QStringLiteral("A vessel installation cannot archive or restore a vessel."));
+
+    std::optional<Vessel> found;
+    QVERIFY(repository.findById(ownId, &found));
+    QVERIFY(found.has_value());
+    QVERIFY(!found->isArchived);
 }
 
 QTEST_MAIN(TestVesselRepositoryScope)

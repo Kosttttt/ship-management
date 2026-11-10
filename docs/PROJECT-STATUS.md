@@ -2317,6 +2317,131 @@ whenever that's next.
 
 ---
 
+### Vessel Archive / Restore ✅
+
+The "small follow-up" `vessel-crud-spec.md` §2 deferred back at step 4 —
+removing a vessel from the fleet — built now that the certificates module
+exists and there is something real to design it against. Spec:
+`docs/vessel-archive-spec.md`.
+
+Archive, never delete: `CLAUDE.md` §6 rule 4 bans `DELETE FROM`, so the
+only available action is flipping `is_deleted`, and "Archive" is the
+honest label for it. Restore was built in the same round rather than
+deferred — once `list()` stops returning a vessel, an app with no restore
+path would need its database hand-edited to undo a misclick.
+
+**No cascade, and it is now proved rather than argued.** `archive()`
+touches exactly one row. Every path to a vessel's certificates goes
+through `VesselRepository::list()` or `findById()`, both of which already
+excluded archived rows, so the certificates, endorsements, extensions and
+attachments go quiet and come back untouched on their own.
+`archivingAVesselHidesItsCertificatesFromTheAlertSweep()` in
+`tst_Alerts.cpp` drives `CertificateAlertProvider::attentionByVessel()`
+directly: two vessels with outstanding certificates, archive one, the
+sweep drops to one row, the certificate's own `is_deleted` is asserted
+still `0`, and a restore brings the row back with no second write.
+
+Implementation:
+
+- **`core/Vessel.h`** gains `bool isArchived`, backed by the existing
+  `is_deleted` column rather than a new one.
+- **`core/VesselRepository`** — `is_deleted` appended to `kSelectColumns`
+  and read as `value(8)` in `vesselFromRow()`. Appended, never inserted:
+  both are positional, and a column added mid-list would shift every field
+  after it so that each silently starts reading the column to its right,
+  which looks like nothing at all at a glance. `list()`/`findById()` take
+  a trailing `includeArchived = false`, so every pre-existing caller keeps
+  its exact behaviour with no edit of its own. `list()`'s `WHERE` is now
+  assembled from whichever filters apply rather than from a `1 = 1`
+  placeholder.
+- **`archive()` / `restore()`** refuse outright for `isScopedToOneVessel()`
+  — the bare form `create()` uses, deliberately *not* `update()`'s looser
+  "scoped and not my own id". A VESSEL installation may not archive even
+  its own ship; this is fleet management.
+- Both **pre-read the row** (`findById(..., includeArchived = true)`)
+  instead of inferring failure from `numRowsAffected()`. `update()` can
+  collapse its zero-row case into one message because it has only one
+  cause; these have two — an id that isn't there, and a vessel already in
+  the state being asked for — and one message would be wrong half the
+  time. Four distinct messages result, each pinned by a test.
+- **`VesselListWidget`** — "Show archived vessels" checkbox (off by
+  default), one context-sensitive `&Archive…` / `&Restore` button
+  disabled when nothing is selected, a confirmation on Archive only, and
+  `emit vesselsChanged()` on both.
+
+Judgment calls where the spec left the choice open, and one where it
+offered an option that does not work:
+
+- **Archived rows are greyed and italic, not `setEnabled(false)`.** The
+  spec offered disabling the row's items as one of two acceptable
+  mechanisms. It is not usable: a disabled `QTableWidgetItem` cannot be
+  selected, and an archived row that cannot be selected is one whose
+  Restore button can never be reached. Greyed via the palette's disabled
+  text colour plus italic, which leaves the row selectable.
+- **The Status column appears only while the toggle is on.** A column
+  reading "Active" on every row in the default view is noise, so
+  `setColumnHidden()` ties it to the checkbox: the normal fleet list looks
+  exactly as it did, and ticking the box adds an unambiguous word rather
+  than relying on colour alone.
+- **No ellipsis on `&Restore`.** An ellipsis promises a further question;
+  Restore deliberately asks none.
+- `editVessel()` checks `isArchived` off the row's own item data **before**
+  calling `findById()`, and says "This vessel is archived. Restore it to
+  make changes." Letting it fall through would hit `findById()`'s default
+  exclusion and produce "This vessel is no longer in the database" about a
+  vessel sitting visible on screen.
+
+**A prediction in the spec turned out to be wrong, and the test now says
+so.** §6 states that archiving frees a vessel's IMO number for reuse, so
+that a later restore could fail the uniqueness check. It cannot.
+`migrations/002` declares `imo_number TEXT NOT NULL UNIQUE` — a plain
+table constraint with no `is_deleted` condition — so an archived vessel
+keeps its number and nothing can take it meanwhile. The right answer in
+domain terms too: an IMO number belongs to a hull for life and is never
+reassigned. `anArchivedVesselStillHoldsItsImoNumber()` pins the real
+behaviour. `restore()`'s IMO check is kept as an unreachable backstop,
+commented as such, because it costs one query and becomes load-bearing
+the day that `UNIQUE` is ever relaxed to a partial index.
+
+The one live consequence: because `isImoNumberTaken()` filters to
+`is_deleted = 0` while the constraint does not, trying to add a *new*
+vessel reusing an archived one's IMO number now fails with the raw
+`UNIQUE constraint failed: vessel.imo_number` rather than the friendly
+"This IMO number already belongs to another vessel." Before this round
+the two could not disagree, because nothing could set `is_deleted`. Noted
+under outstanding debt; the one-line fix is dropping the `is_deleted`
+filter from `isImoNumberTaken()` so the check agrees with the database,
+and it is the developer's call because it changes a documented rule.
+
+Tests — 43/43 suites pass, Debug and Release, 0 compiler warnings:
+
+- `tst_VesselRepositoryScope.cpp` (10 passes): archive and restore refused
+  in VESSEL mode, including the installation's own vessel, with the row
+  verified still active afterwards.
+- `tst_VesselRepositoryWrites.cpp` (18): the flag set, revision bumped,
+  creation columns untouched, row still present; all four failure messages
+  distinct; restore round-trip with revision reaching 3; the IMO finding
+  above; and the default-versus-opt-in behaviour of both reads.
+- `tst_VesselSelectorRefresh.cpp` (9): archiving the vessel currently on
+  screen leaves `CertificateListWidget::vesselId()` empty via the existing
+  `refreshVesselSelector()` path, and a second test drives the real button
+  — select row, press Archive, answer the modal Yes — to cover the wiring
+  rather than just the repository.
+- `tst_Alerts.cpp` (16): the no-cascade proof described above.
+
+The `emit vesselsChanged()` on archive was vacuity-checked: commenting it
+out makes `archivingAVesselRemovesItFromTheSelector()` fail, and the file
+was restored byte-identically afterwards. That signal is the only thing
+keeping the certificates toolbar in step with the fleet
+(`certificate-crud-spec.md` §8.1 is the defect report from the last time
+something changed the fleet without it).
+
+Sizes: `VesselRepository.cpp` is now **522 lines** and
+`VesselListWidget.cpp` **319**, both over `CLAUDE.md` §9's ~300. See the
+debt list below.
+
+---
+
 ## Decisions confirmed by the developer
 
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
@@ -2661,6 +2786,37 @@ whenever that's next.
   and there's no single obvious seam to extract, unlike the statement
   splitter pulled out of `MigrationRunner`. Watch it — if it grows again in
   a later step, that's the moment to pull out something real.
+  - **Updated by the vessel archive round: it grew, to 522 lines**, which
+    is the "later step" that entry was watching for. The awkward part is
+    that §9's two rules now pull against each other here — the natural cut
+    is reads from writes (the way the *tests* are already split into
+    `Scope` and `Writes`), but that would put one class across two files,
+    which §9 also forbids. Options are a `VesselReadRepository` /
+    `VesselWriteRepository` pair, a private implementation struct, or
+    accepting the size for a class that is genuinely one cohesive thing.
+    A decision worth making deliberately rather than at the end of a
+    feature round.
+- `src/app/VesselListWidget.cpp` is 319 lines after the vessel archive
+  round, just over the guideline. The precedent for splitting exists —
+  `CertificateDeleteActions` was pulled out of `CertificateListActions`
+  for exactly this — and the same cut (a `VesselArchiveActions` holding
+  the confirmation, the two repository calls and the signal) would bring
+  it back under. Not done in this round because
+  `vessel-archive-spec.md` §7 asked explicitly for the screen's existing
+  minimal style, and adding a class the spec did not ask for would have
+  been the wrong way to settle it mid-feature.
+- `VesselRepository::isImoNumberTaken()` filters to `is_deleted = 0`, but
+  `migrations/002` declares `imo_number TEXT NOT NULL UNIQUE` with no such
+  condition. Before archiving existed the two could never disagree, since
+  nothing could set the flag. They can now: adding a new vessel that
+  reuses an archived vessel's IMO number passes the app's check and is
+  then refused by the database with the raw `UNIQUE constraint failed:
+  vessel.imo_number` instead of the friendly "This IMO number already
+  belongs to another vessel." The fix is one line — drop the `is_deleted`
+  filter from that check so it agrees with the constraint — and it is the
+  developer's call, because `vessel-archive-spec.md` §6 documents the
+  opposite behaviour as intended. Domain-wise an IMO number belongs to a
+  hull for life, which argues for making the check match the database.
 - `modules/certificates/data/CertificateRepository.cpp` is now ~310 lines,
   over the same guideline, having grown past it while adding the `No.`
   field's handling. Same call as `VesselRepository.cpp`: no obvious seam,

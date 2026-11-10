@@ -48,6 +48,10 @@ private slots:
     void unreadableThresholdsStillProduceCounts();                 // 8
     void badgeFollowsCertificatesChangedWithoutARestart();         // 9
 
+    // vessel-archive-spec §4 and §8: the central claim of that spec, proved
+    // rather than reasoned about in a comment.
+    void archivingAVesselHidesItsCertificatesFromTheAlertSweep();
+
 private:
     QSqlDatabase database() { return QSqlDatabase::database(m_connectionName); }
 
@@ -468,6 +472,51 @@ void TestAlerts::unreadableThresholdsStillProduceCounts()
     QCOMPARE(counts.size(), 1);
     QCOMPARE(counts.first().vesselId, QStringLiteral("v1"));
     QCOMPARE(counts.first().count, 1);
+}
+
+void TestAlerts::archivingAVesselHidesItsCertificatesFromTheAlertSweep()
+{
+    // vessel-archive-spec §4 claims no cascade is needed: archiving the one
+    // vessel row is enough, because attentionByVessel() reaches certificates
+    // only through VesselRepository::list(), which already excludes archived
+    // rows. Nothing in the certificates module is touched by archive().
+    seedVessel(QStringLiteral("v1"), QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+    seedVessel(QStringLiteral("v2"), QStringLiteral("MV Bravo"), QStringLiteral("9319466"));
+    seedOutstandingCertificate(QStringLiteral("c1"), QStringLiteral("v1"));
+    seedOutstandingCertificate(QStringLiteral("c2"), QStringLiteral("v2"));
+
+    QSqlDatabase                   db      = database();
+    const InstallationContext      context = officeContext();
+    VesselRepository               vessels(db, context);
+    CertificateRepository          certificates(db, context);
+    EndorsementRepository          endorsements(db, context);
+    CertificateExtensionRepository extensions(db, context);
+    AppSettingRepository           appSettings(db);
+
+    CertificateAlertProvider provider(vessels, certificates, endorsements, extensions,
+                                      appSettings, context);
+
+    QCOMPARE(provider.attentionByVessel().size(), 2);
+
+    QVERIFY2(vessels.archive(QStringLiteral("v2")), qPrintable(vessels.errorString()));
+
+    const QList<VesselAttentionCount> afterArchive = provider.attentionByVessel();
+    QCOMPARE(afterArchive.size(), 1);
+    QCOMPARE(afterArchive.first().vesselId, QStringLiteral("v1"));
+
+    // The certificate itself was never touched — it is still on file, still
+    // not deleted, exactly as it was. Only its vessel is hidden.
+    QSqlQuery stillThere(db);
+    QVERIFY(stillThere.exec(QStringLiteral(
+        "SELECT is_deleted FROM certificate WHERE id = 'c2'")));
+    QVERIFY(stillThere.next());
+    QCOMPARE(stillThere.value(0).toInt(), 0);
+
+    // And it comes back on its own, with no second write to the certificate.
+    QVERIFY2(vessels.restore(QStringLiteral("v2")), qPrintable(vessels.errorString()));
+
+    const QList<VesselAttentionCount> afterRestore = provider.attentionByVessel();
+    QCOMPARE(afterRestore.size(), 2);
 }
 
 void TestAlerts::badgeFollowsCertificatesChangedWithoutARestart()

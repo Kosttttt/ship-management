@@ -31,4 +31,15 @@ struct Vessel {
     // Deliberately not written by VesselRepository::update(): see the note on
     // setAttachmentRootPath() for why.
     QString attachmentRootPath;
+
+    // Backed by the existing is_deleted column, not one of its own
+    // (vessel-archive-spec §6). Named for what the screen shows rather than
+    // what the column is called: the database says "deleted", nothing ever
+    // is, and Archive / Restore is what the user is actually doing.
+    //
+    // Only ever true on a row that came back from a list() or findById()
+    // call which passed includeArchived = true. Every other read filters
+    // archived rows out entirely, so this reads false on all of them by
+    // construction rather than by luck.
+    bool isArchived = false;
 };
