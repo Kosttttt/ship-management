@@ -1961,6 +1961,185 @@ update together with the step it describes.
 
 ---
 
+### Certificate list usability fixes — resizable columns, multi-select bulk delete, placeholder issue date on import ✅
+
+Three fixes raised by the developer after real use of the second
+(work-laptop) install: dragging the Name column did nothing useful, since
+the old Stretch mode split the header evenly and clipped long certificate
+names with no way to see the rest; cleaning up a duplicate import (caused
+by re-importing an edited copy of the *original* hand-built file rather
+than a freshly exported one — expected behaviour of `create()` always
+minting a fresh id, not a bug) meant deleting rows one at a time; and a
+CSV row with no real issue date blocked the whole file rather than being
+handleable. The third started as an ad hoc fix — three rows in the
+developer's own import file were hand-patched with a flagged `1990-01-01`
+placeholder rather than excluded — and was generalized into an opt-in
+checkbox during this round's design pass.
+
+Spec: `docs/certificate-list-usability-fixes.md`.
+
+Implementation, verified independently, file by file, against the actual
+source, not taken from the report:
+
+- **§1 Column widths.** `CertificateListWidget`'s header resize mode
+  changed from Stretch to Interactive, with `setStretchLastSection(true)`
+  so widening the window doesn't leave dead space after the last column.
+  Starting widths changed too — Name now gets 320px, previously an equal
+  share with every other column. New `TableHeaderSettings.h/.cpp`
+  (62/79 lines) wraps `QHeaderView::saveState()/restoreState()` behind a
+  `QSettings` key (`ui/certificateList/headerState`), connecting
+  `sectionResized`, `sectionMoved`, and `sortIndicatorChanged` all to
+  `save()`. Sequencing confirmed directly: `restore()` runs, then the
+  hardcoded `list_number`-ascending default is applied, then
+  `startSaving()` begins — in that order, so a returning user's own
+  layout wins over the fresh-install default, and restoring never fires
+  the header's own signals back into a half-applied save.
+  - A real consequence, surfaced by Claude Code's own review rather than
+    asked for by the spec: `saveState()` carries the sort column in the
+    same blob as the widths, so a user's last manual sort now persists
+    across restarts too, quietly superseding step 7's "`list_number`
+    ascending, always" default. Raised as an open question; the
+    developer's call was to keep it — sort behaves exactly like column
+    widths, "however I left it is what I get back" — rather than force
+    the hardcoded default every launch. `docs/certificate-crud-spec.md`
+    §8.2 is now corrected to describe this (see "Decisions confirmed"
+    below).
+- **§2 Multi-select + bulk delete.** `CertificateListWidget`'s selection
+  mode changed from `SingleSelection` to `ExtendedSelection`. New
+  `CertificateSelection.h/.cpp` (52/85 lines): five free functions, with
+  the one rule that matters sitting in exactly one place —
+  `singleRow()` returns -1 for zero selected *or* more than one
+  selected, treating "ambiguous" exactly like "none." That rule alone is
+  what disables Renew, the extension button, and (see below) Attachment
+  the moment a second row is picked, with no separate check at any call
+  site. New `CertificateBulkDeletion.h/.cpp` (56/39 lines): a
+  best-effort loop over `CertificateDeletionService::deleteCertificate()`,
+  deliberately with **no outer transaction** — `softDeleteWithChildren()`
+  already transacts per certificate and SQLite has no nested
+  transactions, so one certificate failing doesn't block the rest. New
+  `CertificateDeleteActions.h/.cpp` (90/245 lines): resolves the
+  selected ids, falls back to the existing single-certificate
+  confirmation wording (byte-identical) when exactly one certificate is
+  selected, otherwise a capped bullet list (10 names) with the combined
+  survey count across all of them, then a capped summary (10 lines)
+  only when something actually failed or left an attachment file
+  behind.
+  - **A real gap in my own spec**, caught by Claude Code's own review
+    before implementing, not by me. The spec said Renew, the extension
+    button, and Attachment "already go through these helpers," implying
+    Attachment needed no change. It didn't: `CertificateAttachmentActions`
+    kept its own private, unshared "first selected row" lookup, which
+    would have stayed enabled through a multi-select and silently acted
+    on an ambiguous row. Fixed by pointing it at the same
+    `CertificateSelection::singleCertificateId()`, with its own
+    regression test. Verified directly:
+    `CertificateAttachmentActions::selectedCertificateId()` now calls
+    `CertificateSelection::singleCertificateId(m_table)` rather than any
+    private lookup of its own.
+- **§3 Placeholder issue date on import.** New
+  `CertificateIssueDatePlaceholder.h/.cpp` (60/61 lines): `date()`
+  returns `1990-01-01`; `noteFor()` **prepends** a flagged sentence to
+  any existing notes rather than appending, since it's the first thing
+  anyone opening the certificate needs to see; `applyIssueDatePlaceholder()`
+  re-parses every row with the rule on or off and restores
+  `outcomeIfValid`, never re-querying the database. `CertificateCsvFormat::parseRow()`
+  gained an `allowPlaceholderIssueDate` parameter (default `false`, so
+  every existing caller is unchanged); confirmed directly that the
+  placeholder is applied immediately after the Issue Date cell's own
+  malformed-date check and *before* every downstream rule (the Expiry
+  Date check, the boolean columns, the survey-date-list validation) —
+  so the no-expiry-with-a-survey rule and the "a survey cannot predate
+  the certificate" check both judge the placeholder date rather than a
+  date the import is about to overwrite. `CertificateImportRow` gained
+  `cells` and `outcomeIfValid` (computed unconditionally, before the
+  valid/invalid branch, so it stays meaningful even for a currently
+  Invalid row); `CertificateImportPreview` gained `vesselId` and
+  `columnIndex`, both kept so the preview dialog's checkbox can
+  re-evaluate every row without re-reading the file or touching the
+  database again. `CertificateImportPreviewDialog`'s
+  `placeholderToggled()` reads the user's overwrite ticks back first
+  (`applyTicks()`) before the table is rebuilt underneath them, so
+  toggling the checkbox never silently resets a decision the user
+  already made.
+- `CertificateListActions.cpp`, over the `CLAUDE.md` §9 guideline since
+  step 12, is **resolved** — down to 224 lines, since
+  `CertificateDeleteActions` was split out of it for this round's own
+  reasons. `CertificateListWidget.cpp` grew again, 510 → **554 lines**,
+  for the header-settings wiring and the `ExtendedSelection` change;
+  still the single most over-guideline file in the project (see
+  "Outstanding technical debt" below). `CertificateCsvFormat.cpp` (302)
+  and `CertificateCsvImporter.cpp` (311), both already over the
+  guideline before this round, did not grow enough to need a further
+  split — confirmed at these exact counts directly.
+- **Verified independently**: every new and changed production file —
+  `TableHeaderSettings`, `CertificateSelection`, `CertificateBulkDeletion`,
+  `CertificateDeleteActions`, `CertificateIssueDatePlaceholder`, the
+  modified `CertificateCsvFormat`/`CertificateCsvImporter`,
+  `CertificateImportPreviewDialog`, `CertificateListWidget`,
+  `CertificateListActions`, and `CertificateAttachmentActions` — read in
+  full against the actual source, including the specific line-count
+  claims above. Both `CMakeLists.txt` files confirmed to register all
+  six new production files and all three new test suites
+  (`tst_CertificateListColumns`, `tst_CertificateBulkDelete`,
+  `tst_CertificateImportPlaceholder`), each with its own
+  `ship_add_migrations()` call. The three new test files' own content
+  was not independently read line-by-line — taken on the strength of
+  the reported 43/43 passing suites, since a `CMakeLists.txt` entry
+  naming a `.cpp` that doesn't exist is a hard configure error, not a
+  silent gap.
+- Full clean Debug + Release rebuild and `ctest`, both **43/43
+  passing** — the Debug safety-check pass before committing reported
+  `ninja: no work to do` (confirming no production code had changed
+  since the clean build) ahead of the 43/43, and the subsequent clean
+  Release rebuild reported 325/325 targets with zero warnings ahead of
+  its own 43/43.
+- Committed as **`5bf6905`** (29 files: 14 new, 15 modified; 2261
+  insertions, 162 deletions) — body covers each of the three fixes with
+  its reasoning, the sort-persistence consequence, the multi-select
+  rule, the Attachment-button gap and fix, the no-outer-transaction
+  call, and why the placeholder is applied during parsing rather than
+  to an already-rejected row.
+
+Two small items raised during this round were resolved directly, not
+through Claude Code, since neither is production C++ code:
+
+- The untracked `Claude outputs/` folder (two hand-built CSVs carrying
+  real fleet data, ~85KB) was not in `.gitignore` and one `git add -A`
+  away from permanent git history. Added directly:
+  `Claude outputs/` with an explanatory comment. Confirmed afterwards,
+  via `git check-ignore -v` and `git ls-files | grep -ci "claude outputs"`
+  (0), that nothing from it is tracked. Committed separately as
+  **`7a32168`**, deliberately apart from `5bf6905`, so this piece of
+  repo hygiene stays findable on its own rather than buried in an
+  unrelated feature commit. Pushed `ad2a62d..7a32168`.
+- `docs/certificate-crud-spec.md` §8.2 amended directly to document the
+  sort-persistence consequence above, since it's a documentation
+  correction rather than a code change — see "Decisions confirmed by
+  the developer" below for the exact wording's intent.
+
+Release rebuilt and redeployed after both commits: `build-release/`
+deleted outright and reconfigured from nothing (not an incremental
+build), 325/325 targets, zero warnings, 43/43 Release suites passing.
+`dist/ShipManagement/` refreshed in the order that matters — the fresh
+exe copied over the old one *before* `windeployqt --release
+--compiler-runtime` ran, not after, confirmed byte-for-byte (`cmp`)
+against the build output before deploying. The stale-exe trap from the
+first Release build would have bitten again otherwise: what was already
+in `dist/` was the 3 Nov exe, 50,521 bytes smaller than this round's.
+`ShipManagement.exe` is now **1,307,740 bytes**, dated **2026-11-09
+12:23:58** (local time on the dev machine) — confirmed directly from
+the file on disk, not taken from the report. 62 files, 70MB total;
+`platforms/qwindows.dll`, `sqldrivers/qsqlite.dll`, and
+`Qt6PrintSupport.dll` all present. Not launched, for the same §10.1
+reason as the first Release build: the live database's real `%APPDATA%`
+path is still ambiguous for a process launched from outside a human
+double-click. The developer's manual check on the work laptop should
+confirm the Name column can be widened and the width survives a
+restart, and that selecting two certificates greys out Renew, the
+extension button, and Attachment while Delete stays live.
+
+---
+
 ## Decisions confirmed by the developer
 
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
@@ -2058,6 +2237,34 @@ update together with the step it describes.
   "Certificate 15D") specifically so the full name doesn't have to be
   typed out, so the list needs to read in that order without the user
   having to click anything.
+  **Updated by the usability fixes round.** This is now the *first-run*
+  default only. `TableHeaderSettings` persists the header's whole state,
+  including the sort indicator, the same way it persists column widths —
+  so the moment a user sorts by a different column, that is what they
+  get back on this computer next time, until they sort it again. Decided
+  deliberately: "how I last arranged this list" is one setting, not two,
+  and the alternative (re-forcing `list_number` ascending every launch
+  regardless of what the header remembers) would make widths persist but
+  sort not, which is the more inconsistent of the two options. `docs/certificate-crud-spec.md`
+  §8.2 has been corrected to describe this.
+- Deleting more than one certificate at once is possible
+  (`ExtendedSelection` on the certificate list), but every other
+  selection-driven action — Renew, the extension button, Attachment —
+  stays single-certificate by treating "more than one row selected" as
+  no selection at all, the same as zero. One rule
+  (`CertificateSelection::singleRow()`), not a separate check at each
+  button.
+- A bulk delete runs as a best-effort loop with **no** outer transaction
+  around it — each certificate's own `softDeleteWithChildren()` already
+  transacts on its own, SQLite has no nested transactions, and the
+  developer's preference is that one certificate failing should not
+  silently block deleting the rest of a batch.
+- The scratch folder a hand-built CSV import is drafted in
+  (`Claude outputs/`, at the repo root) is explicitly **not** tracked by
+  git — it may hold real fleet data, and the project's `git add -A`
+  habit means anything not ignored is one commit away from being
+  permanent. Added to `.gitignore` with a comment explaining why, rather
+  than deleting the folder or its contents.
 - **Superseded by addendum 2.** Endorsements were add-only through step 6;
   attachment addendum 2 added edit (an UPDATE onto the same row) and
   delete (soft-delete), reached from the certificate's own Endorsements
@@ -2451,6 +2658,21 @@ update together with the step it describes.
   (`CertificateCsvImporter::runImport()`) already surfaces a commit
   failure as its own error — but worth tightening if this class gains a
   second caller.
+- **Resolved by the usability fixes round.** `CertificateListActions.cpp`,
+  over the guideline since step 12 (320 → 306 → 319 across the steps
+  above), is back under it at **224 lines** — `CertificateDeleteActions`
+  was split out of it for this round's own reasons (plural confirmation,
+  a best-effort loop, a combined summary), not specifically to fix the
+  size debt, but it did. `CertificateListWidget.cpp` grew again instead,
+  510 → **554 lines**, for the header-settings wiring and the
+  `ExtendedSelection` change — still the single most over-guideline file
+  in the project, now by the widest margin yet. The row-rendering split
+  flagged as a plausible next step after step 13 (`fillRow()` and the
+  column-filling code around it) remains the most real seam, and is now
+  more worth doing than it was last round, not less. `CertificateCsvFormat.cpp`
+  (302) and `CertificateCsvImporter.cpp` (311) were untouched by this
+  round's changes to either file's structure — same counts as step 13
+  left them, confirmed directly, not re-split.
 
 ---
 
