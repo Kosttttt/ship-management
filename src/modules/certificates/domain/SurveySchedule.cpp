@@ -101,47 +101,69 @@ SurveySchedule::TrackState SurveySchedule::evaluateAnnual(const Certificate&    
                   });
     }
 
-    // §4.5 as amended: an endorsement satisfies the earliest unsatisfied
-    // anniversary whose window it falls on or after the opening of. There is
-    // no upper bound at the window's close — a late survey is still a survey —
-    // only being claimed first by an earlier open anniversary.
+    // survey-latest-counts-spec.md §2: the latest annual survey covers its own
+    // anniversary and every anniversary before it, so the schedule is read
+    // forward from that one survey — which is what the module spec's §3.3
+    // always said it did.
     //
-    // Walking anniversaries and endorsements together in date order is exactly
-    // that rule: each anniversary takes the earliest endorsement still
-    // available to it.
-    TrackState track;
-    int        next = 0;
+    // This replaces an earlier claim-walk, which went through the anniversaries
+    // in order and gave each the earliest endorsement dated on or after its own
+    // window opened. That asked the wrong question of the data: this office
+    // records only the last annual survey (the company's S-14 report), so a
+    // lone recorded survey was claimed by the oldest anniversary and a later
+    // one was reported overdue on a certificate that was in fact up to date.
+    //
+    // The accepted trade-off is that a genuinely missed earlier annual is no
+    // longer flagged once a later one has been recorded. That is the
+    // developer's decision, written out in §2 of that spec, not an oversight.
+    int nextIndex = 0;
 
-    for (const QDate& anniversary : anniversaries) {
-        const Window window = annualWindow(anniversary);
+    if (!candidates.isEmpty()) {
+        // Sorted by date throughout, so the last one is the latest survey.
+        const QDate latest = candidates.last().endorsementDate;
 
-        // Anything dated before this window opened can never satisfy this
-        // anniversary, nor any later one, whose windows open later still.
-        while (next < candidates.size()
-               && candidates.at(next).endorsementDate < window.opens) {
-            ++next;
+        // The last anniversary whose window had opened by the day that survey
+        // was done; everything up to and including it is covered. A survey
+        // dated before even the first window opens covers nothing and leaves
+        // this at -1, which is the one case the old walk already got right.
+        int covered = -1;
+        for (int index = 0; index < anniversaries.size(); ++index) {
+            if (annualWindow(anniversaries.at(index)).opens > latest) {
+                break; // ascending, so no later window had opened either
+            }
+            covered = index;
         }
 
-        if (next >= candidates.size()) {
-            track.severity    = severityFor(window, today, dueSoonDays);
-            track.anniversary = anniversary;
-            track.window      = window;
-            track.outstanding = true;
-            return track;
+        if (covered >= 0) {
+            // Late for the anniversary this survey actually covers, and only
+            // for that one. The earlier anniversaries it carries have no survey
+            // of their own, so there is no date to call them late from.
+            if (latest > annualWindow(anniversaries.at(covered)).closes) {
+                lateNotes->append(
+                    QCoreApplication::translate("CertificateState",
+                                                "The %1 survey was completed late, on %2.")
+                        .arg(formatDate(anniversaries.at(covered)), formatDate(latest)));
+            }
+            nextIndex = covered + 1;
         }
-
-        const QDate claimed = candidates.at(next).endorsementDate;
-        if (claimed > window.closes) {
-            lateNotes->append(
-                QCoreApplication::translate("CertificateState",
-                                            "The %1 survey was completed late, on %2.")
-                    .arg(formatDate(anniversary), formatDate(claimed)));
-        }
-        ++next;
     }
 
-    // Every anniversary satisfied: only the renewal remains (§4.5).
-    track.severity = SurveySeverity::NotDue;
+    TrackState track;
+
+    // Past the last anniversary — or a term too short to have any — leaves only
+    // the renewal survey before expiry (§4.5).
+    if (nextIndex >= anniversaries.size()) {
+        track.severity = SurveySeverity::NotDue;
+        return track;
+    }
+
+    const QDate  required = anniversaries.at(nextIndex);
+    const Window window   = annualWindow(required);
+
+    track.severity    = severityFor(window, today, dueSoonDays);
+    track.anniversary = required;
+    track.window      = window;
+    track.outstanding = true;
     return track;
 }
 

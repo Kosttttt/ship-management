@@ -31,8 +31,9 @@ QList<QDate> anniversariesOf(const Certificate& certificate);
 
 Window annualWindow(const QDate& anniversary);
 
-// Fills lateNotes with a line per anniversary satisfied after its window had
-// already closed (§4.5's late-endorsement rule).
+// Fills lateNotes with at most one line: the latest annual survey is the only
+// one judged for lateness, and only when it was done after its own window had
+// closed (survey-latest-counts-spec.md §3).
 TrackState evaluateAnnual(const Certificate&        certificate,
                           const QList<QDate>&       anniversaries,
                           const QList<Endorsement>& endorsements,

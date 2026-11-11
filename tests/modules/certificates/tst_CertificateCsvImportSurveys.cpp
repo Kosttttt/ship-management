@@ -14,7 +14,8 @@ using namespace CertificateTestSupport;
 using namespace CsvImportTestSupport;
 
 // certificate-import-export-spec §6 and §9.8 to §9.11: what the two
-// survey-list columns do, and the mid-cycle case the list design exists for.
+// survey-list columns do, and the mid-cycle case the list design exists for
+// (the history itself — survey-latest-counts-spec.md §2).
 class TestCertificateCsvImportSurveys : public QObject
 {
     Q_OBJECT
@@ -34,7 +35,7 @@ private slots:
 
     // §9.11 — the case v1.0 of the spec got wrong.
     void aMidCycleCertificateImportsWithTheCorrectSeverity();
-    void asingleMostRecentDateWouldHaveReportedTheSameShipOverdue();
+    void aSingleMostRecentDateNowAgreesWithTheFullHistory();
 
     // The REPLACES_ANNUAL merge, happening in the existing domain code with
     // no special case anywhere in the import path.
@@ -256,12 +257,19 @@ void TestCertificateCsvImportSurveys::aMidCycleCertificateImportsWithTheCorrectS
              "nothing was late, so nothing may claim it was");
 }
 
-void TestCertificateCsvImportSurveys::asingleMostRecentDateWouldHaveReportedTheSameShipOverdue()
+void TestCertificateCsvImportSurveys::aSingleMostRecentDateNowAgreesWithTheFullHistory()
 {
-    // The regression this column design exists to prevent, shown directly:
-    // SurveySchedule::evaluateAnnual() gives each anniversary the earliest
-    // endorsement still unclaimed, so one date accounts for one past
-    // anniversary — not for "where the schedule has got to".
+    // Rewritten for survey-latest-counts-spec.md, which superseded the rule
+    // this test was built on. It used to show a one-date import being read as
+    // Overdue — the claim-walk gave that one date to the oldest anniversary —
+    // and that was the argument for importing the whole list.
+    //
+    // The schedule is now read forward from the latest survey, so the two
+    // readings agree: one date and the full history both say NotDue. The list
+    // column stays all the same, for the reason §2 of that spec gives: the
+    // history is itself the record. It is what the Endorsements list, the PDF
+    // statement and the audit trail show, and an import that threw away every
+    // date but the last would lose it for good.
     QHash<QString, QString> values = validValues(QStringLiteral("Safety Construction"));
     values.insert(QStringLiteral("Requires Annual Survey"), QStringLiteral("Yes"));
     values.insert(QStringLiteral("Annual Surveys"),
@@ -281,17 +289,22 @@ void TestCertificateCsvImportSurveys::asingleMostRecentDateWouldHaveReportedTheS
     const CertificateState impoverished =
         computeCertificateState(imported, {onlyTheLatest}, AlertThresholds(), today);
 
-    QCOMPARE(impoverished.survey, SurveySeverity::Overdue);
-    QVERIFY2(impoverished.reason.contains(QStringLiteral("late")),
-             "and it invents a late survey as well, from the one date it does have");
+    QCOMPARE(impoverished.survey, SurveySeverity::NotDue);
+    QVERIFY2(!impoverished.reason.contains(QStringLiteral("late")),
+             "and it no longer invents a late survey from the one date it has");
 
-    // The full history, which is what this step actually imports.
+    // The full history, which is what this step actually imports, and which
+    // the three stored rows below are the real point of.
     QSqlDatabase          db = database();
     EndorsementRepository endorsements(db, officeContext());
     QList<Endorsement>    stored;
     QVERIFY(endorsements.list(imported.id, &stored));
-    QCOMPARE(computeCertificateState(imported, stored, AlertThresholds(), today).survey,
-             SurveySeverity::NotDue);
+    QCOMPARE(stored.size(), 3);
+
+    const CertificateState full =
+        computeCertificateState(imported, stored, AlertThresholds(), today);
+    QCOMPARE(full.survey, impoverished.survey);
+    QCOMPARE(full.nextAnniversary, impoverished.nextAnniversary);
 }
 
 void TestCertificateCsvImportSurveys::anIntermediateSurveyCanSatisfyAnAnnualUnderReplacesAnnual()

@@ -2533,6 +2533,105 @@ without being touched.
 
 ---
 
+### Annual surveys — the latest survey counts ✅
+
+`docs/survey-latest-counts-spec.md`. Not a feature: a correction to how
+the annual track is read, found on a real certificate.
+
+**The bug, on V TRE's Load Line certificate.** Issued 29 May 2022,
+expires 09 Mar 2027, so its anniversaries are 09 Mar 2024, 2025 and 2026.
+One annual endorsement recorded — 12 Apr 2026, Iskenderun. The list
+showed it **Overdue, −519 days**, against a window that had closed on
+09 Jun 2025.
+
+`SurveySchedule::evaluateAnnual()` walked the anniversaries in order and
+gave each one the earliest endorsement dated on or after its own window
+opened. The 2026 survey was therefore claimed by the **2024**
+anniversary, counted as a late survey for it, and 2025 was left with
+nothing to satisfy it. The warning only cleared once the developer had
+entered every past annual date.
+
+That is the wrong question to ask of this office's data. The company's
+S-14 report records the **last** annual survey, not the full history, and
+that is what gets entered.
+
+**The rule now.** The latest annual survey covers its own anniversary and
+every anniversary before it; only anniversaries after it remain. Which is
+what `certificate-control-spec.md` §3.3 always said — *"the system always
+looks forward from the latest endorsement of the matching survey type"* —
+and what the claim-walk added to §4.5 for late surveys had drifted away
+from. This round puts the code back on §3.3.
+
+Concretely: find the last anniversary whose window had opened by the day
+the latest survey was done, treat it and everything before it as
+satisfied, and start tracking at the one after. A survey dated before even
+the first window opens still covers nothing, unchanged. A survey done
+after its own window closed still counts, and is still recorded as late in
+`reason` — but only for the anniversary it actually covers, so there is at
+most one late note instead of one per anniversary.
+
+**The accepted trade-off, recorded deliberately.** Once a later annual
+survey is recorded, a genuinely missed earlier one is no longer flagged.
+The developer chose this knowingly: in practice a missed annual is dealt
+with by the flag or class at the time, and the office tracks forward from
+the last survey. `aMissedEarlierAnnualIsNotReportedOnceALaterOneExists()`
+pins it, with a comment saying so, so nobody "fixes" it later.
+
+**What did not change.** The `endorsement` table, its data, the
+Endorsements list and the endorsement UI — the full history is still
+recorded and still shown, only the evaluation changed. No migration, no
+schema change. The intermediate track is untouched (one survey per term,
+already counting anything on or after its window opens), as are
+extensions, renewal dating and expiry severity. `REPLACES_ANNUAL` still
+contributes its intermediate candidates exactly as before.
+
+This also settles the "endorsement model rework" question deferred since
+step 13 — whether to keep only the most recent survey per track. The
+answer is: keep the full history, schedule from the latest.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, 43/43
+suites. `tst_CertificateStateSurvey` is at 18 passes, three of them new:
+the V TRE case with its real dates, the single late note naming only the
+anniversary it covers, and the trade-off test above.
+`eachAnniversaryClaimsTheEarliestEndorsementAvailableToIt` kept passing
+but its name described the rule that had just been removed, so it is now
+`theLatestSurveyCoversEveryAnniversaryBeforeIt`.
+`anEndorsementBeforeTheFirstWindowOpensSatisfiesNothing` passes unchanged.
+
+The three new tests were run against the old algorithm before the change
+was kept, and all three failed — the V TRE one with the §1 bug reproduced
+word for word: *"Survey overdue: the window for 09 Mar 2025 closed on
+09 Jun 2025. The 09 Mar 2024 survey was completed late, on 12 Apr 2026."*
+
+**One existing assertion had to change**, in
+`tst_CertificateCsvImportSurveys`. The old
+`asingleMostRecentDateWouldHaveReportedTheSameShipOverdue()` existed to
+justify the multi-date `Annual Surveys` CSV column: it showed that
+importing only the most recent date produced `Overdue`, because the
+claim-walk gave that one date to the oldest anniversary. Under the new
+rule the two readings agree — one date and the full history both say
+`NotDue` — so the assertion was asserting the bug. Rewritten as
+`aSingleMostRecentDateNowAgreesWithTheFullHistory()`, which asserts that
+agreement and records why the column stays regardless: the history is
+itself the record, shown in the Endorsements list, the PDF statement and
+the audit trail, and an import that kept only the last date would lose it
+for good. Nothing else in the suite needed touching — including
+`tst_CertificateListStatus`, `tst_CertificateRenewal` and `tst_Alerts`,
+which the spec flagged as possible casualties.
+
+**File sizes.** `SurveySchedule.cpp` 178 → 200 lines, well under the
+guideline; the new algorithm is shorter than the walk it replaced, and
+the growth is the comment explaining why it changed.
+`tst_CertificateStateSurvey.cpp` is 316 → **426 lines** and
+`tst_CertificateCsvImportSurveys.cpp` 417 → **429**, both over ~300 and
+both already over before this round. Reported, not split: the obvious
+seam is to move the five matching-order cases into a
+`tst_CertificateStateSurveyMatching` of their own, which is a
+housekeeping decision rather than part of this fix. Carried in the debt
+list.
+
+---
+
 ## Decisions confirmed by the developer
 
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
@@ -3115,6 +3214,21 @@ without being touched.
   (302) and `CertificateCsvImporter.cpp` (311) were untouched by this
   round's changes to either file's structure — same counts as step 13
   left them, confirmed directly, not re-split.
+- **Added by the "latest survey counts" round.** Two test files are over
+  the guideline, both already over it before this round touched them:
+  `tests/modules/certificates/tst_CertificateStateSurvey.cpp` 316 →
+  **426 lines** (three new cases plus the renamed one) and
+  `tst_CertificateCsvImportSurveys.cpp` 417 → **429** (one rewritten
+  case). Unlike the repository and widget files above, these have an
+  obvious seam and no one-class-per-file conflict: the five matching-order
+  cases — `theLatestSurveyCoversEveryAnniversaryBeforeIt`, the V TRE
+  case, the late-note case, the trade-off case and
+  `anEndorsementBeforeTheFirstWindowOpensSatisfiesNothing` — are a
+  self-contained group and would make a `tst_CertificateStateSurveyMatching`
+  of about 180 lines, leaving the original around 250. Not done in this
+  round, which was a behaviour fix; a candidate for the housekeeping round
+  that `roadmap-and-pending.md` already schedules before step 15.
+  `SurveySchedule.cpp` itself went 178 → 200 lines and is fine.
 
 ---
 
@@ -3154,35 +3268,32 @@ were all updated to match.
 
 ## Next step
 
-**Step 14 — Reports.** `CLAUDE.md` §11 still has a dedicated reporting
-step planned beyond what step 13 just delivered. Step 13's PDF export
-(`CertificateReportBuilder`) is deliberately a cut-down "current state,
-one vessel, as of now" statement for handing to a third party — no
-fleet view, no filtering, no per-certificate history, no print preview.
-Whatever step 14 turns out to need beyond that is narrower in scope
-than it would have been before step 13 existed, since the basic
-QTextDocument/QPrinter plumbing, the PDF page setup, and the
-status-label sharing between the screen and a document are all already
-in place and reusable.
+**A housekeeping round, then step 15 — database backup & restore.** The
+order is in `docs/roadmap-and-pending.md`; `CLAUDE.md` §11 now matches it.
 
-No implementation spec written yet, and no design discussion held —
-bring it up here first, the same way every step since step 3 has gone.
-Worth deciding early: whether this step is "the same statement, but for
-every vessel in the fleet" (OFFICE mode only, naturally), a proper print
-preview before export, per-certificate history (every endorsement, not
-just current status), or some combination — and whether any of that
-belongs in this step at all versus being additional scope on
-`CertificateReportBuilder` whenever a concrete need for it shows up.
+Step 14 (Reports) was **dropped by the developer**: step 13's one-vessel
+PDF statement is enough for this module. The questions this section used
+to leave open for it — a fleet-wide statement, a print preview,
+per-certificate history — are not cancelled so much as unscheduled;
+they become additional scope on `CertificateReportBuilder` if and when a
+concrete need shows up.
 
-Also still open, carried over from step 13's own design discussion and
-explicitly deferred rather than decided: the developer's proposal to
-rework the endorsement model to keep only the most recent survey per
-track, raised while discussing what the CSV survey columns should look
-like. Deferred specifically so it wouldn't get folded into step 13's
-scope — it's a genuinely separate design question (what the
-`endorsement` table and `SurveySchedule`'s matching algorithm look like
-going forward) and deserves its own dedicated discussion, not a decision
-made as a side effect of designing an import format around today's
-model.
+The endorsement-model question carried here since step 13 — the
+developer's proposal to keep only the most recent survey per track — is
+**settled**, by the "latest survey counts" round above. The answer is:
+keep the full history in the `endorsement` table, and schedule forward
+from the latest survey. The reason the two halves of that answer are
+both needed is in that entry: the schedule only ever reads the latest
+survey, but the history is itself the record the Endorsements list, the
+PDF statement and the audit trail show.
+
+The housekeeping round has no spec yet. Its candidates are the file-size
+debt listed above — `CertificateListWidget.cpp` at 554 lines is the worst
+offender in the project, `VesselRepository.cpp` at 557 the one that needs
+a real collaborator extracted, and the two survey test files the easiest
+win — plus the smaller carried items (the first-run wizard's raw
+constraint text, `MainWindow.cpp`'s missing `<QSignalBlocker>`,
+`TransactionScope::commit()`'s flag order). Bring it up here first, the
+same way every step since step 3 has gone.
 
 Full build order is in `CLAUDE.md` §11.
