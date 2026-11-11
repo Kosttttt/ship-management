@@ -10,26 +10,16 @@ yourself) quickly, not a replacement for either.
 Decided with the developer: finish every pending item for this module, then
 start the next one. Rounds, one at a time, in this order:
 
-1. **Annual surveys: the latest survey counts.** Spec written:
-   `docs/survey-latest-counts-spec.md`. Fixes a certificate showing overdue
-   when only its most recent annual survey is recorded (V TRE Load Line,
-   −519 days). Also settles the long-deferred "endorsement model rework"
+1. ✅ **Annual surveys: the latest survey counts.** `6861d24`, spec
+   `docs/survey-latest-counts-spec.md`. The V TRE Load Line no longer shows
+   overdue. Also settled the long-deferred "endorsement model rework"
    question: keep the full history, schedule from the latest.
-2. **Housekeeping.** Spec to be written when we get there. Contents:
-   - Apply the new `CLAUDE.md` §9 helper-class rule: move the IMO-conflict
-     logic out of `VesselRepository.cpp` (557 lines) into a helper, and
-     split row rendering (`fillRow()` and around it) out of
-     `CertificateListWidget.cpp` (554). Other repositories over ~300
-     (`ManagedFileStore` 424, `EndorsementRepository` 414,
-     `CertificateRepository` 402, `VesselAttachmentRoots` 330) only where
-     a clean helper exists — reported, not forced.
-   - The attachment chooser remembers the last folder used (details
-     below).
-   - First-run wizard: duplicate IMO gets the friendly message, not raw
-     SQLite text.
-   - `MainWindow.cpp`: explicit `#include <QSignalBlocker>`.
-   - `TransactionScope::commit()`: keep the "open" flag until the commit
-     has actually succeeded.
+2. **Housekeeping.** Spec written: `docs/housekeeping-round-spec.md`.
+   `VesselRepository.cpp` and `CertificateListWidget.cpp` back toward
+   ~300 lines using the new §9 helper rule; two test files split; the
+   attachment chooser remembers the last folder; `TransactionScope`
+   commit fix; `QSignalBlocker` include. The first-run duplicate-IMO item
+   was dropped — it can't happen (§7 of that spec).
 3. **Step 15, reduced: database backup & restore.** Spec to be written.
    Export database / Import database in Settings — a safe, in-app way to
    move to another computer or keep a backup (e.g. on Google Drive as a
@@ -103,9 +93,10 @@ remembered folder must never be the vessel's own `attachment_root_path`
 
 ## Your pending items
 
-- **Push** the archive rounds if not already done (`559dfa6`, `11efcd9`,
-  `bd8f2a1`, `a2d17fe`). Archive/Restore confirmed working on screen by the
-  developer.
+- **Push:** the archive rounds are pushed (up to `a2d17fe`). Not yet
+  pushed: `71e76f3` (docs) and `6861d24` (latest-survey rule).
+- **Check the V TRE Load Line (No. 12) on screen** — it should no longer
+  show overdue.
 - **V TRE CSV — two rows still blocked.** No. 19 (Safety Construction) and
   No. 39 (Ballast Water Management): each annual-survey date is before the
   certificate's current issue date, which the app refuses. Needs either the
