@@ -14,17 +14,16 @@ start the next one. Rounds, one at a time, in this order:
    `docs/survey-latest-counts-spec.md`. The V TRE Load Line no longer shows
    overdue. Also settled the long-deferred "endorsement model rework"
    question: keep the full history, schedule from the latest.
-2. **Housekeeping.** Spec written: `docs/housekeeping-round-spec.md`.
-   `VesselRepository.cpp` and `CertificateListWidget.cpp` back toward
-   ~300 lines using the new §9 helper rule; two test files split; the
-   attachment chooser remembers the last folder; `TransactionScope`
-   commit fix; `QSignalBlocker` include. The first-run duplicate-IMO item
-   was dropped — it can't happen (§7 of that spec).
-3. **Step 15, reduced: database backup & restore.** Spec to be written.
-   Export database / Import database in Settings — a safe, in-app way to
-   move to another computer or keep a backup (e.g. on Google Drive as a
-   *file*, never as the live database). The audit trail viewer is
-   deferred, not part of this module.
+2. ✅ **Housekeeping.** `05016eb`, spec `docs/housekeeping-round-spec.md`.
+   `VesselRepository.cpp` 557 → 430 and `CertificateListWidget.cpp`
+   554 → 379 via helper classes; survey tests split; the attachment chooser
+   remembers the last folder; `TransactionScope` and `QSignalBlocker`
+   fixes. The first-run duplicate-IMO item was dropped — it can't happen.
+3. **Step 15: database backup & restore.** Spec written:
+   `docs/database-backup-spec.md`. Database only (documents stay in their
+   folders); Back up / Restore in Settings; an automatic daily backup to a
+   chosen folder (e.g. Google Drive), keeping the last 10. The audit trail
+   viewer is deferred, not part of this module.
 4. **Close-out.** Your own checks (below), a final `PROJECT-STATUS.md`
    entry marking the module complete, and a git tag on that commit so
    there is a named version to go back to.
@@ -93,10 +92,10 @@ remembered folder must never be the vessel's own `attachment_root_path`
 
 ## Your pending items
 
-- **Push:** the archive rounds are pushed (up to `a2d17fe`). Not yet
-  pushed: `71e76f3` (docs) and `6861d24` (latest-survey rule).
-- **Check the V TRE Load Line (No. 12) on screen** — it should no longer
-  show overdue.
+- Everything up to `05016eb` is pushed. The V TRE Load Line is confirmed
+  fixed on screen by the developer.
+- **Check the attachment chooser** on screen: attach a file, then attach
+  another — the second dialog should open where the first file was.
 - **V TRE CSV — two rows still blocked.** No. 19 (Safety Construction) and
   No. 39 (Ballast Water Management): each annual-survey date is before the
   certificate's current issue date, which the app refuses. Needs either the
