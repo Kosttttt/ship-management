@@ -23,7 +23,12 @@ public:
     // emptyText is what the field reads before anything is chosen, which
     // differs between the two dialogs: one says the current document stays,
     // the other that there is none.
-    explicit AttachmentSourceField(const QString& emptyText, QWidget* parent = nullptr);
+    // vesselAttachmentRoot is the current vessel's attachment folder, passed
+    // straight through to AttachmentChooser so the file dialog never reopens
+    // inside it (housekeeping-round-spec §5). Required rather than defaulted,
+    // so a new dialog cannot forget it.
+    AttachmentSourceField(const QString& emptyText, const QString& vesselAttachmentRoot,
+                          QWidget* parent = nullptr);
 
     // Empty when the user has chosen nothing, which every caller treats as
     // "do not touch the attachment".
@@ -41,6 +46,7 @@ private:
     QPushButton* m_button = nullptr;
 
     QString m_emptyText;
+    QString m_vesselAttachmentRoot;
     QString m_sourcePath;
     bool    m_sourceIsFolder = false;
 };

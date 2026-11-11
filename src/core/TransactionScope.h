@@ -48,8 +48,20 @@ public:
         if (!m_open) {
             return false;
         }
+
+        // The flag is cleared only once the commit has actually succeeded
+        // (housekeeping-round-spec §6). Clearing it first left a failed commit
+        // with the transaction still open on the connection and the destructor
+        // no longer willing to roll it back — so the next statement on that
+        // connection would have run inside it. Not seen in practice, because
+        // the one caller treats a failed commit as a failed import and stops,
+        // but the destructor is the whole point of this class and it has to
+        // stay right whichever way commit() goes.
+        if (!m_database.commit()) {
+            return false;
+        }
         m_open = false;
-        return m_database.commit();
+        return true;
     }
 
 private:

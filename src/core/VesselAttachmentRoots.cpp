@@ -328,3 +328,15 @@ bool VesselAttachmentRoots::changeRoot(const QString& vesselId,
 
     return true;
 }
+
+QString VesselAttachmentRoots::configuredRoot(const QString& vesselId)
+{
+    QString root;
+    QString ignoredError;
+    if (!storedRoot(vesselId, &root, &ignoredError)) {
+        // "Could not be read" and "none configured" are the same answer to
+        // the only question being asked here.
+        return QString();
+    }
+    return root;
+}

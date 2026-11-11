@@ -72,6 +72,10 @@ private:
     EndorsementRepository&        m_endorsements;
     CertificateAttachmentService& m_attachments;
 
+    // Kept because the attachment control needs the vessel's folder, which is
+    // looked up when that section is built (housekeeping-round-spec §5).
+    QString                       m_vesselId;
+
     CertificateEditForm* m_form      = nullptr;
     QPushButton*         m_okButton  = nullptr;
     bool                 m_isEditing = false;

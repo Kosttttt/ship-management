@@ -1,19 +1,15 @@
 #include "modules/certificates/ui/CertificateListWidget.h"
 
-#include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "modules/certificates/data/CertificateExtensionRepository.h"
 #include "modules/certificates/data/CertificateRepository.h"
 #include "modules/certificates/data/EndorsementRepository.h"
-#include "modules/certificates/domain/CertificateState.h"
 #include "modules/certificates/service/CertificateAttachmentService.h"
 #include "modules/certificates/ui/CertificateEditDialog.h"
 #include "modules/certificates/ui/CertificateIoActions.h"
 #include "modules/certificates/ui/CertificateListActions.h"
 #include "modules/certificates/ui/CertificateListRow.h"
-#include "modules/certificates/ui/DateItem.h"
-#include "modules/certificates/ui/ListNumberItem.h"
-#include "modules/certificates/ui/StatusItem.h"
+#include "modules/certificates/ui/CertificateRowRenderer.h"
 #include "modules/certificates/ui/TableHeaderSettings.h"
 
 #include <QCheckBox>
@@ -31,31 +27,11 @@
 
 namespace {
 
-// certificate-list-status-spec §3, as amended by
-// certificate-attachment-addendum-spec §4 and §5:
-//
-// No. · Name · Issue Date · Status · Expiry Date · Survey From · Survey To ·
-// Days Left · Document
-//
-// Issue Date left this screen at step 7, in favour of a "what needs attention"
-// focus, and comes back here (§5) — placed next to Expiry Date rather than at
-// the end, so the two dates that answer "what is this document, and when does
-// it run out" sit together instead of being separated by status and survey.
-//
-// Document is last (§4) so that nothing else had to be renumbered for it.
-enum class Column {
-    ListNumber = 0,
-    Name       = 1,
-    IssueDate  = 2,
-    Status     = 3,
-    Expiry     = 4,
-    SurveyFrom = 5,
-    SurveyTo   = 6,
-    DaysLeft   = 7,
-    Attachment = 8
-};
+// Laid out by CertificateRowRenderer, which declares them — this screen only
+// labels, sizes and sorts them (housekeeping-round-spec §3.1).
+using Column = CertificateColumn;
 
-constexpr int kColumnCount = 9;
+constexpr int kColumnCount = kCertificateColumnCount;
 
 // usability-fixes §1: the widths a user sees before they drag anything, in
 // Column order. Name is deliberately far wider than the rest - it is the one
@@ -78,42 +54,12 @@ constexpr int kDefaultColumnWidths[kColumnCount] = {
     84   // Document
 };
 
-// The row data in CertificateListRow.h rides on the first cell, which is this
-// column. Asserted rather than assumed, since the two are declared apart.
-static_assert(static_cast<int>(Column::ListNumber) == CertificateRow::kDataColumn,
-              "row data must live on the column fillRow() writes it to");
-
 // Which page of the internal stack is showing. Named so the tests can assert
 // the prompt state rather than guessing from an empty table.
 enum class Page {
     Prompt = 0,
     List   = 1
 };
-
-// The mark in the Document column (§4): a plain glyph when something is
-// attached and an empty cell when nothing is, with no filename and no button.
-//
-// Written as an escape rather than as a literal paperclip so that this source
-// file stays pure ASCII and cannot be damaged by a tool that re-saves it in
-// another encoding. QStringLiteral builds UTF-16, where U+1F4CE is a surrogate
-// pair, which is exactly what Qt wants.
-const QString kAttachmentGlyph = QStringLiteral(u"\U0001F4CE");
-
-QString expiryLabel(const Certificate& certificate, const CertificateState& state)
-{
-    // certificate-extension-spec §7: an active extension takes the cell over,
-    // with a short suffix so it is obvious at a glance that the date shown is
-    // not the certificate's own. No new column — every existing sort and
-    // filter behaviour stays exactly as it was.
-    if (state.activeExtensionExpiry.has_value()) {
-        return CertificateListWidget::tr("%1 — Short Term")
-            .arg(state.activeExtensionExpiry->toString(DateItem::kDateFormat));
-    }
-    if (certificate.neverExpires()) {
-        return CertificateListWidget::tr("Does not expire");
-    }
-    return certificate.expiryDate.toString(DateItem::kDateFormat);
-}
 
 } // namespace
 
@@ -132,7 +78,7 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     , m_endorsements(endorsements)
     , m_extensions(extensions)
     , m_attachments(attachments)
-    , m_appSettings(appSettings)
+    , m_rowSource(repository, endorsements, extensions, appSettings)
 {
     m_addButton = new QPushButton(tr("&Add Certificate"), this);
 
@@ -180,6 +126,11 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
         m_table->horizontalHeader(), QStringLiteral("ui/certificateList/headerState"), this);
     m_headerSettings->restore();
     m_headerSettings->startSaving();
+
+    // Also after the table, which it writes into. It owns which cell holds
+    // what; reload() below owns what the values are
+    // (housekeeping-round-spec §3.1).
+    m_rows = new CertificateRowRenderer(*m_table, m_attachments, this);
 
     // After the table, which it watches for selection changes. It owns the
     // Renew, extension and attachment buttons; this widget only places them.
@@ -278,6 +229,7 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
 void CertificateListWidget::setVesselId(const QString& vesselId)
 {
     m_vesselId = vesselId;
+    m_rows->setVesselId(vesselId);
     m_actions->setVesselId(vesselId);
     m_ioActions->setVesselId(vesselId);
     reload();
@@ -309,90 +261,30 @@ void CertificateListWidget::reload()
         return;
     }
 
-    QList<Certificate> certificates;
-    if (!m_repository.list(m_vesselId, &certificates)) {
-        qWarning() << "Could not load certificates:" << m_repository.errorString();
-        QMessageBox::warning(this, tr("Could not load certificates"),
-                             m_repository.errorString());
-        return;
-    }
-
     // certificate-list-status-spec §8: this is the one legitimate place
     // "today" is read in this call chain. computeCertificateState() never
     // reads the clock itself — that is what makes it testable — so the screen
-    // reads it once here and hands the same value to every row.
+    // reads it once here and hands the same value down for every row.
     const QDate today = QDate::currentDate();
 
-    // settings-app-setting-spec §7: the one place an AppSetting (core)
-    // becomes an AlertThresholds (this module), translated a field at a time
-    // on this side of the boundary. Core knows nothing about AlertThresholds.
-    //
-    // A failed read leaves the hardcoded 30/60/90 defaults in place: a list
-    // that still shows something reasonable beats one that shows nothing,
-    // the same call step 7 made for unreadable endorsements.
-    AppSetting      setting;
-    AlertThresholds thresholds;
-    if (m_appSettings.read(&setting)) {
-        thresholds.criticalDays     = setting.criticalDays;
-        thresholds.expiringSoonDays = setting.expiringSoonDays;
-        thresholds.dueSoonDays      = setting.dueSoonDays;
-    } else {
-        qWarning() << "Could not read alert thresholds, using defaults:"
-                   << m_appSettings.errorString();
-    }
-
-    const bool onlyNeedingAttention = m_needsAttentionCheck->isChecked();
-
-    QList<Certificate>      visible;
-    QList<CertificateState> states;
-
-    for (const Certificate& certificate : certificates) {
-        // One list() per certificate: an N+1 pattern, deliberately not
-        // batched at the fleet sizes this app targets (§8).
-        QList<Endorsement> endorsements;
-        if (!m_endorsements.list(certificate.id, &endorsements)) {
-            // A certificate whose endorsements cannot be read is still worth
-            // showing; it simply looks as though it has none.
-            qWarning() << "Could not load endorsements for" << certificate.name << ":"
-                       << m_endorsements.errorString();
-        }
-
-        // certificate-extension-spec §3/§6: this screen is one of exactly two
-        // places that must look an active extension up and hand its date to
-        // the state calculation — CertificateAlertProvider is the other, and
-        // the two have to agree or the badge and the list will disagree about
-        // the same certificate.
-        //
-        // An unreadable extension is treated as "none", the same judgment
-        // already made for an unreadable endorsement list: a row that still
-        // shows the certificate's own dates beats a screen with a hole in it.
-        std::optional<CertificateExtension> extension;
-        if (!m_extensions.findActiveFor(certificate.id, &extension)) {
-            qWarning() << "Could not load the short-term extension for" << certificate.name << ":"
-                       << m_extensions.errorString();
-        }
-
-        const std::optional<QDate> extensionExpiry =
-            extension.has_value() ? std::optional<QDate>(extension->expiryDate) : std::nullopt;
-
-        const CertificateState state =
-            computeCertificateState(certificate, endorsements, thresholds, today, extensionExpiry);
-
-        if (onlyNeedingAttention && state.display == DisplayStatus::Valid) {
-            continue;
-        }
-
-        visible.append(certificate);
-        states.append(state);
+    // What goes in the rows is decided a layer down, in the service
+    // (housekeeping-round-spec §3.2). This screen asks for the vessel's rows
+    // and draws them.
+    QList<CertificateListRows::Row> rows;
+    if (!m_rowSource.build(m_vesselId, m_needsAttentionCheck->isChecked(), today, &rows)) {
+        qWarning() << "Could not load certificates:" << m_rowSource.errorString();
+        QMessageBox::warning(this, tr("Could not load certificates"),
+                             m_rowSource.errorString());
+        return;
     }
 
     // Sorting has to be off while rows are filled, or the table reorders
     // underneath the loop and cells land in the wrong rows.
     m_table->setSortingEnabled(false);
-    m_table->setRowCount(visible.size());
+    m_table->setRowCount(rows.size());
 
-    for (int row = 0; row < visible.size(); ++row) {
-        fillRow(row, visible.at(row), states.at(row));
+    for (int row = 0; row < rows.size(); ++row) {
+        m_rows->fillRow(row, rows.at(row).certificate, rows.at(row).state);
     }
 
     m_table->setSortingEnabled(true);
@@ -404,73 +296,6 @@ void CertificateListWidget::reload()
 
     emit certificatesChanged();
 }
-
-void CertificateListWidget::fillRow(int                     row,
-                                    const Certificate&      certificate,
-                                    const CertificateState& state)
-{
-    // The id rides on the first cell, so an edit knows which row it is
-    // editing without a UUID ever being shown.
-    auto* numberItem = new ListNumberItem(certificate.listNumber);
-    numberItem->setData(CertificateRow::kCertificateIdRole, certificate.id);
-    numberItem->setData(CertificateRow::kNeverExpiresRole, certificate.neverExpires());
-    // An invalid QDate when there is no extension, which is what both buttons
-    // test for (certificate-extension-spec §7).
-    numberItem->setData(CertificateRow::kActiveExtensionRole,
-                        state.activeExtensionExpiry.has_value()
-                            ? *state.activeExtensionExpiry
-                            : QDate());
-
-    m_table->setItem(row, static_cast<int>(Column::ListNumber), numberItem);
-    m_table->setItem(row, static_cast<int>(Column::Name), new QTableWidgetItem(certificate.name));
-
-    // §5: a plain field with nothing computed about it, so there is no state to
-    // consult — only the certificate's own issue date. A DateItem rather than
-    // formatted text, so the column sorts chronologically (§7 case 9).
-    m_table->setItem(row, static_cast<int>(Column::IssueDate),
-                     new DateItem(certificate.issueDate));
-
-    m_table->setItem(row, static_cast<int>(Column::Status), new StatusItem(state.display));
-    m_table->setItem(row, static_cast<int>(Column::Expiry),
-                     new QTableWidgetItem(expiryLabel(certificate, state)));
-
-    // certificate-list-status-spec §5: blank unless there is an outstanding
-    // survey window to show. A DateItem renders an invalid date as a blank
-    // cell, so "is there a window" needs no separate test here — and these two
-    // now sort chronologically alongside Issue Date rather than as text.
-    m_table->setItem(row, static_cast<int>(Column::SurveyFrom), new DateItem(state.windowOpens));
-    m_table->setItem(row, static_cast<int>(Column::SurveyTo), new DateItem(state.windowCloses));
-
-    // §6: the raw signed number, negative once overdue. A certificate that
-    // never expires has no meaningful count, and a bare 0 would read as "due
-    // today", so that cell is left blank instead.
-    auto* daysItem = new QTableWidgetItem;
-    // An active extension supplies a date to count to even for a certificate
-    // that has none of its own, so the cell is driven by whether the state
-    // actually counted to something rather than by the certificate alone.
-    if (certificate.expiryDate.isValid() || state.activeExtensionExpiry.has_value()) {
-        // Stored as a number, not text, so the column sorts numerically
-        // rather than putting "-7" after "10".
-        daysItem->setData(Qt::DisplayRole, state.daysLeft);
-    }
-    m_table->setItem(row, static_cast<int>(Column::DaysLeft), daysItem);
-
-    // §4: one more read per certificate — the same accepted N+1 the
-    // endorsements and the active extension above already cost on this screen.
-    // Asked here rather than remembered on the row, so that what the cell shows
-    // and what a click opens are the same question answered by the same
-    // service.
-    const bool hasAttachment =
-        !m_attachments.currentAbsolutePath(m_vesselId, certificate.id).isEmpty();
-
-    auto* attachmentItem = new QTableWidgetItem(hasAttachment ? kAttachmentGlyph : QString());
-    attachmentItem->setTextAlignment(Qt::AlignCenter);
-    if (hasAttachment) {
-        attachmentItem->setToolTip(tr("Click to open the attached document."));
-    }
-    m_table->setItem(row, static_cast<int>(Column::Attachment), attachmentItem);
-}
-
 // §4: lives here rather than in CertificateListActions, because it is driven by
 // *which cell was clicked* and not by *what is selected* — the same distinction
 // that already keeps Add Certificate out of the actions class.

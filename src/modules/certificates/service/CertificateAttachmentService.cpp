@@ -222,3 +222,8 @@ QString CertificateAttachmentService::errorString() const
 {
     return m_errorString;
 }
+
+QString CertificateAttachmentService::vesselAttachmentRoot(const QString& vesselId)
+{
+    return m_roots.configuredRoot(vesselId);
+}

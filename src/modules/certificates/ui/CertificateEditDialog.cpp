@@ -25,6 +25,7 @@ CertificateEditDialog::CertificateEditDialog(CertificateRepository&            r
     , m_repository(repository)
     , m_endorsements(endorsements)
     , m_attachments(attachments)
+    , m_vesselId(vesselId)
     , m_isEditing(existing.has_value())
     , m_isRenewal(isRenewal && existing.has_value())
 {
@@ -119,7 +120,8 @@ QGroupBox* CertificateEditDialog::buildAttachmentSection()
                                   ? tr("The document already attached stays as it is.")
                                   : tr("No document is attached yet.");
 
-    m_attachmentSource = new AttachmentSourceField(emptyText, group);
+    m_attachmentSource = new AttachmentSourceField(
+        emptyText, m_attachments.vesselAttachmentRoot(m_vesselId), group);
 
     auto* groupLayout = new QVBoxLayout(group);
     groupLayout->addWidget(m_attachmentSource);

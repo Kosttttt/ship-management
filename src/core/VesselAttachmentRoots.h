@@ -86,6 +86,14 @@ public:
     // already pointed at succeeds and moves nothing.
     bool changeRoot(const QString& vesselId, const QString& newRootPath, QString* errorString);
 
+    // The folder a vessel is configured to use, or empty when it has none —
+    // and empty too when the row cannot be read at all. Unlike
+    // rootForWriting() this neither creates the folder nor reports why it is
+    // missing, because its one caller does not need to know: the file chooser
+    // only has to learn which folder to stay out of
+    // (housekeeping-round-spec §5).
+    QString configuredRoot(const QString& vesselId);
+
 private:
     // The stored column for one vessel, with "vessel not found" distinguished
     // from "found, but nothing configured".

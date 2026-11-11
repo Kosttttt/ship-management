@@ -57,7 +57,9 @@ CertificateExtensionDialog::CertificateExtensionDialog(
     // certificate-attachment-spec §8: the short-term certificate's own
     // paperwork, which is a different document from the certificate's and is
     // never archived — the extension row is its own historical record (§2).
-    m_attachmentSource = new AttachmentSourceField(tr("No document attached."), this);
+    m_attachmentSource = new AttachmentSourceField(
+        tr("No document attached."), m_attachments.vesselAttachmentRoot(m_certificate.vesselId),
+        this);
 
     auto* form = new QFormLayout;
     form->addRow(tr("Extension expires"), m_expiryEdit);

@@ -2,6 +2,8 @@
 
 #include "core/InstallationContext.h"
 #include "core/Vessel.h"
+#include "core/VesselArchiveWriter.h"
+#include "core/VesselImoNumberCheck.h"
 
 #include <QList>
 #include <QString>
@@ -11,7 +13,8 @@
 class QSqlDatabase;
 
 // Reads and writes the vessel table. The only file containing SQL for it
-// (CLAUDE.md §4 rule 2).
+// (CLAUDE.md §4 rule 2) apart from its own two helpers below, which §9 allows
+// and which nothing else may use.
 //
 // This is the first consumer of InstallationContext::vesselScope(). The
 // VESSEL-mode filter is applied here, on every query, in one place — never in
@@ -26,7 +29,7 @@ public:
     // rows — so every caller that existed before archiving did keeps its
     // exact behaviour without touching a line of its own code
     // (vessel-archive-spec §6). Only the vessel list's "Show archived
-    // vessels" toggle, and archive()/restore()'s own pre-read, pass true.
+    // vessels" toggle passes true.
     bool list(QList<Vessel>* vessels, bool includeArchived = false);
     bool findById(const QString& id, std::optional<Vessel>* vessel,
                   bool includeArchived = false);
@@ -59,21 +62,17 @@ public:
 
     // Archive / Restore (vessel-archive-spec §3, §6). OFFICE only, refused
     // outright for a VESSEL installation — including against its own vessel,
-    // because this is fleet management, not work for the crew on board. The
-    // same bare isScopedToOneVessel() check create() uses, deliberately not
-    // update()'s looser "scoped and not my own id" form.
-    //
-    // Both read the row first rather than inferring failure from
-    // numRowsAffected(), the way CertificateRepository::softDeleteWithChildren()
-    // already does. update() can collapse its zero-row case into one "no
-    // longer exists" message because it only has one; these each have two —
-    // an id that isn't there at all, and a vessel already in the state being
-    // asked for — and one message would be wrong half the time.
+    // because this is fleet management, not work for the crew on board.
     //
     // archive() sets is_deleted = 1; restore() sets it back to 0, after
     // re-running the same IMO-number uniqueness check create() and update()
-    // use, because archiving frees that number for reuse (see §6). Both bump
+    // use, because archiving once looked as though it freed that number for
+    // reuse (see §6, and §10.1 for why it never actually did). Both bump
     // revision and refresh updated_at/updated_by exactly as update() does.
+    //
+    // The guards, the pre-read and the UPDATE itself live in
+    // VesselArchiveWriter; these two stay here because they are what the rest
+    // of the program calls.
     bool archive(const QString& vesselId);
     bool restore(const QString& vesselId);
 
@@ -81,45 +80,17 @@ public:
 
 private:
     bool validate(const Vessel& vessel);
-    // Whichever vessel currently holds an IMO number, archived or not.
-    struct ImoNumberHolder {
-        QString name;
-        bool    isArchived = false;
-    };
-
-    // Deliberately does NOT filter on is_deleted: migrations/002 declares
-    // imo_number UNIQUE with no such condition, so an archived vessel still
-    // holds its number and the database will refuse to issue it again. A
-    // check that disagreed with the constraint would wave the write through
-    // and let it fail as raw SQLite text instead (vessel-archive-spec §10.1).
-    //
-    // Reports who holds it rather than a bare yes/no, so the caller can name
-    // the archived vessel in the message and say what to do about it.
-    bool findImoNumberHolder(const QString& imoNumber, const QString& excludeId,
-                             std::optional<ImoNumberHolder>* holder);
-
-    // The wording for a conflict. suggestRestore is false when editing: a
-    // person correcting a vessel is not trying to add one, so pointing them
-    // at Restore would be answering a question they did not ask.
-    static QString imoNumberConflictMessage(const ImoNumberHolder& holder,
-                                            bool                   suggestRestore);
-
-    // archive() and restore() are the same operation in opposite directions,
-    // so the parts that do not differ live here once (vessel-archive-spec
-    // §10.2): the empty-id guard, the OFFICE-only refusal, the pre-read, and
-    // the "is it already in that state" check. Every message is derived from
-    // wantArchived rather than passed in, so the two callers cannot drift
-    // apart in their wording.
-    //
-    // They are two calls rather than one because restore() has a step in
-    // between — the IMO backstop — which archive() does not.
-    bool checkArchiveChangeAllowed(const QString& vesselId, bool wantArchived,
-                                   std::optional<Vessel>* existing);
-    bool writeArchivedFlag(const QString& vesselId, bool archived);
     bool isScopedToOneVessel() const;
 
     QSqlDatabase&       m_database;
     // By value, never by reference — see InstallationContext.h.
     InstallationContext m_installation;
+
+    // Both declared after m_database, which they are built from. Owned rather
+    // than created per call so that each keeps its own error text for the one
+    // operation in progress (housekeeping-round-spec §2).
+    VesselImoNumberCheck m_imoCheck;
+    VesselArchiveWriter  m_archive;
+
     QString             m_errorString;
 };

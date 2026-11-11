@@ -9,9 +9,12 @@
 #include <QMenu>
 #include <QPushButton>
 
-AttachmentSourceField::AttachmentSourceField(const QString& emptyText, QWidget* parent)
+AttachmentSourceField::AttachmentSourceField(const QString& emptyText,
+                                             const QString& vesselAttachmentRoot,
+                                             QWidget*       parent)
     : QWidget(parent)
     , m_emptyText(emptyText)
+    , m_vesselAttachmentRoot(vesselAttachmentRoot)
 {
     setObjectName(QStringLiteral("attachmentSourceField"));
 
@@ -57,7 +60,8 @@ bool AttachmentSourceField::sourceIsFolder() const
 void AttachmentSourceField::choose(bool folder)
 {
     const QString chosen =
-        folder ? AttachmentChooser::chooseFolder(this) : AttachmentChooser::chooseFile(this);
+        folder ? AttachmentChooser::chooseFolder(this, m_vesselAttachmentRoot)
+               : AttachmentChooser::chooseFile(this, m_vesselAttachmentRoot);
 
     if (chosen.isEmpty()) {
         return; // cancelled: leave any earlier choice exactly as it was

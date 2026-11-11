@@ -65,10 +65,15 @@ add_ship_test(tst_EndorsementEditDelete
 add_ship_test(tst_CertificateAttachmentFolders
     modules/certificates/tst_CertificateAttachmentFolders.cpp ShipCertificates)
 
+add_ship_test(tst_AttachmentChooserFolder
+    modules/certificates/tst_AttachmentChooserFolder.cpp ShipCertificates)
+
 add_ship_test(tst_CertificateStateExpiry
     modules/certificates/tst_CertificateStateExpiry.cpp ShipCertificates)
 add_ship_test(tst_CertificateStateSurvey
     modules/certificates/tst_CertificateStateSurvey.cpp ShipCertificates)
+add_ship_test(tst_CertificateStateSurveyMatching
+    modules/certificates/tst_CertificateStateSurveyMatching.cpp ShipCertificates)
 add_ship_test(tst_EndorsementRepository
     modules/certificates/tst_EndorsementRepository.cpp ShipCertificates)
 add_ship_test(tst_EndorsementUi

@@ -73,6 +73,8 @@ qt_add_library(ShipCore STATIC
     src/core/InstallationRepository.h src/core/InstallationRepository.cpp
     src/core/Vessel.h
     src/core/VesselRepository.h       src/core/VesselRepository.cpp
+    src/core/VesselImoNumberCheck.h   src/core/VesselImoNumberCheck.cpp
+    src/core/VesselArchiveWriter.h    src/core/VesselArchiveWriter.cpp
     src/core/AppSetting.h
     src/core/AppSettingRepository.h   src/core/AppSettingRepository.cpp
     src/core/CsvFile.h                src/core/CsvFile.cpp
@@ -138,6 +140,8 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/service/CertificateCsvImporter.cpp
     src/modules/certificates/service/CertificateReportBuilder.h
     src/modules/certificates/service/CertificateReportBuilder.cpp
+    src/modules/certificates/service/CertificateListRows.h
+    src/modules/certificates/service/CertificateListRows.cpp
     src/modules/certificates/service/CertificateBulkDeletion.h
     src/modules/certificates/service/CertificateBulkDeletion.cpp
     src/modules/certificates/service/CertificateAttachmentService.h
@@ -151,6 +155,7 @@ qt_add_library(ShipCertificates STATIC
     src/modules/certificates/ui/CertificateListWidget.h
     src/modules/certificates/ui/CertificateListWidget.cpp
     src/modules/certificates/ui/CertificateListRow.h
+    src/modules/certificates/ui/CertificateRowRenderer.h  src/modules/certificates/ui/CertificateRowRenderer.cpp
     src/modules/certificates/ui/CertificateIoActions.h
     src/modules/certificates/ui/CertificateIoActions.cpp
     src/modules/certificates/ui/CertificateImportPreviewDialog.h

@@ -130,6 +130,12 @@ public:
     // VesselAttachmentRoots::resolveForOpening().
     QString currentAbsolutePath(const QString& vesselId, const QString& certificateId);
 
+    // The vessel's configured attachment folder, or empty when it has none.
+    // Exposed for the file chooser, which must never open inside the managed
+    // folder (housekeeping-round-spec §5). A plain passthrough to
+    // VesselAttachmentRoots, so a widget does not have to hold one of its own.
+    QString vesselAttachmentRoot(const QString& vesselId);
+
     QString errorString() const;
 
 private:

@@ -130,12 +130,16 @@ void CertificateAttachmentActions::openCurrentAttachment()
 
 void CertificateAttachmentActions::attachFile()
 {
-    attachFrom(AttachmentChooser::chooseFile(m_dialogParent), /*sourceIsFolder=*/false);
+    attachFrom(AttachmentChooser::chooseFile(m_dialogParent,
+                                             m_attachments.vesselAttachmentRoot(m_vesselId)),
+               /*sourceIsFolder=*/false);
 }
 
 void CertificateAttachmentActions::attachFolder()
 {
-    attachFrom(AttachmentChooser::chooseFolder(m_dialogParent), /*sourceIsFolder=*/true);
+    attachFrom(AttachmentChooser::chooseFolder(m_dialogParent,
+                                               m_attachments.vesselAttachmentRoot(m_vesselId)),
+               /*sourceIsFolder=*/true);
 }
 
 void CertificateAttachmentActions::attachFrom(const QString& sourcePath, bool sourceIsFolder)

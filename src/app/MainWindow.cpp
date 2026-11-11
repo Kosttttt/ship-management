@@ -16,6 +16,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QListWidget>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "modules/certificates/service/CertificateListRows.h"
+
 #include <QWidget>
 
 struct Certificate;
@@ -13,6 +15,7 @@ class CertificateExtensionRepository;
 class CertificateIoActions;
 class CertificateListActions;
 class CertificateReportBuilder;
+class CertificateRowRenderer;
 class CertificateRepository;
 class TableHeaderSettings;
 class EndorsementRepository;
@@ -30,10 +33,11 @@ class QTableWidgetItem;
 // ship carries dozens. So both modes use this same widget, and the only
 // difference is whether MainWindow puts a vessel selector above it.
 //
-// This class owns the table and everything that fills it. The two
-// selection-driven actions — Renew and the short-term extension button — live
-// in CertificateListActions, which owns their buttons and asks for a reload
-// when it has changed something.
+// This class owns the table, gathers what goes into it, and places the
+// buttons. CertificateRowRenderer fills each row; the two selection-driven
+// actions — Renew and the short-term extension button — live in
+// CertificateListActions, which owns their buttons and asks for a reload when
+// it has changed something.
 class CertificateListWidget : public QWidget
 {
     Q_OBJECT
@@ -92,22 +96,26 @@ private:
 
     void updateVisibleState();
 
-    // Renders one already-computed row. The state is passed in rather than
-    // recomputed so "today" is read exactly once per reload.
-    void fillRow(int row, const Certificate& certificate, const CertificateState& state);
-
     CertificateRepository&          m_repository;
     EndorsementRepository&          m_endorsements;
     CertificateExtensionRepository& m_extensions;
     CertificateAttachmentService&   m_attachments;
-    AppSettingRepository&           m_appSettings;
     QString                         m_vesselId;
+
+    // Decides what goes in the rows, a layer down: CLAUDE.md §4 rule 3 keeps
+    // business rules out of a widget (housekeeping-round-spec §3.2). Held by
+    // value because it is this screen's own, not shared with anything.
+    CertificateListRows             m_rowSource;
 
     // A QObject child of this widget, so Qt's parent-child ownership deletes
     // it (CLAUDE.md §9) — and it must be constructed after m_table, which it
     // watches for selection changes.
     CertificateListActions* m_actions   = nullptr;
     CertificateIoActions*   m_ioActions = nullptr;
+
+    // Which cell of a row holds what (housekeeping-round-spec §3.1). Also a
+    // QObject child of this widget, and also built after m_table.
+    CertificateRowRenderer* m_rows      = nullptr;
 
     // Remembers the column widths the user drags, under its own QSettings
     // key (certificate-list-usability-fixes.md §1). A QObject child of this

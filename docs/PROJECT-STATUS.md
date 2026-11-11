@@ -2631,6 +2631,217 @@ housekeeping decision rather than part of this fix. Carried in the debt
 list.
 
 ---
+---
+
+### Housekeeping — file sizes, the chooser's last folder, two small fixes ✅
+
+`docs/housekeeping-round-spec.md`. Round 2 of closing out Certificate
+Control. No behaviour change anywhere except §5, and every existing test
+passes as it stands — the only test edits are moves.
+
+**§2 — `VesselRepository.cpp` 557 → 430 lines.** Two helpers, both in
+`core/`, both used only by this repository, which is what `CLAUDE.md` §9
+allows for a helper holding SQL.
+
+`VesselImoNumberCheck` (57 + 79) took `findImoNumberHolder()`,
+`imoNumberConflictMessage()` and the holder type — the ~75-line piece the
+last round named as the obvious candidate. `create()`, `update()` and
+`restore()` call it; every message is word for word what it was.
+
+`VesselArchiveWriter` (45 + 132) took the archive pair. §2.2 made this
+conditional on the file still being well over ~300 after the first move;
+it was, at about 495, so it was done. The one judgment inside it: the
+pre-read used to go through `VesselRepository::findById()`, which reads
+the whole positional column list. The helper reads `imo_number,
+is_deleted` instead, so the one place that column list lives stays the
+one file whose queries use it. That read has no vessel-scope clause and
+none is missing — the OFFICE-only refusal above it means an OFFICE
+installation is the only one that ever reaches it, and its scope filter
+is empty. Its SQL-failure message is the same string `findById()` used,
+so even that unreachable path reads identically.
+
+**Still 430, and that is where it stops.** 307 of those lines are code.
+What remains is `list`, `findById`, `validate`, `create`, `update`,
+`setAttachmentRootPath`, `archive`, `restore` and the row mapping, which
+is the class. The one other separable piece is the anonymous namespace at
+the top (`kSelectColumns`, `vesselFromRow()`, the null-handling helpers),
+and moving it would be actively worse: that file's own warning comment is
+about keeping the column list and the queries that read it positionally
+in step, and a file boundary between them is exactly what the comment
+warns against. §1 says report the number and stop rather than invent a
+seam, so that is what this is.
+
+**§3 — `CertificateListWidget.cpp` 554 → 379 lines.** Two splits, not one.
+
+`CertificateRowRenderer` (76 + 127, `ui/`) took `fillRow()`, the
+attachment glyph, `expiryLabel()` and the `static_assert` tying the row
+data to its column — the same seam `CertificateListActions`,
+`CertificateIoActions` and `CertificateDeleteActions` were cut along. The
+`Column` enum and the column count moved into its header, because the
+renderer writes the cells while the widget labels, sizes and sorts them,
+and a disagreement about which column is which would be silent. The
+widget aliases it back to `Column` locally, so not a line of the
+remaining code had to change.
+
+That left 441, still well over, so §3.2's "choose the next split
+yourself" applied. **I did not take the constructor's layout code**,
+which §3.2 suggested. A class whose job is to call `addWidget()` twelve
+times would need the table, seven buttons and a checkbox handed to it —
+ten parameters for no decision of its own, which is §1's "helper with no
+real boundary is worse than a long file".
+
+What I took instead was the first half of `reload()`, into
+`CertificateListRows` (71 + 102) — and into `service/`, a layer down,
+rather than another `ui/` helper. That code reads the alert thresholds,
+turns a core `AppSetting` into this module's `AlertThresholds`, looks up
+every certificate's endorsements and active extension, runs
+`computeCertificateState()` and drops the rows the "needs attention"
+filter excludes. Every one of those is a decision about what a value
+should be, which `CLAUDE.md` §4 rule 3 says a widget may not make: a
+widget may format and display a value, not decide it. So the remaining
+oversize was partly code that had been in the wrong layer since step 7,
+and §9's own instruction is to split along layer boundaries first. The
+widget now reads today's date — still the one legitimate place in the
+chain — asks the service for the vessel's rows, and draws them. It also
+no longer holds an `AppSettingRepository` reference at all.
+
+`CertificateAlertProvider` does the same gathering for the sidebar badge,
+over the fleet instead of one vessel, and both files already carry
+comments saying the two must agree. Making them share this class is the
+obvious next move and is deliberately **not** attempted here: the loops
+differ in shape and in warning text, and changing what the badge counts
+does not belong in a housekeeping round. That is written into the new
+class's header so it is not lost.
+
+**Still 379** (244 code). Stopping there, per §6. The remaining bulk is
+one 125-line constructor, and the argument against splitting it is the
+one above.
+
+The three list suites — `tst_CertificateListWidget`,
+`tst_CertificateListStatus`, `tst_CertificateListColumns` — pass
+untouched, which is §3's stated proof that the screen looks exactly as it
+did.
+
+**§4 — the survey suites.** `tst_CertificateStateSurvey.cpp` 426 → 285,
+with the five matching cases in a new
+`tst_CertificateStateSurveyMatching.cpp` (165). **16 test functions
+before, 11 + 5 = 16 after** — the two suites report 13 and 7 passes, each
+counting its own `initTestCase` and `cleanupTestCase`. The project now
+has 45 suites.
+
+`tst_CertificateCsvImportSurveys.cpp` (430) was **left alone**, per §4's
+"split only if a clean seam exists". There is none: all nine cases run on
+one 66-line fixture — a `QTemporaryDir`, a database connection,
+`importOneRow()` and `endorsementCountFor()` — so any cut either copies
+that fixture into a second file or needs a new shared support header, and
+the cases all answer the one question of what the two survey-list columns
+do. 300 of its 430 lines are code.
+
+**§5 — the attachment chooser remembers the last folder.** The one
+visible change in the round. After a successful pick it stores a folder
+in `QSettings` under `ui/attachmentChooser/lastFolder`: for a file the
+folder holding it, for a folder of documents that folder's *parent*, so
+the folder just chosen is visible among its neighbours next time rather
+than shown from the inside. One remembered folder, shared by both
+dialogs. `QSettings` and not `app_setting`, for the reason
+`TableHeaderSettings` already gives — which folder this machine's
+documents sit in means nothing on the other side of a sync.
+
+It falls back to Documents when the remembered folder no longer exists
+(renamed, deleted, a stick pulled out — Qt would otherwise drop to
+whatever directory the application was started from), and when it is the
+vessel's own attachment folder or inside it. That second case keeps the
+safety reason the old comment gave: the managed folder is the one place a
+source must never be picked from, because copying a file onto itself only
+ever goes wrong. It can arise in ordinary use — the moment a vessel is
+pointed at a folder documents were once picked from.
+
+The "inside" test compares cleaned absolute paths and requires a whole
+path segment, so `fleet/ships-scans` does not count as inside
+`fleet/ships`. It compares **case-insensitively on every platform**,
+which is the stricter reading rather than the accurate one. On Windows it
+is simply correct; on Linux it can call a folder "inside" when it is not,
+and the cost of that is opening at Documents, no worse than a first run.
+The mistake the other way round would open the dialog inside the managed
+folder.
+
+Plumbing: the chooser is a widget-layer helper with no repositories, so
+the vessel's folder is passed in.
+`VesselAttachmentRoots::configuredRoot()` and
+`CertificateAttachmentService::vesselAttachmentRoot()` are the new
+accessors; `CertificateAttachmentActions` and `AttachmentSourceField`
+supply it. The field takes it as a **required** constructor argument,
+not a defaulted one, so a future dialog cannot forget it —
+`CertificateEditDialog` and `CertificateExtensionDialog` were both
+updated, and the edit dialog now keeps the vessel id it was already
+being given.
+
+`tst_AttachmentChooserFolder` (172, nine cases) tests the decision as a
+function: nothing remembered → Documents; remembered and still there →
+it; deleted → Documents; the vessel's folder, and a folder inside it →
+Documents; a similarly named neighbour → still allowed; a file remembers
+its folder; a folder remembers its parent; and an empty path remembers
+nothing, which is the guard that makes Cancel harmless. It writes to a
+throwaway `.ini` per test through a new
+`AttachmentChooser::setSettingsFileOverride()`, the same override
+`TableHeaderSettings` has and for the same reason (`CLAUDE.md` §10.1).
+The modal dialog itself is not driven, which §5 says it needn't be.
+
+Vacuity-checked: disabling the managed-folder guard makes exactly the two
+tests that assert it fail, and the file came back to the same md5.
+
+**§6 — the two small fixes.** `TransactionScope::commit()` now clears its
+"open" flag only after `QSqlDatabase::commit()` has actually succeeded.
+Before, a failed commit left the transaction open on the connection with
+the destructor no longer willing to roll it back, so the next statement
+on that connection would have run inside it. Never seen in practice — the
+one caller treats a failed commit as a failed import and stops — but the
+destructor is the entire point of the class. And `MainWindow.cpp` now
+includes `<QSignalBlocker>` directly instead of relying on a transitive
+include.
+
+**§7's dropped item** is recorded as dropped: the first-run wizard cannot
+hit a duplicate IMO number, because it only runs when there is no
+installation row and vessel rows only exist after one has been set up.
+Struck from the debt list rather than carried.
+
+**Every file touched, before and after.** Over the ~300 guideline in bold.
+
+| File | Before | After |
+|---|---|---|
+| `core/VesselRepository.cpp` | 557 | **430** |
+| `core/VesselRepository.h` | 125 | 96 |
+| `core/VesselImoNumberCheck.h` / `.cpp` | new | 57 / 79 |
+| `core/VesselArchiveWriter.h` / `.cpp` | new | 45 / 132 |
+| `certificates/ui/CertificateListWidget.cpp` | 554 | **379** |
+| `certificates/ui/CertificateListWidget.h` | 121 | 129 |
+| `certificates/ui/CertificateRowRenderer.h` / `.cpp` | new | 76 / 127 |
+| `certificates/service/CertificateListRows.h` / `.cpp` | new | 71 / 102 |
+| `certificates/ui/AttachmentChooser.h` / `.cpp` | 20 / 34 | 49 / 158 |
+| `certificates/ui/AttachmentSourceField.h` / `.cpp` | 46 / 74 | 52 / 78 |
+| `certificates/ui/CertificateAttachmentActions.cpp` | 216 | 220 |
+| `certificates/ui/CertificateEditDialog.h` / `.cpp` | 85 / 218 | 89 / 220 |
+| `certificates/ui/CertificateExtensionDialog.cpp` | 130 | 132 |
+| `certificates/service/CertificateAttachmentService.h` / `.cpp` | 157 / 224 | 163 / 229 |
+| `core/VesselAttachmentRoots.h` / `.cpp` | 95 / 330 | 103 / **342** |
+| `core/TransactionScope.h` | 58 | 70 |
+| `app/MainWindow.cpp` | 322 | **323** |
+| `tests/…/tst_CertificateStateSurvey.cpp` | 426 | 285 |
+| `tests/…/tst_CertificateStateSurveyMatching.cpp` | new | 165 |
+| `tests/…/tst_AttachmentChooserFolder.cpp` | new | 172 |
+| `CMakeLists.txt` | 238 | 243 |
+| `tests/CMakeLists.txt` | 133 | 138 |
+
+Two of those were already over the guideline before this round and grew
+by the smallest amount that would do the job: `VesselAttachmentRoots.cpp`
+330 → 342 for `configuredRoot()`, and `MainWindow.cpp` 322 → 323 for the
+one include. Neither was split — the brief named specific files, and
+widening it to a file that needed one line would have been scope creep.
+They stay on the debt list.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **45/45
+suites** in each.
+
 
 ## Decisions confirmed by the developer
 
@@ -3015,13 +3226,16 @@ list.
 - `tests/modules/certificates/tst_CertificateRepositoryValidation.cpp` is
   now ~301 lines, also just over the guideline, for the same reason (the
   new `list_number` validation tests). Same call: not split now.
-- The first-run wizard (step 3) still lets a duplicate IMO number fail with
-  the raw SQLite constraint text, rather than the friendly pre-check
-  `VesselRepository::create()`/`update()` now do (step 4). Worth
-  backporting next time that file is touched.
-- `MainWindow.cpp` uses `QSignalBlocker` without including
-  `<QSignalBlocker>` directly — works today via a transitive include, but
-  is fragile. Add the explicit include next time this file is touched.
+- ~~The first-run wizard (step 3) still lets a duplicate IMO number fail
+  with the raw SQLite constraint text~~ — **dropped by the housekeeping
+  round (`housekeeping-round-spec.md` §7), not fixed.** It cannot happen:
+  the wizard only runs when there is no installation row, and vessel rows
+  only exist after an installation has been set up, so the vessel table is
+  always empty when the wizard writes to it. Recorded here so it is not
+  raised a third time.
+- ~~`MainWindow.cpp` uses `QSignalBlocker` without including
+  `<QSignalBlocker>` directly~~ — **resolved by the housekeeping round
+  (§6).** The explicit include is in.
 - `modules/certificates/data/CertificateRepository.cpp` (~310 lines) and
   `tests/modules/certificates/tst_CertificateRepositoryValidation.cpp`
   (~301 lines) are both still over the ~300-line guideline, unchanged
@@ -3192,13 +3406,11 @@ list.
   being committed to stay under it (`CertificateCsvFormat.cpp` 286,
   `CertificateCsvImporter.cpp` 297, both noted above). No new size debt
   from this step beyond `CertificateListWidget.cpp`'s continued growth.
-- `core/TransactionScope::commit()` clears its own "transaction open"
-  flag before calling the underlying `QSqlDatabase::commit()`, so a
-  failed commit (not yet seen in practice) would leave the destructor
-  unable to roll back. Low priority — the one caller today
-  (`CertificateCsvImporter::runImport()`) already surfaces a commit
-  failure as its own error — but worth tightening if this class gains a
-  second caller.
+- ~~`core/TransactionScope::commit()` clears its own "transaction open"
+  flag before calling the underlying `QSqlDatabase::commit()`~~ —
+  **resolved by the housekeeping round (§6).** The flag is now cleared
+  only once the commit has succeeded, so a failed commit leaves the
+  destructor able to roll back.
 - **Resolved by the usability fixes round.** `CertificateListActions.cpp`,
   over the guideline since step 12 (320 → 306 → 319 across the steps
   above), is back under it at **224 lines** — `CertificateDeleteActions`
@@ -3229,6 +3441,49 @@ list.
   round, which was a behaviour fix; a candidate for the housekeeping round
   that `roadmap-and-pending.md` already schedules before step 15.
   `SurveySchedule.cpp` itself went 178 → 200 lines and is fine.
+- **Updated by the housekeeping round — the file-size picture as it now
+  stands.** `housekeeping-round-spec.md` applied §9's helper-class rule to
+  the two worst offenders, and both came down a long way without being
+  split across files:
+  - `core/VesselRepository.cpp` **557 → 430** (307 code).
+    `VesselImoNumberCheck` and `VesselArchiveWriter` are out, both in
+    `core/`, both used only by this repository. Still over, and stopping
+    there: what is left is the eight CRUD methods and the row mapping,
+    and the only other separable piece — the positional column list and
+    `vesselFromRow()` — must not cross a file boundary from the queries
+    that read it in step.
+  - `modules/certificates/ui/CertificateListWidget.cpp` **554 → 379**
+    (244 code), after `CertificateRowRenderer` (`ui/`) and
+    `CertificateListRows` (`service/`). Still over; the remaining bulk is
+    one 125-line constructor, and a class that only calls `addWidget()`
+    on ten things handed to it is not a boundary worth having.
+  - `tests/…/tst_CertificateStateSurvey.cpp` **426 → 285**, with
+    `tst_CertificateStateSurveyMatching.cpp` (165) taking the five
+    matching cases. Resolved.
+  - `tests/…/tst_CertificateCsvImportSurveys.cpp` **430, unchanged and
+    left alone** — nine cases over one 66-line fixture, so every cut
+    either duplicates the fixture or needs a new shared support header.
+    Reported rather than forced, per that spec's §1 and §4.
+  - `core/VesselAttachmentRoots.cpp` **330 → 342** and
+    `app/MainWindow.cpp` **322 → 323**: both were already over before
+    this round, and each grew by the least that would do the job
+    (`configuredRoot()`, and one include). Not split — the round's brief
+    named specific files, and the only remaining candidate in the project
+    with an obvious seam is the certificate list's constructor.
+  - Untouched and still over, unchanged since earlier rounds:
+    `CertificateRepository.cpp` (~310),
+    `tst_CertificateRepositoryValidation.cpp` (~301), `ManagedFileStore`
+    (424), `EndorsementRepository` (414).
+- **Noted by the housekeeping round, not acted on:**
+  `CertificateAlertProvider` and the new `CertificateListRows` gather the
+  same thing — each certificate's endorsements, its active extension, the
+  alert thresholds, then `computeCertificateState()` — one over the fleet
+  and one over a single vessel, and comments in both say the two have to
+  agree or the badge and the list will disagree about the same
+  certificate. Now that the list's half is a service class, having the
+  provider use it is the obvious next move. Left for its own round: it
+  changes what the badge counts if the two loops turn out to differ
+  anywhere, which is not a housekeeping change.
 
 ---
 
@@ -3268,32 +3523,34 @@ were all updated to match.
 
 ## Next step
 
-**A housekeeping round, then step 15 — database backup & restore.** The
-order is in `docs/roadmap-and-pending.md`; `CLAUDE.md` §11 now matches it.
+**Step 15 — database backup & restore.** The last round of Certificate
+Control, and the module is complete after it. The order is in
+`docs/roadmap-and-pending.md`; `CLAUDE.md` §11 matches it.
+
+Export Database / Import Database in Settings — a safe, in-app way to
+move to another computer or keep a copy somewhere. No spec yet; bring it
+up here first, the same way every step since step 3 has gone. The audit
+trail viewer is deferred, not part of this module.
+
+The housekeeping round above closed out the two small carried fixes
+(`TransactionScope`, `<QSignalBlocker>`), dropped the first-run
+duplicate-IMO item as impossible, and brought the two worst files down to
+430 and 379 lines. What file-size debt remains is listed above with the
+reason for each; the one piece of real work it deliberately left behind is
+making `CertificateAlertProvider` share `CertificateListRows`, which is a
+change to what the badge counts and so wants its own round rather than a
+housekeeping one.
 
 Step 14 (Reports) was **dropped by the developer**: step 13's one-vessel
-PDF statement is enough for this module. The questions this section used
-to leave open for it — a fleet-wide statement, a print preview,
-per-certificate history — are not cancelled so much as unscheduled;
-they become additional scope on `CertificateReportBuilder` if and when a
-concrete need shows up.
+PDF statement is enough for this module. A fleet-wide statement, a print
+preview or per-certificate history become additional scope on
+`CertificateReportBuilder` if and when a concrete need shows up.
 
-The endorsement-model question carried here since step 13 — the
-developer's proposal to keep only the most recent survey per track — is
-**settled**, by the "latest survey counts" round above. The answer is:
-keep the full history in the `endorsement` table, and schedule forward
-from the latest survey. The reason the two halves of that answer are
-both needed is in that entry: the schedule only ever reads the latest
-survey, but the history is itself the record the Endorsements list, the
-PDF statement and the audit trail show.
-
-The housekeeping round has no spec yet. Its candidates are the file-size
-debt listed above — `CertificateListWidget.cpp` at 554 lines is the worst
-offender in the project, `VesselRepository.cpp` at 557 the one that needs
-a real collaborator extracted, and the two survey test files the easiest
-win — plus the smaller carried items (the first-run wizard's raw
-constraint text, `MainWindow.cpp`'s missing `<QSignalBlocker>`,
-`TransactionScope::commit()`'s flag order). Bring it up here first, the
-same way every step since step 3 has gone.
+The endorsement-model question carried here since step 13 — whether to
+keep only the most recent survey per track — was **settled** by the
+"latest survey counts" round: keep the full history in the `endorsement`
+table, and schedule forward from the latest survey. The schedule only
+ever reads the latest survey, but the history is itself the record the
+Endorsements list, the PDF statement and the audit trail show.
 
 Full build order is in `CLAUDE.md` §11.
