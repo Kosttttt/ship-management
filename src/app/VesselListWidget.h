@@ -3,9 +3,9 @@
 #include <QString>
 #include <QWidget>
 
+class VesselArchiveActions;
 class VesselRepository;
 class QCheckBox;
-class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
 
@@ -39,20 +39,12 @@ signals:
 private:
     void addVessel();
     void editVessel(QTableWidgetItem* item);
-    void archiveSelected();
-    void restoreSelected();
-
-    // Archive or Restore depending on what is selected, disabled when nothing
-    // is — one button rather than two, the same enabled-state pattern
-    // CertificateDeleteActions uses (vessel-archive-spec §7).
-    void updateActionButton();
-
-    // False when no row is selected. Reads the id and archived flag straight
-    // off the row's own item data, so neither needs a second query.
-    bool selectedVessel(QString* vesselId, QString* vesselName, bool* isArchived) const;
 
     VesselRepository& m_repository;
     QTableWidget*     m_table        = nullptr;
     QCheckBox*        m_showArchived = nullptr;
-    QPushButton*      m_actionButton = nullptr;
+
+    // Owns the Archive / Restore button and both actions (vessel-archive-spec
+    // §10.2). This screen keeps the table, the reload and the edit dialog.
+    VesselArchiveActions* m_archiveActions = nullptr;
 };

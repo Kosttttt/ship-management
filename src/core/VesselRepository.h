@@ -81,7 +81,41 @@ public:
 
 private:
     bool validate(const Vessel& vessel);
-    bool isImoNumberTaken(const QString& imoNumber, const QString& excludeId, bool* taken);
+    // Whichever vessel currently holds an IMO number, archived or not.
+    struct ImoNumberHolder {
+        QString name;
+        bool    isArchived = false;
+    };
+
+    // Deliberately does NOT filter on is_deleted: migrations/002 declares
+    // imo_number UNIQUE with no such condition, so an archived vessel still
+    // holds its number and the database will refuse to issue it again. A
+    // check that disagreed with the constraint would wave the write through
+    // and let it fail as raw SQLite text instead (vessel-archive-spec §10.1).
+    //
+    // Reports who holds it rather than a bare yes/no, so the caller can name
+    // the archived vessel in the message and say what to do about it.
+    bool findImoNumberHolder(const QString& imoNumber, const QString& excludeId,
+                             std::optional<ImoNumberHolder>* holder);
+
+    // The wording for a conflict. suggestRestore is false when editing: a
+    // person correcting a vessel is not trying to add one, so pointing them
+    // at Restore would be answering a question they did not ask.
+    static QString imoNumberConflictMessage(const ImoNumberHolder& holder,
+                                            bool                   suggestRestore);
+
+    // archive() and restore() are the same operation in opposite directions,
+    // so the parts that do not differ live here once (vessel-archive-spec
+    // §10.2): the empty-id guard, the OFFICE-only refusal, the pre-read, and
+    // the "is it already in that state" check. Every message is derived from
+    // wantArchived rather than passed in, so the two callers cannot drift
+    // apart in their wording.
+    //
+    // They are two calls rather than one because restore() has a step in
+    // between — the IMO backstop — which archive() does not.
+    bool checkArchiveChangeAllowed(const QString& vesselId, bool wantArchived,
+                                   std::optional<Vessel>* existing);
+    bool writeArchivedFlag(const QString& vesselId, bool archived);
     bool isScopedToOneVessel() const;
 
     QSqlDatabase&       m_database;

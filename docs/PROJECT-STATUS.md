@@ -2442,6 +2442,97 @@ debt list below.
 
 ---
 
+### Vessel archive follow-up — IMO message, and two files over the guideline ✅
+
+The two loose ends the first round left, written up as
+`vessel-archive-spec.md` §10 and built together.
+
+**§10.1 — the IMO check now agrees with the database.** The first round
+surfaced a real divergence: `isImoNumberTaken()` filtered to
+`is_deleted = 0`, while migration 002's `imo_number TEXT NOT NULL UNIQUE`
+has no such condition. Before archiving existed the two could never
+disagree. Afterwards they could, and the result was that adding a vessel
+reusing an archived one's number passed the application's check and was
+then refused by SQLite as raw `UNIQUE constraint failed: vessel.imo_number`.
+
+The check stops filtering on `is_deleted`, so it sees exactly what the
+constraint sees. It is also no longer a bare yes/no:
+`findImoNumberHolder()` returns who holds the number and whether they are
+archived, because the message depends on it:
+
+- Active holder — unchanged wording. Naming a vessel the user can already
+  see in the list tells them nothing.
+- Archived holder, from `create()` — *"This IMO number belongs to the
+  archived vessel 'X'. Tick "Show archived vessels" and restore it instead
+  of adding it again."* An archived vessel is invisible by default, so a
+  generic message would send someone hunting for a ship that is not in the
+  list.
+- Archived holder, from `update()` — the same sentence without the restore
+  hint. Someone correcting a vessel's details is not trying to add one, so
+  Restore is not the answer to their problem.
+
+That is also the right answer in domain terms, which is what settled it:
+an IMO number belongs to a hull for life and is never reissued, so the
+database was right and the application was wrong.
+
+`restore()`'s own IMO check stays as a backstop and now cannot fire for
+two reasons rather than one — the `UNIQUE` constraint, and the fact that
+the only row the check could match is the vessel being restored, which
+`excludeId` removes. Kept because it costs one query and becomes
+load-bearing the day that constraint is relaxed to a partial index.
+
+**§10.2 — file sizes.**
+
+`VesselListWidget.cpp` **319 → 220 lines**, under the guideline.
+`VesselArchiveActions` is split out along the same seam
+`CertificateDeleteActions` was, and owns the button, its label and
+enabled state, the confirmation, and both actions. The widget keeps the
+table, the reload and the edit dialog.
+
+The id and archived-flag item roles are now declared once in
+`VesselArchiveActions.h`, since the widget writes them and the actions
+class reads them, and a disagreement would have been silent. The widget's
+`Column::Name` is *defined from* the shared column constant rather than
+repeating `0`, so the column carrying the roles cannot drift from the
+column the screen puts them on.
+
+`VesselRepository.cpp` **522 → 557 lines — still over, and it went up.**
+Reported rather than fixed by splitting the class across files, as §10.2
+asked. `archive()` and `restore()` do now share
+`checkArchiveChangeAllowed()` (empty-id guard, OFFICE-only refusal,
+pre-read, already-in-that-state check) and `writeArchivedFlag()` (the
+`UPDATE`, the `numRowsAffected()` backstop), with every message derived
+from the direction rather than passed in, so the two cannot drift apart
+in wording. `archive()` is down to ten lines. But §10.1 landed in the
+same file in the same round and added more than the deduplication
+removed — `findImoNumberHolder()` is larger than the `isImoNumberTaken()`
+it replaced, and `imoNumberConflictMessage()` is new. Of the 557 lines,
+**394 are code**; 87 are comments and 76 blank.
+
+Getting this file under ~300 needs extracting a real collaborator rather
+than more deduplication — the IMO-conflict logic is the obvious
+candidate, at roughly 75 lines and genuinely separable — and that is a
+decision worth making deliberately rather than at the end of a feature
+round. Carried in the debt list.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, 43/43
+suites. `tst_VesselRepositoryWrites` is at 19 passes: the reworked
+`anArchivedVesselStillHoldsItsImoNumber()` now asserts the error names
+the archived vessel, suggests restoring it, and does **not** contain
+`UNIQUE constraint`; the new `updateRejectsAnArchivedVesselsImoNumber()`
+asserts the same minus the restore hint. The pre-existing duplicate-IMO
+tests for active vessels pass unchanged, which is what confirms §10.1
+changed only the archived case.
+
+The `emit vesselsChanged()` vacuity check was repeated after the
+extraction, because moving code is exactly how that signal gets lost:
+removing it makes `archivingAVesselRemovesItFromTheSelector()` fail, and
+the file was restored to the same md5 afterwards. The button also kept
+its position in the layout — the test that finds it by index passed
+without being touched.
+
+---
+
 ## Decisions confirmed by the developer
 
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
@@ -2796,27 +2887,27 @@ debt list below.
     accepting the size for a class that is genuinely one cohesive thing.
     A decision worth making deliberately rather than at the end of a
     feature round.
-- `src/app/VesselListWidget.cpp` is 319 lines after the vessel archive
-  round, just over the guideline. The precedent for splitting exists —
-  `CertificateDeleteActions` was pulled out of `CertificateListActions`
-  for exactly this — and the same cut (a `VesselArchiveActions` holding
-  the confirmation, the two repository calls and the signal) would bring
-  it back under. Not done in this round because
-  `vessel-archive-spec.md` §7 asked explicitly for the screen's existing
-  minimal style, and adding a class the spec did not ask for would have
-  been the wrong way to settle it mid-feature.
-- `VesselRepository::isImoNumberTaken()` filters to `is_deleted = 0`, but
-  `migrations/002` declares `imo_number TEXT NOT NULL UNIQUE` with no such
-  condition. Before archiving existed the two could never disagree, since
-  nothing could set the flag. They can now: adding a new vessel that
-  reuses an archived vessel's IMO number passes the app's check and is
-  then refused by the database with the raw `UNIQUE constraint failed:
-  vessel.imo_number` instead of the friendly "This IMO number already
-  belongs to another vessel." The fix is one line — drop the `is_deleted`
-  filter from that check so it agrees with the constraint — and it is the
-  developer's call, because `vessel-archive-spec.md` §6 documents the
-  opposite behaviour as intended. Domain-wise an IMO number belongs to a
-  hull for life, which argues for making the check match the database.
+  - **Updated again by the archive follow-up round: 557 lines**, up from
+    522 despite `archive()` and `restore()` now sharing
+    `checkArchiveChangeAllowed()` and `writeArchivedFlag()`. §10.1's
+    `findImoNumberHolder()` and `imoNumberConflictMessage()` landed in the
+    same file in the same round and added more than the deduplication
+    removed. 394 of those lines are code, the rest comments and blanks.
+    Further deduplication will not close a 250-line gap; the next real
+    move is extracting a collaborator, and the IMO-conflict logic (~75
+    lines, genuinely separable, no dependency on the rest of the class) is
+    the obvious one. Still not split across two files, per §10.2.
+- ~~`src/app/VesselListWidget.cpp` is 319 lines after the vessel archive
+  round~~ — **resolved by the archive follow-up round.**
+  `VesselArchiveActions` was extracted exactly as predicted here, and the
+  widget is back to **220 lines**.
+- ~~`VesselRepository::isImoNumberTaken()` filters to `is_deleted = 0`,
+  but `migrations/002` declares `imo_number TEXT NOT NULL UNIQUE` with no
+  such condition~~ — **resolved by the archive follow-up round
+  (`vessel-archive-spec.md` §10.1).** The check no longer filters archived
+  rows, so it sees what the constraint sees, and it now names the archived
+  vessel holding the number rather than letting SQLite's raw constraint
+  text reach the user.
 - `modules/certificates/data/CertificateRepository.cpp` is now ~310 lines,
   over the same guideline, having grown past it while adding the `No.`
   field's handling. Same call as `VesselRepository.cpp`: no obvious seam,

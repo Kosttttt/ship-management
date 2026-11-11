@@ -34,6 +34,7 @@ private slots:
     void archiveAndRestoreGiveDifferentReasonsForFailing();
     void restoreBringsTheVesselBack();
     void anArchivedVesselStillHoldsItsImoNumber();
+    void updateRejectsAnArchivedVesselsImoNumber();
     void readsExcludeArchivedRowsUnlessAskedOtherwise();
 
 private:
@@ -396,21 +397,17 @@ void TestVesselRepositoryWrites::restoreBringsTheVesselBack()
     QCOMPARE(after.value(0).toInt(), 3); // seeded at 1, archived, restored
 }
 
-// vessel-archive-spec §6 predicts that archiving frees a vessel's IMO number
-// for reuse, and that restoring it afterwards would then fail the uniqueness
-// check. It does not, and this test is what establishes that rather than
-// leaving the prediction standing.
+// vessel-archive-spec §6 predicted that archiving frees a vessel's IMO number
+// for reuse. It does not: migrations/002 declares `imo_number TEXT NOT NULL
+// UNIQUE` — a plain table constraint with no is_deleted condition — so an
+// archived vessel keeps its number. That is the right answer in domain terms
+// too: an IMO number belongs to a hull for its lifetime and is never
+// reassigned to a different ship.
 //
-// migrations/002 declares `imo_number TEXT NOT NULL UNIQUE` — a plain table
-// constraint with no is_deleted condition on it. isImoNumberTaken() filters
-// to active rows and so believes the number is free; the database disagrees
-// and refuses the INSERT. The database wins, which is the right answer in
-// domain terms too: an IMO number belongs to a hull for its lifetime and is
-// never reassigned to a different ship.
-//
-// The consequence worth knowing is the opposite of the one §6 describes: a
-// restore can never lose a race for its own IMO number, because nothing can
-// take it while the vessel is archived.
+// §10.1 is what made the application agree with the database rather than
+// merely be overruled by it. The check no longer filters archived rows, so
+// the refusal comes from the repository with a message that names the vessel
+// holding the number, instead of from SQLite as raw constraint text.
 void TestVesselRepositoryWrites::anArchivedVesselStillHoldsItsImoNumber()
 {
     QSqlDatabase  db    = database();
@@ -424,6 +421,21 @@ void TestVesselRepositoryWrites::anArchivedVesselStillHoldsItsImoNumber()
     Vessel replacement = sampleVessel(QStringLiteral("MV Alpha II"), QStringLiteral("9074729"));
     QVERIFY(!repository.create(replacement));
 
+    const QString message = repository.errorString();
+
+    // It names the vessel, because an archived one is invisible by default
+    // and a generic message would send someone hunting for a ship that is not
+    // in the list.
+    QVERIFY2(message.contains(QStringLiteral("MV Alpha")), qPrintable(message));
+
+    // And it says what to do instead of adding it again.
+    QVERIFY2(message.contains(QStringLiteral("restore it")), qPrintable(message));
+
+    // The thing this whole section exists to prevent: the write must be
+    // refused by the repository, never reach the database, and never surface
+    // as SQLite's own constraint text.
+    QVERIFY2(!message.contains(QStringLiteral("UNIQUE constraint")), qPrintable(message));
+
     // Nothing was created, so the fleet is still just the archived original.
     QCOMPARE(rowCountOf(db, QStringLiteral("vessel")), 1);
 
@@ -435,6 +447,38 @@ void TestVesselRepositoryWrites::anArchivedVesselStillHoldsItsImoNumber()
     QVERIFY(stored.has_value());
     QVERIFY(!stored->isArchived);
     QCOMPARE(stored->imoNumber, QStringLiteral("9074729"));
+}
+
+// The same rule on the editing path, with one deliberate difference: no
+// restore hint. Someone correcting a vessel's details is not trying to add
+// one, so pointing them at Restore would answer a question they did not ask
+// (vessel-archive-spec §10.1).
+void TestVesselRepositoryWrites::updateRejectsAnArchivedVesselsImoNumber()
+{
+    QSqlDatabase  db       = database();
+    const QString oldId    = seedVessel(db, QStringLiteral("MV Alpha"), QStringLiteral("9074729"));
+    const QString editedId = seedVessel(db, QStringLiteral("MV Bravo"), QStringLiteral("9319466"));
+
+    const InstallationContext context = officeContext();
+    VesselRepository          repository(db, context);
+
+    QVERIFY2(repository.archive(oldId), qPrintable(repository.errorString()));
+
+    // Editing MV Bravo to take the archived MV Alpha's number.
+    Vessel edited = sampleVessel(QStringLiteral("MV Bravo"), QStringLiteral("9074729"));
+    edited.id     = editedId;
+    QVERIFY(!repository.update(edited));
+
+    const QString message = repository.errorString();
+    QVERIFY2(message.contains(QStringLiteral("MV Alpha")), qPrintable(message));
+    QVERIFY2(!message.contains(QStringLiteral("UNIQUE constraint")), qPrintable(message));
+    QVERIFY2(!message.contains(QStringLiteral("restore it")), qPrintable(message));
+
+    // Refused means unchanged: MV Bravo still has its own number.
+    std::optional<Vessel> stored;
+    QVERIFY(repository.findById(editedId, &stored));
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->imoNumber, QStringLiteral("9319466"));
 }
 
 void TestVesselRepositoryWrites::readsExcludeArchivedRowsUnlessAskedOtherwise()

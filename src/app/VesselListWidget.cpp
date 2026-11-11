@@ -1,5 +1,6 @@
 #include "app/VesselListWidget.h"
 
+#include "app/VesselArchiveActions.h"
 #include "app/VesselEditDialog.h"
 #include "core/Vessel.h"
 #include "core/VesselRepository.h"
@@ -18,18 +19,18 @@
 
 namespace {
 
-// The vessel id is carried on the row's first cell so an edit knows which row
-// it is editing without showing a UUID to the user.
-constexpr int kVesselIdRole = Qt::UserRole + 1;
-
-// Rides on the same cell as the id, for the same reason: the button and the
-// double-click handler both need to know whether the selected row is archived,
-// and neither should have to ask the database again to find out
-// (vessel-archive-spec §7).
-constexpr int kVesselArchivedRole = Qt::UserRole + 2;
+// The vessel id and its archived flag are carried on the row's first cell so
+// an edit knows which row it is editing without showing a UUID to the user,
+// and so the Archive button knows which way round it is. Declared in
+// VesselArchiveActions.h because both files depend on them agreeing.
+constexpr int kVesselIdRole       = VesselTableRoles::kVesselId;
+constexpr int kVesselArchivedRole = VesselTableRoles::kVesselArchived;
 
 enum class Column {
-    Name      = 0,
+    // Defined from the shared constant rather than repeating 0, so the column
+    // the roles are attached to cannot drift away from the column this screen
+    // puts them on.
+    Name      = VesselTableRoles::kNameColumn,
     ImoNumber = 1,
     FlagState = 2,
     CallSign  = 3,
@@ -43,11 +44,6 @@ VesselListWidget::VesselListWidget(VesselRepository& repository, QWidget* parent
     , m_repository(repository)
 {
     auto* addButton = new QPushButton(tr("&Add Vessel"), this);
-
-    // One button whose label follows the selection, rather than an Archive and
-    // a Restore sitting side by side with one of them always meaningless.
-    m_actionButton = new QPushButton(tr("&Archive…"), this);
-    m_actionButton->setEnabled(false);
 
     m_showArchived = new QCheckBox(tr("Show archived vessels"), this);
     m_showArchived->setChecked(false);
@@ -67,9 +63,12 @@ VesselListWidget::VesselListWidget(VesselRepository& repository, QWidget* parent
     auto* hint = new QLabel(tr("Double-click a vessel to edit it."), this);
     hint->setEnabled(false); // renders as secondary text
 
+    // Built after the table, which it listens to for the selection.
+    m_archiveActions = new VesselArchiveActions(m_repository, m_table, this);
+
     auto* controls = new QHBoxLayout;
     controls->addWidget(addButton);
-    controls->addWidget(m_actionButton);
+    controls->addWidget(m_archiveActions->button());
     controls->addStretch();
     controls->addWidget(m_showArchived);
 
@@ -81,23 +80,16 @@ VesselListWidget::VesselListWidget(VesselRepository& repository, QWidget* parent
     connect(addButton, &QPushButton::clicked, this, &VesselListWidget::addVessel);
     connect(m_table, &QTableWidget::itemDoubleClicked, this, &VesselListWidget::editVessel);
     connect(m_showArchived, &QCheckBox::toggled, this, &VesselListWidget::reload);
-    connect(m_table, &QTableWidget::itemSelectionChanged,
-            this, &VesselListWidget::updateActionButton);
 
-    // Archive or Restore, decided by the row that is selected when it is
-    // pressed — the button itself does not need to remember which it is.
-    connect(m_actionButton, &QPushButton::clicked, this, [this] {
-        QString vesselId;
-        QString vesselName;
-        bool    isArchived = false;
-        if (!selectedVessel(&vesselId, &vesselName, &isArchived)) {
-            return;
-        }
-        if (isArchived) {
-            restoreSelected();
-        } else {
-            archiveSelected();
-        }
+    // Archiving or restoring changes the fleet, so the list is reloaded and
+    // the same signal an add or an edit raises goes out. Without the second
+    // half the toolbar's vessel selector would go on offering an archived
+    // vessel and showing its certificates (certificate-crud-spec §8.1,
+    // vessel-archive-spec §7) — which is exactly what moving this code out of
+    // here could have quietly lost, so it has its own test.
+    connect(m_archiveActions, &VesselArchiveActions::fleetChanged, this, [this] {
+        reload();
+        emit vesselsChanged();
     });
 
     reload();
@@ -165,7 +157,10 @@ void VesselListWidget::reload()
     m_table->setColumnHidden(static_cast<int>(Column::Status), !includeArchived);
 
     m_table->setSortingEnabled(true);
-    updateActionButton();
+
+    // Rebuilding the rows clears the selection, so the button has to be told
+    // rather than waiting for a selection change that is not coming.
+    m_archiveActions->updateState();
 }
 
 void VesselListWidget::addVessel()
@@ -175,100 +170,6 @@ void VesselListWidget::addVessel()
         reload();
         emit vesselsChanged();
     }
-}
-
-bool VesselListWidget::selectedVessel(QString* vesselId, QString* vesselName,
-                                      bool* isArchived) const
-{
-    const QList<QTableWidgetItem*> selected = m_table->selectedItems();
-    if (selected.isEmpty()) {
-        return false;
-    }
-
-    QTableWidgetItem* nameItem =
-        m_table->item(selected.first()->row(), static_cast<int>(Column::Name));
-    if (nameItem == nullptr) {
-        return false;
-    }
-
-    *vesselId   = nameItem->data(kVesselIdRole).toString();
-    *vesselName = nameItem->text();
-    *isArchived = nameItem->data(kVesselArchivedRole).toBool();
-    return !vesselId->isEmpty();
-}
-
-void VesselListWidget::updateActionButton()
-{
-    QString vesselId;
-    QString vesselName;
-    bool    isArchived = false;
-
-    if (!selectedVessel(&vesselId, &vesselName, &isArchived)) {
-        // Disabled, but still labelled: a button whose text changes to blank
-        // when nothing is selected reads as broken rather than inactive.
-        m_actionButton->setEnabled(false);
-        m_actionButton->setText(tr("&Archive…"));
-        return;
-    }
-
-    m_actionButton->setEnabled(true);
-    // No ellipsis on Restore: the ellipsis promises a further question, and
-    // Restore deliberately asks none (vessel-archive-spec §7).
-    m_actionButton->setText(isArchived ? tr("&Restore") : tr("&Archive…"));
-}
-
-void VesselListWidget::archiveSelected()
-{
-    QString vesselId;
-    QString vesselName;
-    bool    isArchived = false;
-    if (!selectedVessel(&vesselId, &vesselName, &isArchived) || isArchived) {
-        return;
-    }
-
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this, tr("Archive vessel"),
-        tr("Archive '%1'?\n\n"
-           "Its certificates will not be deleted — archiving only hides the vessel "
-           "and its certificates from the fleet list and from alerts, and both can "
-           "be brought back at any time with Restore.")
-            .arg(vesselName),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-
-    if (answer != QMessageBox::Yes) {
-        return;
-    }
-
-    if (!m_repository.archive(vesselId)) {
-        QMessageBox::warning(this, tr("Could not archive vessel"), m_repository.errorString());
-        return;
-    }
-
-    reload();
-    // Without this the toolbar's vessel selector would go on offering an
-    // archived vessel and showing its certificates (certificate-crud-spec
-    // §8.1, vessel-archive-spec §7).
-    emit vesselsChanged();
-}
-
-void VesselListWidget::restoreSelected()
-{
-    QString vesselId;
-    QString vesselName;
-    bool    isArchived = false;
-    if (!selectedVessel(&vesselId, &vesselName, &isArchived) || !isArchived) {
-        return;
-    }
-
-    // No confirmation: restoring is the undo of archiving and costs nothing
-    // if done by mistake, so a second question would be pure friction.
-    if (!m_repository.restore(vesselId)) {
-        QMessageBox::warning(this, tr("Could not restore vessel"), m_repository.errorString());
-        return;
-    }
-
-    reload();
-    emit vesselsChanged();
 }
 
 void VesselListWidget::editVessel(QTableWidgetItem* item)

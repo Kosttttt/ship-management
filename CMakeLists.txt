@@ -207,6 +207,7 @@ qt_add_library(ShipApp STATIC
     src/app/VesselEditForm.h       src/app/VesselEditForm.cpp
     src/app/VesselEditDialog.h     src/app/VesselEditDialog.cpp
     src/app/VesselListWidget.h     src/app/VesselListWidget.cpp
+    src/app/VesselArchiveActions.h src/app/VesselArchiveActions.cpp
     src/app/VesselDetailPage.h     src/app/VesselDetailPage.cpp
     src/app/SettingsPage.h         src/app/SettingsPage.cpp
     src/app/AttachmentFolderSettings.h src/app/AttachmentFolderSettings.cpp

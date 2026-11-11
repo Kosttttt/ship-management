@@ -178,16 +178,23 @@ bool VesselRepository::validate(const Vessel& vessel)
     return true;
 }
 
-bool VesselRepository::isImoNumberTaken(const QString& imoNumber,
-                                        const QString& excludeId,
-                                        bool*          taken)
+bool VesselRepository::findImoNumberHolder(const QString& imoNumber,
+                                           const QString& excludeId,
+                                           std::optional<ImoNumberHolder>* holder)
 {
+    holder->reset();
+
+    // No is_deleted filter, on purpose — see the note in the header. An
+    // archived vessel keeps its IMO number, exactly as the UNIQUE constraint
+    // in migrations/002 insists, and in the same way the real register does:
+    // a number belongs to a hull for life and is never reissued.
+    //
     // The "exclude this row" clause is added only when there is a row to
     // exclude. Binding an empty QString would send SQL NULL, and `id != NULL`
     // is unknown rather than true, which silently matches nothing and lets
     // every duplicate through.
     QString    sql       = QStringLiteral(
-        "SELECT 1 FROM vessel WHERE imo_number = ? AND is_deleted = 0");
+        "SELECT name, is_deleted FROM vessel WHERE imo_number = ?");
     const bool excluding = !excludeId.isEmpty();
     if (excluding) {
         sql += QStringLiteral(" AND id != ?");
@@ -206,8 +213,34 @@ bool VesselRepository::isImoNumberTaken(const QString& imoNumber,
         return false;
     }
 
-    *taken = query.next();
+    if (query.next()) {
+        ImoNumberHolder found;
+        found.name       = query.value(0).toString();
+        found.isArchived = query.value(1).toInt() != 0;
+        *holder          = found;
+    }
     return true;
+}
+
+QString VesselRepository::imoNumberConflictMessage(const ImoNumberHolder& holder,
+                                                   bool                   suggestRestore)
+{
+    if (!holder.isArchived) {
+        // Unchanged from before archiving existed: naming an active vessel
+        // would be telling the user about a ship they can already see.
+        return QStringLiteral("This IMO number already belongs to another vessel.");
+    }
+
+    // An archived holder is invisible by default, so a generic message would
+    // send someone hunting for a vessel that is not in the list. Name it.
+    if (!suggestRestore) {
+        return QStringLiteral("This IMO number belongs to the archived vessel '%1'.")
+            .arg(holder.name);
+    }
+    return QStringLiteral("This IMO number belongs to the archived vessel '%1'. "
+                          "Tick \"Show archived vessels\" and restore it instead of "
+                          "adding it again.")
+        .arg(holder.name);
 }
 
 bool VesselRepository::create(const Vessel& vessel, QString* newId)
@@ -227,14 +260,17 @@ bool VesselRepository::create(const Vessel& vessel, QString* newId)
 
     const QString imoNumber = ImoNumberValidator::digitsOnly(vessel.imoNumber);
 
-    bool taken = false;
-    if (!isImoNumberTaken(imoNumber, QString(), &taken)) {
+    std::optional<ImoNumberHolder> holder;
+    if (!findImoNumberHolder(imoNumber, QString(), &holder)) {
         return false;
     }
-    if (taken) {
+    if (holder.has_value()) {
         // A friendly message rather than the raw SQLite constraint text. The
         // UNIQUE constraint stays as the backstop against a race.
-        m_errorString = QStringLiteral("This IMO number already belongs to another vessel.");
+        //
+        // Adding a vessel, so an archived holder gets the restore hint: the
+        // ship is already on file and wants bringing back, not entering twice.
+        m_errorString = imoNumberConflictMessage(*holder, /*suggestRestore=*/true);
         return false;
     }
 
@@ -301,12 +337,14 @@ bool VesselRepository::update(const Vessel& vessel)
 
     // Excluding the row's own id matters: without it, re-saving a vessel whose
     // IMO number was never touched would fail against itself.
-    bool taken = false;
-    if (!isImoNumberTaken(imoNumber, vessel.id, &taken)) {
+    std::optional<ImoNumberHolder> holder;
+    if (!findImoNumberHolder(imoNumber, vessel.id, &holder)) {
         return false;
     }
-    if (taken) {
-        m_errorString = QStringLiteral("This IMO number already belongs to another vessel.");
+    if (holder.has_value()) {
+        // No restore hint here: someone correcting a vessel's details is not
+        // trying to add one, so Restore is not the answer to their problem.
+        m_errorString = imoNumberConflictMessage(*holder, /*suggestRestore=*/false);
         return false;
     }
 
@@ -387,12 +425,15 @@ bool VesselRepository::setAttachmentRootPath(const QString& vesselId,
     return true;
 }
 
-bool VesselRepository::archive(const QString& vesselId)
+bool VesselRepository::checkArchiveChangeAllowed(const QString& vesselId, bool wantArchived,
+                                                 std::optional<Vessel>* existing)
 {
-    m_errorString.clear();
+    existing->reset();
 
     if (vesselId.isEmpty()) {
-        m_errorString = QStringLiteral("No vessel was given, so nothing was archived.");
+        m_errorString = wantArchived
+                            ? QStringLiteral("No vessel was given, so nothing was archived.")
+                            : QStringLiteral("No vessel was given, so nothing was restored.");
         return false;
     }
 
@@ -406,119 +447,108 @@ bool VesselRepository::archive(const QString& vesselId)
     }
 
     // Read the row before writing, including archived rows, so that "there is
-    // no such vessel" and "it is already archived" can be told apart and said
-    // honestly. numRowsAffected() cannot distinguish them — both come back
-    // zero — which is why update()'s single combined message is not reused
-    // here (vessel-archive-spec §6).
-    std::optional<Vessel> existing;
-    if (!findById(vesselId, &existing, /*includeArchived=*/true)) {
+    // no such vessel" and "it is already in that state" can be told apart and
+    // said honestly. numRowsAffected() cannot distinguish them — both come
+    // back zero — which is why update()'s single combined message is not
+    // reused here (vessel-archive-spec §6).
+    if (!findById(vesselId, existing, /*includeArchived=*/true)) {
         return false;
     }
-    if (!existing.has_value()) {
+    if (!existing->has_value()) {
         m_errorString = QStringLiteral("This vessel is no longer in the database.");
         return false;
     }
-    if (existing->isArchived) {
-        m_errorString = QStringLiteral("This vessel is already archived.");
-        return false;
-    }
-
-    QSqlQuery query(m_database);
-    query.prepare(QStringLiteral(
-        "UPDATE vessel SET"
-        "  is_deleted = 1,"
-        "  updated_at = ?, updated_by = ?, revision = revision + 1"
-        " WHERE id = ? AND is_deleted = 0"));
-    query.addBindValue(nowUtc());
-    query.addBindValue(kSystemUser);
-    query.addBindValue(vesselId);
-
-    if (!query.exec()) {
-        m_errorString =
-            QStringLiteral("Could not archive the vessel:\n%1").arg(query.lastError().text());
-        return false;
-    }
-
-    // The pre-read above already ruled out both reasons this could be zero.
-    // Kept as the backstop for the gap between the two statements rather than
-    // as the primary check.
-    if (query.numRowsAffected() == 0) {
-        m_errorString = QStringLiteral("This vessel could not be archived.");
+    if ((*existing)->isArchived == wantArchived) {
+        m_errorString = wantArchived ? QStringLiteral("This vessel is already archived.")
+                                     : QStringLiteral("This vessel is not archived.");
         return false;
     }
 
     return true;
 }
 
-bool VesselRepository::restore(const QString& vesselId)
+bool VesselRepository::writeArchivedFlag(const QString& vesselId, bool archived)
 {
-    m_errorString.clear();
-
-    if (vesselId.isEmpty()) {
-        m_errorString = QStringLiteral("No vessel was given, so nothing was restored.");
-        return false;
-    }
-
-    if (isScopedToOneVessel()) {
-        m_errorString =
-            QStringLiteral("A vessel installation cannot archive or restore a vessel.");
-        return false;
-    }
-
-    std::optional<Vessel> existing;
-    if (!findById(vesselId, &existing, /*includeArchived=*/true)) {
-        return false;
-    }
-    if (!existing.has_value()) {
-        m_errorString = QStringLiteral("This vessel is no longer in the database.");
-        return false;
-    }
-    if (!existing->isArchived) {
-        m_errorString = QStringLiteral("This vessel is not archived.");
-        return false;
-    }
-
-    // Kept as a backstop, though it cannot currently fire: migrations/002
-    // declares imo_number UNIQUE with no is_deleted condition, so nothing can
-    // claim this number while the vessel sits archived, and the restore can
-    // never lose a race for it. vessel-archive-spec §6 predicts the opposite
-    // — see anArchivedVesselStillHoldsItsImoNumber() in
-    // tst_VesselRepositoryWrites for why it does not hold.
-    //
-    // Left in rather than removed: it costs one query, it is the same check
-    // create() and update() make, and if that UNIQUE is ever relaxed to a
-    // partial index this becomes load-bearing on the same day.
-    bool taken = false;
-    if (!isImoNumberTaken(existing->imoNumber, vesselId, &taken)) {
-        return false;
-    }
-    if (taken) {
-        m_errorString = QStringLiteral("This IMO number already belongs to another vessel.");
-        return false;
-    }
-
+    // The WHERE still names the flag's previous value, so a row that changed
+    // underneath this call between the pre-read and here matches nothing
+    // rather than being written twice.
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
         "UPDATE vessel SET"
-        "  is_deleted = 0,"
+        "  is_deleted = ?,"
         "  updated_at = ?, updated_by = ?, revision = revision + 1"
-        " WHERE id = ? AND is_deleted = 1"));
+        " WHERE id = ? AND is_deleted = ?"));
+    query.addBindValue(archived ? 1 : 0);
     query.addBindValue(nowUtc());
     query.addBindValue(kSystemUser);
     query.addBindValue(vesselId);
+    query.addBindValue(archived ? 0 : 1);
 
     if (!query.exec()) {
-        m_errorString =
-            QStringLiteral("Could not restore the vessel:\n%1").arg(query.lastError().text());
+        m_errorString = (archived ? QStringLiteral("Could not archive the vessel:\n%1")
+                                  : QStringLiteral("Could not restore the vessel:\n%1"))
+                            .arg(query.lastError().text());
         return false;
     }
 
+    // The pre-read already ruled out both reasons this could be zero. Kept as
+    // the backstop for the gap between the two statements rather than as the
+    // primary check.
     if (query.numRowsAffected() == 0) {
-        m_errorString = QStringLiteral("This vessel could not be restored.");
+        m_errorString = archived ? QStringLiteral("This vessel could not be archived.")
+                                 : QStringLiteral("This vessel could not be restored.");
         return false;
     }
 
     return true;
+}
+
+bool VesselRepository::archive(const QString& vesselId)
+{
+    m_errorString.clear();
+
+    std::optional<Vessel> existing;
+    if (!checkArchiveChangeAllowed(vesselId, /*wantArchived=*/true, &existing)) {
+        return false;
+    }
+
+    return writeArchivedFlag(vesselId, /*archived=*/true);
+}
+
+bool VesselRepository::restore(const QString& vesselId)
+{
+    m_errorString.clear();
+
+    std::optional<Vessel> existing;
+    if (!checkArchiveChangeAllowed(vesselId, /*wantArchived=*/false, &existing)) {
+        return false;
+    }
+
+    // Still a backstop that cannot fire, and now for a second reason as well
+    // as the first (vessel-archive-spec §10.1).
+    //
+    // The original reason: migrations/002 declares imo_number UNIQUE with no
+    // is_deleted condition, so nothing can claim this number while the vessel
+    // sits archived, and a restore can never lose a race for it.
+    //
+    // The new one: findImoNumberHolder() no longer filters archived rows out
+    // either, so the only row it could possibly match here is this very
+    // vessel — which excludeId removes. Both layers now agree that the number
+    // was never free, which is the whole point of §10.1.
+    //
+    // Left in rather than removed: it costs one query, it is the same check
+    // create() and update() make, and if that UNIQUE is ever relaxed to a
+    // partial index this becomes load-bearing on the same day.
+    std::optional<ImoNumberHolder> holder;
+    if (!findImoNumberHolder(existing->imoNumber, vesselId, &holder)) {
+        return false;
+    }
+    if (holder.has_value()) {
+        m_errorString = imoNumberConflictMessage(*holder, /*suggestRestore=*/false);
+        return false;
+    }
+
+    return writeArchivedFlag(vesselId, /*archived=*/false);
 }
 
 QString VesselRepository::errorString() const
