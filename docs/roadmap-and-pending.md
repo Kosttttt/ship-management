@@ -24,11 +24,13 @@ yourself) quickly, not a replacement for either.
 13. CSV import/export, plus a cut-down PDF export (one vessel, current
     state, no history, no fleet view)
 
-Plus two feature rounds that sit on top of step 13's work rather than being
-numbered build-order steps: the certificate-list usability fixes
-(resizable/persisted columns, multi-select delete, placeholder issue dates),
-and the certificate List Number format widening for the company's full S-14
-prefix scheme (`S1`, `P.6`, `EU.9`, …), shipped via migration 011.
+Plus three rounds that aren't numbered build-order steps: the
+certificate-list usability fixes (resizable/persisted columns,
+multi-select delete, placeholder issue dates); the certificate List Number
+format widening for the company's full S-14 prefix scheme (`S1`, `P.6`,
+`EU.9`, …), shipped via migration 011; and **vessel Archive / Restore**
+(`docs/vessel-archive-spec.md`, commit `11efcd9`) — the follow-up
+`vessel-crud-spec.md` had deferred since step 4.
 
 **Remaining, in order:**
 
@@ -68,6 +70,18 @@ prefix scheme (`S1`, `P.6`, `EU.9`, …), shipped via migration 011.
   deferred to its own dedicated discussion rather than decided as a side
   effect of the CSV work.
 - **Step 14's exact scope** — see above.
+- **IMO-number check vs. the table constraint, after Archive.**
+  `migrations/002` makes `imo_number` plainly `UNIQUE` — an archived
+  vessel keeps its number for good, which is domain-correct (an IMO number
+  belongs to a hull for life). But `VesselRepository::isImoNumberTaken()`
+  only looks at active rows, so adding a new vessel with an archived one's
+  IMO number gets past the friendly check and hits the raw SQLite error
+  instead. Introduced by the archive round (before it, the two checks could
+  never disagree). Recommended fix: drop the `is_deleted` filter from
+  `isImoNumberTaken()` so it matches the database, and when the holder is
+  an archived vessel, say so — "This IMO number belongs to the archived
+  vessel 'X'. Tick 'Show archived vessels' and restore it instead." That
+  turns an error into the right next step. Awaiting the developer's call.
 - **Database portability — how to move/share the database between
   computers, properly.** Raised directly by the developer after manually
   copying `ship-management.db` between machines for a second time (see
@@ -100,6 +114,36 @@ prefix scheme (`S1`, `P.6`, `EU.9`, …), shipped via migration 011.
     a place to drop an *exported backup file* (once the feature above
     exists), not as the live database's actual home.
 
+## Small UX improvements raised, not yet built
+
+- **The attachment chooser should remember the last folder used, instead
+  of always opening at Documents.** Raised directly by the developer.
+  Confirmed in the code — and the fix for it is small enough to be worth
+  writing down now, not treated as a design question: `AttachmentChooser`'s
+  `startingFolder()` (`src/modules/certificates/ui/AttachmentChooser.cpp`)
+  already carries a comment anticipating exactly this request —
+  *"Documents rather than the last-used folder, which nothing stores
+  yet."* The mechanism is already established elsewhere in the project for
+  this exact category of thing: `TableHeaderSettings` already uses
+  `QSettings`, not `app_setting`/the database, to remember the certificate
+  list's column widths, with the reasoning spelled out in
+  `certificate-list-usability-fixes.md` §1 — a per-machine UI convenience
+  like this has no business replicating to the other side in a future
+  sync or meaning anything on a different installation. The same call
+  applies here: save the chosen file's folder to `QSettings` after each
+  successful pick, and have `startingFolder()` read it back before
+  falling to Documents.
+  One thing to carry over deliberately, not drop, from
+  `AttachmentChooser`'s own existing comment about why it avoids the
+  managed data folder today: whatever folder gets remembered must never be
+  allowed to resolve to a vessel's own `attachment_root_path`. Copying a
+  file onto itself — the exact failure that comment already warns about —
+  becomes newly possible the moment a "last folder" is trusted blindly,
+  where today it structurally can't happen because the dialog always
+  starts outside that folder. The fix needs a check against the current
+  vessel's `attachment_root_path` before trusting the remembered folder,
+  falling back to Documents if they'd collide.
+
 ## Outstanding technical debt worth knowing about
 
 - **`CertificateListWidget.cpp` — 554 lines**, the single most
@@ -128,6 +172,15 @@ prefix scheme (`S1`, `P.6`, `EU.9`, …), shipped via migration 011.
   (402), `EndorsementRepository.cpp` (414), `VesselAttachmentRoots.cpp`
   (330), `ManagedFileStore.cpp` (424). Watched each round, not urgent —
   each is one class's whole implementation, not an obvious multi-seam file.
+- **Two files pushed over the guideline by the archive round:**
+  `core/VesselRepository.cpp` (527 lines) and `app/VesselListWidget.cpp`
+  (319). For the widget there's a clean precedent —
+  `CertificateDeleteActions` was pulled out of the certificate list for the
+  same reason, and a `VesselArchiveActions` would do the same here. For
+  the repository, `archive()` and `restore()` are near mirror images
+  (pre-read, scope refusal, flag flip, revision bump) and could share one
+  private helper, which shrinks the file without spreading one class
+  across two files.
 - Minor environment quirks, low priority: no SQLite viewer installed (DB
   Browser for SQLite is the suggested one to grab); Qt Creator's F5
   debugging still doesn't stop on breakpoints (Ctrl+R run works fine, so
@@ -135,10 +188,15 @@ prefix scheme (`S1`, `P.6`, `EU.9`, …), shipped via migration 011.
 
 ## Immediate pending items
 
-- **Confirm the list-number-prefix round actually shipped.** Commits
-  `d9aae0b`/`8f16dfb` and the clean Release rebuild+redeploy were reported
-  done but not yet confirmed pushed to `origin/main` — worth a quick
-  `git log origin/main..HEAD` check.
+- **Push the archive round.** `559dfa6` (docs catch-up) and `11efcd9`
+  (Archive/Restore) are committed but not pushed. `dist\ShipManagement\`
+  was redeployed in that round and is byte-identical to
+  `build-release\ShipManagement.exe` (verified by checksum), so it now
+  carries both the list-number-prefix work and Archive/Restore.
+- **Try Archive/Restore yourself.** The tests cover it, but nobody has
+  clicked through it on a real screen yet (Claude Code doesn't launch the
+  app, per `CLAUDE.md` §10.1). Worth doing on a vessel you don't mind
+  hiding for a minute: archive it, tick "Show archived vessels", restore it.
 - **Run the migration proof kit on the work laptop.** Your own chosen plan
   was to run `dist/migration-proof-kit/` against the work laptop's real
   database before migration 011 ships there — not yet reported back as

@@ -186,18 +186,25 @@ bool archive(const QString& vesselId);
 bool restore(const QString& vesselId);
 ```
 
-**One consequence worth the developer knowing about, not solved by this
-spec:** `isImoNumberTaken()` already filters to `is_deleted = 0`, which
-means archiving a vessel immediately frees its IMO number for reuse by a
-brand-new vessel row. That's an existing, correct consequence of reusing
-the same flag and check everywhere — but it means if someone archives
-V-OLD and later creates a new vessel that happens to reuse V-OLD's IMO
-number, trying to restore V-OLD afterward will correctly fail the
-uniqueness check. The right fix in that situation is not creating a second
-vessel row for the same ship in the first place; restoring the original is
-always the correct move if a vessel comes back into service. Nothing to
-build differently here — just worth saying out loud so it isn't a surprise
-the first time it happens.
+**Correction, caught during implementation, not before.** The first
+version of this paragraph claimed archiving a vessel frees its IMO number
+for reuse, because `isImoNumberTaken()` filters to `is_deleted = 0`. That
+was wrong: migration 002 declares `imo_number TEXT NOT NULL UNIQUE` as a
+plain table constraint with no `is_deleted` condition, so the database
+itself refuses the reuse regardless of what the application-level check
+says. Claude Code's first test asserted this paragraph's claim and failed
+with `UNIQUE constraint failed: vessel.imo_number`; the test now pins what
+actually happens (`anArchivedVesselStillHoldsItsImoNumber()`).
+
+The database is the one that's right, domain-wise — an IMO number belongs
+to a hull for its whole life, archived or not. What's left over is a
+mismatch this round introduced: before it, nothing could set `is_deleted`,
+so `isImoNumberTaken()`'s filter and the table's constraint could never
+disagree. Now they can, and adding a new vessel that reuses an archived
+one's IMO number shows the raw SQLite error instead of the friendly
+message. Tracked as an open decision in `docs/roadmap-and-pending.md`, not
+silently fixed here. `restore()`'s own IMO check is kept as a backstop
+that, given the constraint, can't currently be reached.
 
 ## 7. UI — `VesselListWidget`
 
@@ -208,10 +215,15 @@ model/view pair, per that file's own existing comment).
 - A checkbox above the table, **"Show archived vessels"**. Unchecked by
   default. Toggling it calls `reload()` with `includeArchived` set
   accordingly.
-- Archived rows, when shown, render visibly differently from active ones —
-  greyed out (`setEnabled(false)` on the row's items, or a dedicated
-  "Archived" status column; either is fine, Claude Code's call) so there
-  is never a moment where an archived and an active vessel look the same.
+- Archived rows, when shown, render visibly differently from active ones,
+  so there is never a moment where an archived and an active vessel look
+  the same. **Correction, caught during implementation:** this bullet
+  originally offered `setEnabled(false)` on the row's items as one way to
+  do it. That option doesn't work — a disabled `QTableWidgetItem` can't be
+  selected, so an archived row could never be selected to press Restore.
+  As built: greyed and italic text, plus a Status column that only appears
+  while "Show archived vessels" is ticked, so the ordinary fleet list looks
+  exactly as it did before.
 - One context-sensitive button, not two — matching the screen's existing
   single `&Add Vessel` button rather than growing a row of controls for a
   single-selection table. Its label and action depend on the selected
@@ -315,3 +327,48 @@ than just asserting it in a comment:
 - Anything in the certificates module's own tables or code.
 - The IMO-number validator, CSV format, or report builder.
 - Role-based access control, still deliberately last.
+
+## 10. Follow-up round — IMO message and file sizes
+
+Decided with the developer after the first round shipped (`11efcd9`).
+
+### 10.1 Make the IMO check agree with the database
+
+`VesselRepository::isImoNumberTaken()` stops filtering on `is_deleted`, so
+it sees exactly what migration 002's `UNIQUE` constraint sees. When the row
+holding the number is an archived vessel, the message names it and points
+at the fix, instead of the generic one:
+
+- `create()`: *"This IMO number belongs to the archived vessel '%1'. Tick
+  "Show archived vessels" and restore it instead of adding it again."*
+- `update()`: *"This IMO number belongs to the archived vessel '%1'."*
+  (no restore hint — someone editing a vessel isn't trying to add one).
+- An active holder keeps today's message unchanged.
+
+How the check reports "who holds it and are they archived" is Claude
+Code's call (extra out-parameters, or returning the holder). `restore()`'s
+own check stays as a backstop, with its comment updated to say why it
+still can't be reached.
+
+Tests: rework `anArchivedVesselStillHoldsItsImoNumber()` so it asserts
+`create()` fails with the archived-vessel message — the error must contain
+the archived vessel's name and must **not** contain `UNIQUE constraint`.
+Add the same for `update()`. The existing duplicate-IMO tests for active
+vessels must still pass unchanged.
+
+### 10.2 Bring the two files back under ~300 lines
+
+- **`VesselListWidget.cpp` (319):** extract `VesselArchiveActions`, the
+  same shape as `CertificateDeleteActions` — it owns the Archive/Restore
+  button, its enabled state, the confirmation, and both actions. The
+  widget must still emit `vesselsChanged()` after either one. Re-run the
+  vacuity check from the first round after the move (temporarily remove
+  the emit, confirm `archivingAVesselRemovesItFromTheSelector()` fails,
+  restore it), because moving the code is exactly how that emit gets lost.
+- **`VesselRepository.cpp` (527):** `archive()` and `restore()` share one
+  private helper for the common part (scope refusal, pre-read, flag flip,
+  revision bump), keeping the class in one file. If that alone doesn't
+  bring it under ~300, report the number rather than splitting one class
+  across two files.
+
+No behaviour change in 10.2 — every existing test passes as it is.

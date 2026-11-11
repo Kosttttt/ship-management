@@ -13,18 +13,18 @@ The portable, run-anywhere copy of the app lives at
 plain folder (the `.exe` plus the Qt DLLs `windeployqt` bundled next to it),
 not an installer, so copying the whole folder *is* installing it.
 
-One thing to check first: that folder was last refreshed during the
-certificate-list **usability-fixes** round. The **list-number-prefix**
-round after it (migration 011, the `S1`/`P.6`/`EU.9` widening) rebuilt
-`build-release\` and passed all 43 tests, but — per
-`docs/PROJECT-STATUS.md` — nothing confirms `dist\ShipManagement\` was
-redeployed from that newer build, and those two commits (`d9aae0b`,
-`8f16dfb`) aren't pushed yet either. If you copy `dist\` as it stands right
-now, the new computer could end up running an **older** build than the one
-your data already assumes — e.g. it might not recognise or sort a
-List Number like `S1` the way it should.
+`dist\` is a plain copy, not something the build updates by itself —
+rebuilding the code does **not** refresh it. So it is only as current as
+the last time someone redeployed it, and the latest round in
+`docs/PROJECT-STATUS.md` says whether that round redeployed. If it's
+behind, the new computer ends up running an **older** build than the one
+your data already assumes — for example, one that doesn't know about
+archived vessels, or doesn't sort a List Number like `S1` correctly.
 
-So before copying anything, on the dev machine:
+A quick check you can do yourself: compare the "Date modified" of
+`dist\ShipManagement\ShipManagement.exe` with
+`build-release\ShipManagement.exe`. If `build-release`'s is newer, `dist\`
+is stale. To refresh it, on the dev machine:
 ```powershell
 cmake --build build-release
 Copy-Item build-release\ShipManagement.exe dist\ShipManagement\ShipManagement.exe -Force
