@@ -1,6 +1,7 @@
 #include "app/SettingsPage.h"
 
 #include "app/AttachmentFolderSettings.h"
+#include "app/DatabaseBackupSettings.h"
 #include "core/AppSettingRepository.h"
 #include "core/VesselRepository.h"
 
@@ -31,9 +32,12 @@ QSpinBox* makeDaySpin(QWidget* parent, const QString& objectName)
 
 } // namespace
 
-SettingsPage::SettingsPage(AppSettingRepository& settings,
-                           VesselRepository&     vessels,
-                           QWidget*              parent)
+SettingsPage::SettingsPage(AppSettingRepository&      settings,
+                           VesselRepository&          vessels,
+                           QSqlDatabase&              connection,
+                           const InstallationContext& installation,
+                           const QString&             dataFolder,
+                           QWidget*                   parent)
     : QWidget(parent)
     , m_settings(settings)
 {
@@ -87,6 +91,11 @@ SettingsPage::SettingsPage(AppSettingRepository& settings,
     // is chosen, so the two cannot share one Save.
     m_attachmentFolders = new AttachmentFolderSettings(vessels, this);
 
+    // Last of the three sections: the thresholds are what somebody opens
+    // Settings for, and a backup is what they come looking for once
+    // (database-backup-spec §3).
+    m_databaseBackup = new DatabaseBackupSettings(connection, installation, dataFolder, this);
+
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(heading);
     layout->addWidget(explanation);
@@ -97,6 +106,8 @@ SettingsPage::SettingsPage(AppSettingRepository& settings,
     layout->addLayout(buttonRow);
     layout->addSpacing(16);
     layout->addWidget(m_attachmentFolders);
+    layout->addSpacing(16);
+    layout->addWidget(m_databaseBackup);
     layout->addStretch();
 
     for (QSpinBox* spin : {m_criticalSpin, m_expiringSoonSpin, m_dueSoonSpin}) {
@@ -116,6 +127,9 @@ void SettingsPage::reload()
     // if that order ever changes.
     if (m_attachmentFolders != nullptr) {
         m_attachmentFolders->reload();
+    }
+    if (m_databaseBackup != nullptr) {
+        m_databaseBackup->reload();
     }
 
     AppSetting setting;

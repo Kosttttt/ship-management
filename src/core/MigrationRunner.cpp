@@ -269,3 +269,28 @@ QStringList MigrationRunner::appliedInLastRun() const
 {
     return m_applied;
 }
+
+QString MigrationRunner::compiledInPath()
+{
+    return QStringLiteral(":/migrations");
+}
+
+bool MigrationRunner::highestAvailableVersion(int* version)
+{
+    m_errorString.clear();
+    *version = 0;
+
+    QList<MigrationFile> files;
+    if (!discoverMigrations(&files)) {
+        return false;
+    }
+
+    // Sorted ascending by discoverMigrations(), so the last one is the
+    // highest. An empty folder is not an error here — it means this program
+    // carries no migrations, and every backup would then be "newer", which is
+    // the honest answer.
+    if (!files.isEmpty()) {
+        *version = files.last().version;
+    }
+    return true;
+}

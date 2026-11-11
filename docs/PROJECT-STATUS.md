@@ -2842,6 +2842,193 @@ They stay on the debt list.
 **Verification.** Clean Debug and Release rebuilds, 0 warnings, **45/45
 suites** in each.
 
+---
+
+### Step 15 — Database backup & restore ✅
+
+`docs/database-backup-spec.md`. The last feature of Certificate Control:
+the database only, with manual Back up / Restore in Settings and an
+automatic daily backup to a folder of the developer's choosing.
+
+**The rule everything here follows (§1).** The program never guesses where
+its database is. `CLAUDE.md` §10.1 exists because a "back up, delete,
+restore" run from outside the app used the plain `%APPDATA%` path while
+the running app was on a virtualized copy, and a real database was lost.
+So: backing up reads through the program's **own open connection**;
+restoring swaps files in the folder `Database::defaultFilePath()` returns —
+the same call `main()` opens the database with, so it is the right folder
+by construction; and **nothing is ever deleted** by a restore.
+
+**§2 — making a backup.** SQLite's `VACUUM INTO`, which writes a complete,
+consistent copy while the program keeps running. No copying of a live
+file, no second path to get wrong.
+
+Two details carry real weight. It writes `<name>.db.tmp` and renames only
+once the file is whole, so a Google Drive or OneDrive client never sees a
+half-written file — and `VACUUM INTO` refuses an existing target anyway,
+which the temporary name sidesteps. Then it opens the new file on a
+separate **read-only** connection and runs `PRAGMA integrity_check`; a
+backup that fails is deleted (it is still our own `.tmp`) and reported as
+a failure, never left under a name that looks good.
+
+Names are `ship-management-<node>-<date_time>.db` for manual and
+`ship-management-auto-<node>-<date>.db` for automatic, so one Google
+Drive folder can hold two computers' backups without a clash.
+
+**§3 — the Settings section.** `DatabaseBackupSettings`, its own widget
+the way `AttachmentFolderSettings` is. Back up now…, Restore from
+backup…, a "Back up automatically once a day" checkbox, the folder with a
+Choose… button, and a "Last automatic backup" line. Choosing a folder
+ticks the checkbox, because choosing one is how somebody says they want
+this on.
+
+**The folder and the on/off flag live in `QSettings`, not the database.**
+A backup folder is a path on *this* computer; stored in `app_setting` it
+would travel inside a backup and arrive on another machine pointing at a
+folder that does not exist there. Same reasoning as `TableHeaderSettings`
+and the attachment chooser's last folder. The "Last automatic backup"
+line is read from the folder's own files rather than from a stored date,
+so a folder that was emptied or swapped tells the truth about itself.
+
+**§4 — the daily backup.** Runs in `main()` after migrations (so the copy
+carries the current schema) and after the installation is resolved (so it
+is filed under this node's name). It is due only when there is no
+automatic backup for this node dated today *in that folder* — decided
+from the files, not from a stored date, for the same reason as above.
+
+It keeps the ten newest and deletes older ones, and this is the one part
+of the whole feature that deletes anything, so what it must **not** touch
+is tested as carefully as what it does: only files matching its own
+automatic pattern for its own node id. Never a manual backup, never
+another computer's, never anything else in the folder.
+
+**It can never stop the program starting.** A missing folder — Google
+Drive not running, a USB drive unplugged — and every other failure come
+back as values, get logged, and show as a line in the status bar beside
+the node id. `runIfDue()` reads no settings of its own either; whether the
+daily backup is switched on at all is `main()`'s question, which keeps the
+core function testable with nothing but a folder and a date.
+
+**§5 — restoring.** Three stages, and the live database is not touched
+until the last of them.
+
+*Checking (§5.1).* On a read-only connection of its own:
+`integrity_check`; then this program's four tables and exactly one
+`installation` row; then that its schema is **not newer** than this
+program — compared against `MigrationRunner::highestAvailableVersion()`,
+which is new. An older backup is accepted, because the ordinary
+migrations bring it up to date on the next start. A newer one is refused:
+this program has no idea what a migration it does not carry did to the
+data.
+
+*Confirming (§5.2).* `RestoreConfirmationDialog` — its own class, because
+the side-by-side table needs a real layout and because another hundred
+lines inside the settings widget would have taken it over the guideline.
+Mode, vessels, certificates and last change in two columns, with a bold
+line above when the backup is from a different installation ("This backup
+is from the vessel V UNO; this computer will become that vessel's
+installation"). **No is the default button**, so Enter or a stray
+double-click cannot replace a working database. Both columns come from
+the same `summarise()` call shape, so the two sides cannot disagree about
+how they were counted.
+
+*Doing it (§5.3).* Not during the session — repositories and screens all
+hold the open connection. The checked backup is copied in beside the live
+database as `ship-management.restore-pending.db` (temporary name, then
+renamed), and the program restarts itself. At the next start, **before
+anything opens the database**, `RestoreSwap::applyPending()` renames the
+live database to `ship-management.before-restore-<timestamp>.db` and the
+pending file into its place.
+
+Two things there are worth knowing. The old database's `-journal`, `-wal`
+and `-shm` travel with it: a `-wal` left beside the *restored* database
+would be applied to a different database, which is how a good file gets
+ruined. And if the second rename fails, the safety copy is put back, side
+files first — the folder is never left without a database. If the restart
+cannot be launched, the pending file is still in place and the message
+says to start the program again; nothing is lost.
+
+**§6 — where the code lives.** Five new classes in `core/`
+(`BackupSettings`, `DatabaseBackup`, `BackupFileInspector`,
+`AutomaticBackup`, `RestoreSwap`), none with a widget in it; two in
+`app/`. **Every function that touches files takes the folder as a
+parameter**, and only `main()` passes the real one, through a new
+`dataFolder()` helper built from `Database::defaultFilePath()`. That is
+what lets all four new test suites run inside a `QTemporaryDir`.
+
+`RestoreSwap::liveFileName()` derives the database's name from
+`Database::defaultFilePath()` rather than repeating the literal: two
+strings that have to match are two strings that eventually will not.
+`MigrationRunner::compiledInPath()` is new for the same reason — `main()`
+and the backup check both needed `":/migrations"`, and it was spelled out
+in `main.cpp` before.
+
+**Tests — 4 new suites, 45 cases, and the project is at 49 suites.** All
+on temporary folders and a throwaway settings file; nothing touches the
+real data folder or the real settings (§7, `CLAUDE.md` §10.1).
+
+- `tst_DatabaseBackup` (9): the backup has the same rows as the original
+  and the schema with it; no `.tmp` survives; a missing folder is reported
+  and **not created**; an existing file is replaced only after the new one
+  is complete; a leftover `.tmp` does not poison the next attempt; and the
+  naming rules, including every name pruning must refuse — a manual
+  backup, another node's, an unrelated file, a `.tmp`, and a node id that
+  merely *begins* with this one.
+- `tst_BackupFileInspector` (12): accepts a complete backup, reports its
+  numbers, names a vessel installation; refuses a file that is not a
+  database, a missing file, a sound database that is somebody else's, one
+  with no installation row, one with two, and one with a newer schema;
+  accepts an older schema.
+- `tst_RestoreSwap` (11): staging, the swap, the safety copy with the old
+  contents intact, the side files travelling with it, a fresh install with
+  no database yet, and a failed second rename putting the original back.
+- `tst_AutomaticBackup` (13): due and not due, due again when only another
+  node's backup is there, due again when the folder was emptied, a missing
+  folder and no folder reported without being fatal, the write and the
+  "not twice in a day" loop, pruning keeping the ten newest, and pruning
+  leaving everything else alone.
+
+**Vacuity check, and a correction to my own first attempt.** Pruning
+deletes files, so I checked that the tests guarding it actually bite. The
+first probe — removing the `startsWith()` guard in
+`dateOfAutomaticFileName()` — left all 13 passing, and the reason is not
+a weak test: the offset arithmetic that follows computes the date's
+position *from* the expected prefix, so a wrong node still parsed to an
+invalid date and was rejected anyway. The probe had changed nothing. A
+second probe that genuinely removed node isolation (match any
+`ship-management-*.db`, parse the last ten characters as the date) failed
+three tests, `pruningLeavesEverythingElseAlone` among them. The file came
+back to the same md5 both times.
+
+**What the developer checks by hand (§7).** The restart itself and the
+dialogs. Everything behind them is covered above.
+
+**File sizes.** Every new file is well under the guideline — largest are
+`BackupFileInspector.cpp` 276 and `DatabaseBackupSettings.cpp` 272.
+`app/MainWindow.cpp` went **322 → 340**, already over before this round
+and up by the eighteen lines of `showStartupNotice()` and two constructor
+parameters; not split, for the same reason as last round. `main.cpp` 162 →
+244, `SettingsPage.cpp` 190 → 204, `MigrationRunner.cpp` 271 → 296 — all
+under.
+
+**Existing tests that had to change, and why.** `SettingsPage` and
+`MainWindow` now take the open connection and the data folder, because the
+Settings page carries a section that needs both. That is a new dependency
+on a screen, so its tests construct it with that dependency: 7 sites in
+`tst_SettingsPage` and 15 `MainWindow` sites across `tst_Alerts`,
+`tst_ModuleRegistry` and `tst_VesselSelectorRefresh`. Each of those four
+suites also gained a `QTemporaryDir` for the folder and a
+`BackupSettings::setSettingsFileOverride()` in `init`/`cleanup`, so that
+building the backup section in a test cannot read or write the
+developer's own settings. No assertion changed in any of them.
+
+A defaulted, nullable connection would have avoided the churn, and was
+rejected: a widget with a "built without backup support" mode that exists
+only for tests is worse than four mechanical edits.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **49/49
+suites** in each.
+
 
 ## Decisions confirmed by the developer
 
@@ -3484,6 +3671,21 @@ suites** in each.
   provider use it is the obvious next move. Left for its own round: it
   changes what the badge counts if the two loops turn out to differ
   anywhere, which is not a housekeeping change.
+- **Added by step 15.** `app/MainWindow.cpp` **322 → 340 lines**, already
+  over the guideline before this round and up by `showStartupNotice()`
+  and two constructor parameters. Not split: the file is a shell — a
+  sidebar, a stack, a toolbar selector and the alert wiring — and the only
+  separable piece is the sidebar construction, which is what the
+  constructor is for. Watch it; it has now grown in two rounds running.
+  Every file step 15 added is well under the guideline (largest:
+  `BackupFileInspector.cpp` 276, `DatabaseBackupSettings.cpp` 272).
+- **Noted by step 15, not acted on:** `ManagedFileStore::rootPath()` and
+  `main()`'s new `dataFolder()` both derive the data folder from
+  `Database::defaultFilePath()`. That is one source of truth reached from
+  two places, which is right, but a third would be worth stopping: if
+  anything else ever needs it, it should ask one of these rather than
+  compute it again. `CLAUDE.md` §10.1 is what makes this worth a line here
+  at all.
 
 ---
 
@@ -3523,34 +3725,36 @@ were all updated to match.
 
 ## Next step
 
-**Step 15 — database backup & restore.** The last round of Certificate
-Control, and the module is complete after it. The order is in
-`docs/roadmap-and-pending.md`; `CLAUDE.md` §11 matches it.
+**The close-out round.** Every feature of Certificate Control is built.
+What remains, in the order `docs/roadmap-and-pending.md` gives:
 
-Export Database / Import Database in Settings — a safe, in-app way to
-move to another computer or keep a copy somewhere. No spec yet; bring it
-up here first, the same way every step since step 3 has gone. The audit
-trail viewer is deferred, not part of this module.
+1. The developer's own checks on screen — in particular the step 15
+   dialogs and the restart, which §7 of that spec leaves to a person: back
+   up, choose a folder, restart, restore, and confirm the
+   `before-restore-…` safety copy is where it says it is.
+2. `docs/machine-setup.md` rewritten around Back up → Restore instead of
+   finding `ship-management.db` by hand (§9 of the backup spec).
+3. A final `PROJECT-STATUS.md` entry marking the module complete, and a
+   git tag on that commit so there is a named version to go back to.
 
-The housekeeping round above closed out the two small carried fixes
-(`TransactionScope`, `<QSignalBlocker>`), dropped the first-run
-duplicate-IMO item as impossible, and brought the two worst files down to
-430 and 379 lines. What file-size debt remains is listed above with the
-reason for each; the one piece of real work it deliberately left behind is
-making `CertificateAlertProvider` share `CertificateListRows`, which is a
-change to what the badge counts and so wants its own round rather than a
-housekeeping one.
+Then the next module starts. The build order in `CLAUDE.md` §11 lists
+what is deliberately still not begun: ship-to-shore sync, role-based
+access control (last, by design), and the future modules — DMS, PMS,
+spares, purchasing, vessel life monitoring, budget, crew.
 
-Step 14 (Reports) was **dropped by the developer**: step 13's one-vessel
-PDF statement is enough for this module. A fleet-wide statement, a print
-preview or per-certificate history become additional scope on
-`CertificateReportBuilder` if and when a concrete need shows up.
+Two pieces of real work are recorded above as deliberately not done, and
+neither belongs in a close-out:
+
+- Making `CertificateAlertProvider` share `CertificateListRows`. The two
+  gather the same thing and have to agree, but merging them could change
+  what the sidebar badge counts.
+- The file-size debt that remains, each entry with the reason it was left:
+  `VesselRepository.cpp` 430, `CertificateListWidget.cpp` 379,
+  `MainWindow.cpp` 340, `tst_CertificateCsvImportSurveys.cpp` 430.
 
 The endorsement-model question carried here since step 13 — whether to
-keep only the most recent survey per track — was **settled** by the
-"latest survey counts" round: keep the full history in the `endorsement`
-table, and schedule forward from the latest survey. The schedule only
-ever reads the latest survey, but the history is itself the record the
-Endorsements list, the PDF statement and the audit trail show.
+keep only the most recent survey per track — was settled by the "latest
+survey counts" round: keep the full history in the `endorsement` table,
+and schedule forward from the latest survey.
 
 Full build order is in `CLAUDE.md` §11.

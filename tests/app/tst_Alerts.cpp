@@ -3,6 +3,7 @@
 #include "app/IModule.h"
 #include "app/MainWindow.h"
 #include "app/ModuleRegistry.h"
+#include "core/BackupSettings.h"
 #include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "core/MigrationRunner.h"
@@ -20,6 +21,7 @@
 #include <QSignalSpy>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QTemporaryDir>
 #include <QtTest>
 
 // alerts-spec.md §9, the nine edge cases.
@@ -88,7 +90,13 @@ private:
     static QList<QPushButton*> viewButtonsOf(AlertBanner& banner);
     static QString       certificatesRowText(MainWindow& window);
 
-    QString m_connectionName;
+    // MainWindow now builds the Settings page's database-backup section
+    // (database-backup-spec §3), which needs somewhere the live database
+    // could be and settings of its own. Both throwaway: no test may touch
+    // the real data folder or the real settings (CLAUDE.md §10.1).
+    QString       m_connectionName;
+    QTemporaryDir m_dataFolder;
+    QTemporaryDir m_settingsFolder;
 };
 
 void TestAlerts::init()
@@ -101,6 +109,11 @@ void TestAlerts::init()
 
     MigrationRunner runner(db, QStringLiteral(":/migrations"));
     QVERIFY2(runner.run(), qPrintable(runner.errorString()));
+
+    QVERIFY(m_dataFolder.isValid());
+    QVERIFY(m_settingsFolder.isValid());
+    BackupSettings::setSettingsFileOverride(
+        m_settingsFolder.filePath(QStringLiteral("%1.ini").arg(QTest::currentTestFunction())));
 }
 
 void TestAlerts::cleanup()
@@ -112,6 +125,7 @@ void TestAlerts::cleanup()
         }
     }
     QSqlDatabase::removeDatabase(m_connectionName);
+    BackupSettings::setSettingsFileOverride(QString());
 }
 
 QString TestAlerts::seedVessel(const QString& id, const QString& name, const QString& imo)
@@ -203,7 +217,7 @@ void TestAlerts::nothingOutstandingMeansNoBannerAndNoBadge()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QVERIFY2(!bannerOf(window)->isVisibleTo(&window), "nothing outstanding, so no banner");
     QCOMPARE(certificatesRowText(window), QStringLiteral("Certificates"));
@@ -221,7 +235,7 @@ void TestAlerts::oneVesselOutstandingInOfficeMode()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QVERIFY(bannerOf(window)->isVisibleTo(&window));
     QCOMPARE(viewButtonsOf(*bannerOf(window)).size(), 1);
@@ -241,7 +255,7 @@ void TestAlerts::viewSwitchesTheSelectorAndAppliesTheFilter()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY(selector != nullptr);
@@ -275,7 +289,7 @@ void TestAlerts::multipleVesselsEachGetTheirOwnRow()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QCOMPARE(viewButtonsOf(*bannerOf(window)).size(), 2);
     QCOMPARE(certificatesRowText(window), QStringLiteral("Certificates (2)"));
@@ -295,7 +309,7 @@ void TestAlerts::viewOnOneVesselLeavesTheOtherRowsAlone()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
     AlertBanner* banner = bannerOf(window);
 
     QCOMPARE(viewButtonsOf(*banner).size(), 2);
@@ -320,7 +334,7 @@ void TestAlerts::vesselModeShowsOnlyItsOwnVessel()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QCOMPARE(viewButtonsOf(*bannerOf(window)).size(), 1);
     QCOMPARE(certificatesRowText(window), QStringLiteral("Certificates (1)"));
@@ -338,7 +352,7 @@ void TestAlerts::vesselModeViewAppliesTheFilterWithNoSelector()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QVERIFY(window.findChild<QComboBox*>(QStringLiteral("vesselSelector")) == nullptr);
 
@@ -367,7 +381,7 @@ void TestAlerts::bannerStaysHiddenWhenAlreadyShownToday()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QVERIFY2(!bannerOf(window)->isVisibleTo(&window), "already shown today");
 }
@@ -389,7 +403,7 @@ void TestAlerts::badgeStillCountsOnADayTheBannerStaysSilent()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     QVERIFY(!bannerOf(window)->isVisibleTo(&window));
     QCOMPARE(certificatesRowText(window), QStringLiteral("Certificates (1)"));
@@ -412,7 +426,7 @@ void TestAlerts::nothingOutstandingLeavesTheToastDateUntouched()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
     QVERIFY(!bannerOf(window)->isVisibleTo(&window));
 
     AppSetting stored;
@@ -433,7 +447,7 @@ void TestAlerts::showingTheBannerRecordsTheDateImmediately()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
     QVERIFY(bannerOf(window)->isVisibleTo(&window));
 
     AppSetting stored;
@@ -441,7 +455,7 @@ void TestAlerts::showingTheBannerRecordsTheDateImmediately()
     QCOMPARE(stored.lastAlertToastDate, QDate::currentDate());
 
     // A second window in the same session no longer shows it.
-    MainWindow second(context, vessels, appSettings, registry);
+    MainWindow second(context, vessels, appSettings, registry, db, m_dataFolder.path());
     QVERIFY2(!bannerOf(second)->isVisibleTo(&second), "already recorded as shown today");
 }
 
@@ -531,7 +545,7 @@ void TestAlerts::badgeFollowsCertificatesChangedWithoutARestart()
     AppSettingRepository      appSettings(db);
     ModuleRegistry            registry(db, context);
 
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
     QCOMPARE(certificatesRowText(window), QStringLiteral("Certificates"));
 
     // Something becomes outstanding while the window is open.

@@ -2,6 +2,7 @@
 #include "app/ModuleRegistry.h"
 #include "app/VesselEditForm.h"
 #include "app/VesselListWidget.h"
+#include "core/BackupSettings.h"
 #include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "core/MigrationRunner.h"
@@ -19,6 +20,7 @@
 #include <QSqlQuery>
 #include <QTableWidget>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QtTest>
 
 // certificate-crud-spec §8.5 items 11 and 12: the fleet changing while the
@@ -80,7 +82,13 @@ private:
         });
     }
 
-    QString m_connectionName;
+    // MainWindow now builds the Settings page's database-backup section
+    // (database-backup-spec §3), which needs somewhere the live database
+    // could be and settings of its own. Both throwaway: no test may touch
+    // the real data folder or the real settings (CLAUDE.md §10.1).
+    QString       m_connectionName;
+    QTemporaryDir m_dataFolder;
+    QTemporaryDir m_settingsFolder;
 };
 
 void TestVesselSelectorRefresh::init()
@@ -93,6 +101,11 @@ void TestVesselSelectorRefresh::init()
 
     MigrationRunner runner(db, QStringLiteral(":/migrations"));
     QVERIFY2(runner.run(), qPrintable(runner.errorString()));
+
+    QVERIFY(m_dataFolder.isValid());
+    QVERIFY(m_settingsFolder.isValid());
+    BackupSettings::setSettingsFileOverride(
+        m_settingsFolder.filePath(QStringLiteral("%1.ini").arg(QTest::currentTestFunction())));
 }
 
 void TestVesselSelectorRefresh::cleanup()
@@ -104,6 +117,7 @@ void TestVesselSelectorRefresh::cleanup()
         }
     }
     QSqlDatabase::removeDatabase(m_connectionName);
+    BackupSettings::setSettingsFileOverride(QString());
 }
 
 QString TestVesselSelectorRefresh::seedVessel(const QString& id,
@@ -203,7 +217,7 @@ void TestVesselSelectorRefresh::selectorGainsANewVesselWithoutARestart()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY(selector != nullptr);
@@ -235,7 +249,7 @@ void TestVesselSelectorRefresh::selectorKeepsItsSelectionByIdAcrossARefresh()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY(selector != nullptr);
@@ -268,7 +282,7 @@ void TestVesselSelectorRefresh::archivingTheSelectedVesselEmptiesTheCertificates
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow           window(context, vessels, appSettings, registry);
+    MainWindow           window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY(selector != nullptr);
@@ -312,7 +326,7 @@ void TestVesselSelectorRefresh::archivingAVesselRemovesItFromTheSelector()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow           window(context, vessels, appSettings, registry);
+    MainWindow           window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QCOMPARE(selector->count(), 2);

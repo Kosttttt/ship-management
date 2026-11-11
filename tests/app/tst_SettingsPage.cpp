@@ -2,6 +2,7 @@
 
 #include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
+#include "core/BackupSettings.h"
 #include "core/MigrationRunner.h"
 #include "core/VesselRepository.h"
 
@@ -9,6 +10,7 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QSqlDatabase>
+#include <QTemporaryDir>
 #include <QtTest>
 
 // settings-app-setting-spec §8 item 7: the Save button follows the ordering
@@ -66,7 +68,13 @@ private:
         return page.findChild<QLabel*>(QStringLiteral("thresholdHint"));
     }
 
-    QString m_connectionName;
+    // The page now also carries the database-backup section
+    // (database-backup-spec §3), which needs somewhere the live database
+    // could be and settings of its own. Both are throwaway: no test may
+    // touch the real data folder or the real settings (CLAUDE.md §10.1).
+    QString       m_connectionName;
+    QTemporaryDir m_dataFolder;
+    QTemporaryDir m_settingsFolder;
 };
 
 void TestSettingsPage::init()
@@ -79,6 +87,11 @@ void TestSettingsPage::init()
 
     MigrationRunner runner(db, QStringLiteral(":/migrations"));
     QVERIFY2(runner.run(), qPrintable(runner.errorString()));
+
+    QVERIFY(m_dataFolder.isValid());
+    QVERIFY(m_settingsFolder.isValid());
+    BackupSettings::setSettingsFileOverride(
+        m_settingsFolder.filePath(QStringLiteral("%1.ini").arg(QTest::currentTestFunction())));
 }
 
 void TestSettingsPage::cleanup()
@@ -90,6 +103,7 @@ void TestSettingsPage::cleanup()
         }
     }
     QSqlDatabase::removeDatabase(m_connectionName);
+    BackupSettings::setSettingsFileOverride(QString());
 }
 
 void TestSettingsPage::loadsTheStoredValues()
@@ -97,7 +111,7 @@ void TestSettingsPage::loadsTheStoredValues()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     QCOMPARE(critical(page)->value(), 30);
     QCOMPARE(expiringSoon(page)->value(), 60);
@@ -111,7 +125,7 @@ void TestSettingsPage::saveIsDisabledWhenCriticalReachesExpiringSoon()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     critical(page)->setValue(60); // equal to expiring soon
     QVERIFY2(!saveButton(page)->isEnabled(), "equal is not strictly increasing");
@@ -125,7 +139,7 @@ void TestSettingsPage::saveIsDisabledWhenExpiringSoonReachesDueSoon()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     expiringSoon(page)->setValue(90);
     QVERIFY(!saveButton(page)->isEnabled());
@@ -139,7 +153,7 @@ void TestSettingsPage::saveReEnablesOnceTheOrderIsCorrected()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     critical(page)->setValue(80);
     QVERIFY(!saveButton(page)->isEnabled());
@@ -154,7 +168,7 @@ void TestSettingsPage::theHintNamesTheOffendingPair()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     critical(page)->setValue(65);
     QVERIFY(hint(page)->text().contains(QStringLiteral("Critical"), Qt::CaseInsensitive));
@@ -174,7 +188,7 @@ void TestSettingsPage::spinBoxesRefuseZeroAndNegativeValues()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     critical(page)->setValue(0);
     QCOMPARE(critical(page)->value(), 1);
@@ -188,7 +202,7 @@ void TestSettingsPage::savingWritesThroughToTheRepository()
     QSqlDatabase         db = database();
     AppSettingRepository repository(db);
     VesselRepository     vessels(db, officeContext());
-    SettingsPage         page(repository, vessels);
+    SettingsPage         page(repository, vessels, db, officeContext(), m_dataFolder.path());
 
     critical(page)->setValue(14);
     expiringSoon(page)->setValue(45);

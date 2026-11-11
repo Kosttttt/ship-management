@@ -1,9 +1,13 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 class AppSettingRepository;
 class AttachmentFolderSettings;
+class DatabaseBackupSettings;
+class InstallationContext;
+class QSqlDatabase;
 class QLabel;
 class QPushButton;
 class QSpinBox;
@@ -24,9 +28,16 @@ public:
     // are a setting too — just one stored on `vessel` rather than in
     // `app_setting`, since the folder belongs to the vessel and not to this
     // installation's preferences.
-    SettingsPage(AppSettingRepository& settings,
-                 VesselRepository&     vessels,
-                 QWidget*              parent = nullptr);
+    // connection, installation and dataFolder are here for the database
+    // backup section (database-backup-spec §3). The folder is passed in
+    // rather than looked up, so only main() names the real one and a test can
+    // point this at a QTemporaryDir (§6).
+    SettingsPage(AppSettingRepository&      settings,
+                 VesselRepository&          vessels,
+                 QSqlDatabase&              connection,
+                 const InstallationContext& installation,
+                 const QString&             dataFolder,
+                 QWidget*                   parent = nullptr);
 
     // Re-reads the stored row into the form, and the fleet's folders with it.
     void reload();
@@ -54,6 +65,10 @@ private:
     // Save button: choosing a folder moves files, which is not something to
     // leave sitting in a form as an unsaved change.
     AttachmentFolderSettings* m_attachmentFolders = nullptr;
+
+    // Its own widget for the same reason, and because nothing about a backup
+    // belongs to the Save button either (database-backup-spec §3).
+    DatabaseBackupSettings*   m_databaseBackup    = nullptr;
 
     QString m_settingId;
 };

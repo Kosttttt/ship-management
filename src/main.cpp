@@ -1,16 +1,21 @@
 #include "app/FirstRunWizard.h"
 #include "app/MainWindow.h"
 #include "app/ModuleRegistry.h"
+#include "core/AutomaticBackup.h"
+#include "core/BackupSettings.h"
 #include "core/Database.h"
 #include "core/InstallationContext.h"
 #include "core/InstallationRepository.h"
 #include "core/AppSettingRepository.h"
 #include "core/Logger.h"
 #include "core/MigrationRunner.h"
+#include "core/RestoreSwap.h"
 #include "core/VesselRepository.h"
 
 #include <QApplication>
+#include <QDate>
 #include <QDir>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QStandardPaths>
 
@@ -18,10 +23,14 @@
 
 namespace {
 
-// Migrations are compiled into the executable, so ":/migrations" is a folder
-// inside the binary rather than on disk. An installed copy therefore cannot
-// lose or half-copy its migrations, and there is no path to guess at runtime.
-const char* const kMigrationsPath = ":/migrations";
+// Where the live database file sits. The same call the database is opened
+// with, so a restore swaps files in the right folder by construction rather
+// than by a guess — which is the rule the whole backup feature follows
+// (database-backup-spec §1, CLAUDE.md §10.1).
+QString dataFolder()
+{
+    return QFileInfo(Database::defaultFilePath()).absolutePath();
+}
 
 void startLogging()
 {
@@ -62,7 +71,7 @@ bool prepareDatabase(Database& database)
     }
     qInfo() << "Database opened:" << path;
 
-    MigrationRunner runner(database.connection(), QString::fromLatin1(kMigrationsPath));
+    MigrationRunner runner(database.connection(), MigrationRunner::compiledInPath());
     if (!runner.run()) {
         showStartupError(QObject::tr("The database could not be brought up to date.\n\n%1")
                              .arg(runner.errorString()));
@@ -109,6 +118,66 @@ StartupOutcome resolveInstallation(Database& database, InstallationContext* cont
     return StartupOutcome::Ready;
 }
 
+// database-backup-spec §5.3 step 3: before the database is opened, so a
+// pending restore is swapped in while nothing is holding either file.
+//
+// Never fatal. A failure here means the restore did not happen and the
+// original database is still in place, which is exactly what should then be
+// opened.
+void applyPendingRestore()
+{
+    QString detail;
+    switch (RestoreSwap::applyPending(dataFolder(), &detail)) {
+    case RestoreSwap::Outcome::NothingPending:
+        return;
+    case RestoreSwap::Outcome::Restored:
+        qInfo() << "Restore completed at startup:" << detail;
+        QMessageBox::information(nullptr, QObject::tr("Backup restored"), detail);
+        return;
+    case RestoreSwap::Outcome::Failed:
+        qCritical() << "Restore failed at startup:" << detail;
+        QMessageBox::warning(nullptr, QObject::tr("The backup was not restored"), detail);
+        return;
+    }
+}
+
+// database-backup-spec §4: after migrations, so the backup carries the
+// current schema, and after the installation is resolved, so it is filed
+// under this node's name.
+//
+// Returns a short line for the status bar, or an empty string when there is
+// nothing worth saying. It never stops startup: every outcome, success or
+// failure, ends in a sentence and a log entry.
+QString runAutomaticBackup(Database& database, const InstallationContext& installation)
+{
+    if (!BackupSettings::automaticEnabled()) {
+        qInfo() << "Automatic daily backup is switched off.";
+        return QString();
+    }
+
+    QString saved;
+    QString error;
+    const AutomaticBackup::Outcome outcome =
+        AutomaticBackup::runIfDue(database.connection(), BackupSettings::automaticFolder(),
+                                  installation.nodeId(), QDate::currentDate(), &saved, &error);
+
+    switch (outcome) {
+    case AutomaticBackup::Outcome::AlreadyDoneToday:
+        qInfo() << "Automatic backup: today's is already in the folder.";
+        return QString();
+    case AutomaticBackup::Outcome::Saved:
+        qInfo() << "Automatic backup written:" << saved;
+        return QObject::tr("Backed up to %1").arg(QDir::toNativeSeparators(saved));
+    case AutomaticBackup::Outcome::NoFolder:
+    case AutomaticBackup::Outcome::Failed:
+        // The unplugged drive, the cloud folder that is not running. Worth
+        // saying out loud, never worth refusing to start over.
+        qWarning() << "Automatic backup did not run:" << error;
+        return QObject::tr("Automatic backup did not run — see Settings.");
+    }
+    return QString();
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -122,6 +191,11 @@ int main(int argc, char* argv[])
 
     startLogging();
     qInfo() << "Ship Management System starting.";
+
+    // Before anything opens the database: a restore asked for in the last
+    // session is finished here, while no connection is holding either file
+    // (database-backup-spec §5.3 step 3).
+    applyPendingRestore();
 
     Database database;
     if (!prepareDatabase(database)) {
@@ -151,8 +225,16 @@ int main(int argc, char* argv[])
     AppSettingRepository appSettings(database.connection());
     ModuleRegistry       modules(database.connection(), installation);
 
-    MainWindow window(installation, vessels, appSettings, modules);
+    MainWindow window(installation, vessels, appSettings, modules, database.connection(),
+                      dataFolder());
     window.show();
+
+    // After migrations and after the installation is resolved, so the copy
+    // carries the current schema and is filed under this node's name
+    // (database-backup-spec §4). Never allowed to stop the program starting,
+    // which is why it runs here, with the window already up, and reports
+    // through the status bar rather than a dialog.
+    window.showStartupNotice(runAutomaticBackup(database, installation));
 
     const int result = app.exec();
 

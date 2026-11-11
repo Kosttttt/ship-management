@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <QString>
 
 class AlertBanner;
 class AppSettingRepository;
@@ -11,6 +12,7 @@ class InstallationContext;
 class ModuleRegistry;
 class VesselListWidget;
 class VesselRepository;
+class QSqlDatabase;
 class QComboBox;
 class QListWidget;
 class QStackedWidget;
@@ -23,17 +25,28 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
+    // connection and dataFolder are passed straight through to the Settings
+    // page's database-backup section (database-backup-spec §3 and §6).
     MainWindow(const InstallationContext& installation,
                VesselRepository&          vessels,
                AppSettingRepository&      appSettings,
                ModuleRegistry&            modules,
+               QSqlDatabase&              connection,
+               const QString&             dataFolder,
                QWidget*                   parent = nullptr);
+
+    // A line about something that happened while starting — today only the
+    // automatic backup (database-backup-spec §4). Shown beside the node id
+    // rather than instead of it, because both say what this copy is doing.
+    void showStartupNotice(const QString& text);
 
 private:
     void buildSidebar(const InstallationContext& installation,
                       VesselRepository&          vessels,
                       AppSettingRepository&      appSettings,
-                      ModuleRegistry&            modules);
+                      ModuleRegistry&            modules,
+                      QSqlDatabase&              connection,
+                      const QString&             dataFolder);
     void buildVesselSelector();
 
     // Re-reads the fleet into the selector, keeping the current selection by
@@ -54,6 +67,10 @@ private:
     void showAttentionFor(IModule* module, const QString& vesselId);
 
     VesselRepository* m_vesselRepository = nullptr;
+
+    // The status bar's own line, kept so a startup notice can be added to it
+    // instead of replacing it.
+    QString m_statusBase;
 
     QListWidget*    m_sidebar        = nullptr;
     QStackedWidget* m_pages          = nullptr;

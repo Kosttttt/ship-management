@@ -22,9 +22,25 @@ class MigrationRunner
 public:
     MigrationRunner(QSqlDatabase& database, const QString& migrationsDirectory);
 
+    // Where the migrations compiled into this executable live. A path inside
+    // the binary, not a folder on disk, so an installed copy cannot lose or
+    // half-copy them and there is nothing to guess at runtime.
+    //
+    // Named here rather than spelled out at each call site: main() opens the
+    // database with it, and the backup check needs the same answer
+    // (database-backup-spec §5.1 check 3).
+    static QString compiledInPath();
+
     // Applies whatever is outstanding. Returns false and sets errorString()
     // on the first failure, leaving the failed migration fully rolled back.
     bool run();
+
+    // The highest migration number this program carries, for the backup
+    // check that refuses a backup made by a newer version
+    // (database-backup-spec §5.1 check 3). Reads the migrations folder, not
+    // the database, and touches nothing: this is "what do I know how to do",
+    // not "what has been done here".
+    bool highestAvailableVersion(int* version);
 
     QString     errorString() const;
     QStringList appliedInLastRun() const;

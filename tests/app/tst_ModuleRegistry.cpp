@@ -1,6 +1,7 @@
 #include "app/IModule.h"
 #include "app/MainWindow.h"
 #include "app/ModuleRegistry.h"
+#include "core/BackupSettings.h"
 #include "core/AppSettingRepository.h"
 #include "core/InstallationContext.h"
 #include "core/MigrationRunner.h"
@@ -10,6 +11,7 @@
 #include <QListWidget>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QTemporaryDir>
 #include <QtTest>
 
 // certificate-crud-spec §7 item 10: the registry exposes exactly one module,
@@ -56,7 +58,13 @@ private:
 
     QString seedVessel(const QString& id, const QString& name, const QString& imo);
 
-    QString m_connectionName;
+    // MainWindow now builds the Settings page's database-backup section
+    // (database-backup-spec §3), which needs somewhere the live database
+    // could be and settings of its own. Both throwaway: no test may touch
+    // the real data folder or the real settings (CLAUDE.md §10.1).
+    QString       m_connectionName;
+    QTemporaryDir m_dataFolder;
+    QTemporaryDir m_settingsFolder;
 };
 
 void TestModuleRegistry::init()
@@ -69,6 +77,11 @@ void TestModuleRegistry::init()
 
     MigrationRunner runner(db, QStringLiteral(":/migrations"));
     QVERIFY2(runner.run(), qPrintable(runner.errorString()));
+
+    QVERIFY(m_dataFolder.isValid());
+    QVERIFY(m_settingsFolder.isValid());
+    BackupSettings::setSettingsFileOverride(
+        m_settingsFolder.filePath(QStringLiteral("%1.ini").arg(QTest::currentTestFunction())));
 }
 
 void TestModuleRegistry::cleanup()
@@ -80,6 +93,7 @@ void TestModuleRegistry::cleanup()
         }
     }
     QSqlDatabase::removeDatabase(m_connectionName);
+    BackupSettings::setSettingsFileOverride(QString());
 }
 
 QString TestModuleRegistry::seedVessel(const QString& id, const QString& name, const QString& imo)
@@ -147,7 +161,7 @@ void TestModuleRegistry::sidebarShowsVesselsPlusEveryModule()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* sidebar = window.findChild<QListWidget*>(QStringLiteral("navigationSidebar"));
     QVERIFY(sidebar != nullptr);
@@ -174,7 +188,7 @@ void TestModuleRegistry::officeModeHasAVesselSelectorStartingUnselected()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* selector = window.findChild<QComboBox*>(QStringLiteral("vesselSelector"));
     QVERIFY2(selector != nullptr, "the office installation needs a ship selector");
@@ -192,7 +206,7 @@ void TestModuleRegistry::vesselModeHasNoVesselSelector()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow window(context, vessels, appSettings, registry);
+    MainWindow window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     // CLAUDE.md §3: the ship selector is hidden on a vessel installation.
     QVERIFY(window.findChild<QComboBox*>(QStringLiteral("vesselSelector")) == nullptr);
@@ -210,7 +224,7 @@ void TestModuleRegistry::settingsEntryIsPresentInVesselModeToo()
     ModuleRegistry            registry(db, context);
 
     AppSettingRepository appSettings(db);
-    MainWindow           window(context, vessels, appSettings, registry);
+    MainWindow           window(context, vessels, appSettings, registry, db, m_dataFolder.path());
 
     auto* sidebar = window.findChild<QListWidget*>(QStringLiteral("navigationSidebar"));
     QVERIFY(sidebar != nullptr);

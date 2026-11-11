@@ -78,6 +78,11 @@ qt_add_library(ShipCore STATIC
     src/core/AppSetting.h
     src/core/AppSettingRepository.h   src/core/AppSettingRepository.cpp
     src/core/CsvFile.h                src/core/CsvFile.cpp
+    src/core/BackupSettings.h         src/core/BackupSettings.cpp
+    src/core/BackupFileInspector.h    src/core/BackupFileInspector.cpp
+    src/core/DatabaseBackup.h         src/core/DatabaseBackup.cpp
+    src/core/AutomaticBackup.h        src/core/AutomaticBackup.cpp
+    src/core/RestoreSwap.h            src/core/RestoreSwap.cpp
     src/core/TransactionScope.h
     src/core/FileTree.h               src/core/FileTree.cpp
     src/core/ManagedFileStore.h       src/core/ManagedFileStore.cpp
@@ -213,6 +218,8 @@ qt_add_library(ShipApp STATIC
     src/app/VesselEditDialog.h     src/app/VesselEditDialog.cpp
     src/app/VesselListWidget.h     src/app/VesselListWidget.cpp
     src/app/VesselArchiveActions.h src/app/VesselArchiveActions.cpp
+    src/app/DatabaseBackupSettings.h src/app/DatabaseBackupSettings.cpp
+    src/app/RestoreConfirmationDialog.h src/app/RestoreConfirmationDialog.cpp
     src/app/VesselDetailPage.h     src/app/VesselDetailPage.cpp
     src/app/SettingsPage.h         src/app/SettingsPage.cpp
     src/app/AttachmentFolderSettings.h src/app/AttachmentFolderSettings.cpp
