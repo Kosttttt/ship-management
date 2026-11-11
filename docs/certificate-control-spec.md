@@ -279,21 +279,21 @@ When intermediate_mode = 'REPLACES_ANNUAL', an INTERMEDIATE endorsement
 inside annualWindow(2) or annualWindow(3) also satisfies that annual.
 ```
 
-**A survey completed after its window closed still satisfies that
-anniversary.** The pseudocode above says an endorsement must fall *within*
-`annualWindow(n)`, but that leaves no way for a genuinely late survey to ever
-resolve — read literally, a certificate that missed one window would show
-`Overdue` forever, even after being surveyed, which does not match what
-actually happens: a late survey is still a survey. The matching rule is
-therefore: an endorsement of the matching type satisfies anniversary `n` if
-its `endorsement_date` is on or after `annualWindow(n)`'s opening date and
-has not already been claimed by an earlier, unsatisfied anniversary. There is
-no upper bound at the window's close — only being superseded by an even
-earlier open anniversary claiming it first. When such an endorsement's date
-falls after `windowCloses`, the anniversary is satisfied (the certificate is
-no longer `Overdue` for it), but `CertificateState.reason` records that it
-was completed late — this is surfaced through the existing `reason` string,
-not a new field. See §4.8 item 6.
+**The latest annual survey counts — superseded rule, see
+`docs/survey-latest-counts-spec.md`.** The annual track looks forward from
+the most recent annual endorsement, as §3.3 says: that survey covers the last
+anniversary whose window had opened by its date, and every anniversary
+before it. Only later anniversaries remain. A survey dated after its own
+window closed still counts (a late survey is still a survey), and
+`CertificateState.reason` records that it was late.
+
+*History of this paragraph:* it previously described a claim-walk in which
+each anniversary took the earliest endorsement dated on or after its window
+opened. On a real certificate with only its latest survey recorded, that
+walk gave the survey to the oldest anniversary and reported a later one as
+overdue. Replaced by the developer's decision; the accepted trade-off (a
+missed earlier annual is no longer flagged once a later one is recorded) is
+written out in that spec.
 
 Once every anniversary is satisfied, the next required action is the **renewal
 survey** before expiry.
@@ -321,7 +321,8 @@ silently** by the calculation.
 5. An endorsement dated before the issue date — reject as invalid input.
 6. An endorsement completed after its window closed still satisfies that
    anniversary (the certificate returns to valid), and `reason` records that
-   it was late — see the matching rule added to §4.5.
+   it was late. Only the latest annual survey is judged — it also covers
+   every earlier anniversary (`docs/survey-latest-counts-spec.md`).
 7. Annual overdue while the intermediate is still in window, and the reverse.
 8. Both annual and intermediate windows open at once — annual is reported.
 9. Expiring soon **and** survey overdue at the same time.

@@ -213,6 +213,13 @@ resources/                icons, seed data, report templates
 - `enum class`, never plain `enum`.
 - Functions do one thing; split anything over ~40 lines.
 - **No source file exceeds ~300 lines.** Split along layer boundaries.
+  When one class outgrows this — typically a repository, which keeps all
+  SQL for its table, or a busy screen — move a self-contained piece into a
+  small helper class in the same layer (e.g. `VesselArchiveActions` out of
+  `VesselListWidget`), rather than spreading one class across two files.
+  A helper that holds SQL stays in the repository layer and is used only by
+  its own repository. (Decided by the developer after `VesselRepository.cpp`
+  reached 557 lines.)
 - Vessel field naming follows the IMO Compendium data model: `imoNumber`,
   `callSign`, `grossTonnage`, `portOfRegistry`, `flagState`.
 
@@ -284,8 +291,13 @@ Rules going forward:
       `computeCertificateState()` (deferred from step 6)
   12. Attachments with archive-on-replace
   13. CSV import/export
-  14. Reports (print preview, PDF)
-  15. Audit trail viewer + backup/restore
+  14. ~~Reports (print preview, PDF)~~ — dropped by the developer: step 13's
+      one-vessel PDF is enough for this module.
+  15. Database backup & restore (export/import the database from Settings).
+      The audit trail viewer is deferred, not part of this module.
+- **Closing out Certificate Control** (order in `docs/roadmap-and-pending.md`):
+  the "latest survey counts" rule, a housekeeping round, then step 15.
+  After that the module is complete and the next module starts.
 - **Not yet started:** ship-to-shore sync, role-based access control
   (deliberately last), all future modules (DMS, PMS, spares, purchasing, vessel
   life monitoring, budget, crew).
