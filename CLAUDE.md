@@ -103,6 +103,9 @@ database.
   the name unambiguous once other modules have tables of their own).
   There is deliberately no `certificate_type` table — see
   `docs/certificate-control-spec.md` §5 for why.
+- **The documents module owns:** `document`, `document_version`, and the
+  tables its later steps add (manual chapters/sections, revisions,
+  packages) — see `docs/document-management-spec.md`.
 
 There is **no equipment registry in this project**. Equipment and planned
 maintenance belong to a future PMS module and are not this module's concern.
@@ -268,8 +271,10 @@ Rules going forward:
 
 ## 11. Current status
 
-- **Active module:** Certificate Control — see `docs/certificate-control-spec.md`
-- **Build order:**
+- **Certificate Control — complete** (tag `certificate-control-v1.0`).
+  Spec `docs/certificate-control-spec.md`; history in `docs/PROJECT-STATUS.md`;
+  what was deferred, and why, in `docs/roadmap-and-pending.md`. Build order
+  as it was carried out:
   1. Toolchain verified (blank Qt window builds and runs)
   2. Core infra: database connection, migration runner, logger
   3. First-run wizard: installation mode + vessel identity
@@ -277,30 +282,32 @@ Rules going forward:
   5. Certificate CRUD — no separate type catalogue; each certificate carries
      its own name and survey-rule fields directly (see
      `docs/certificate-control-spec.md` §5)
-  6. Endorsement model and `computeCertificateState()` + unit tests — annual
-     and intermediate tracks only; extensions deferred to step 11
-     (see `docs/certificate-endorsement-spec.md`)
+  6. Endorsement model and `computeCertificateState()` + unit tests
   7. Certificate list screen: status colours, filters, days-left column
-  8. Settings & `app_setting` — alert thresholds (editable), daily-toast
-     last-shown tracking; step 6 ships thresholds as hardcoded defaults, this
-     is what makes them the editable values `certificate-control-spec.md`
-     §4.3 describes
+  8. Settings & `app_setting` — editable alert thresholds
   9. Alerts: sidebar badge, daily toast, filtered drill-down
   10. Renewal workflow
-  11. Extensions — recorded against a certificate, feeding into
-      `computeCertificateState()` (deferred from step 6)
+  11. Short-term extensions
   12. Attachments with archive-on-replace
-  13. CSV import/export
-  14. ~~Reports (print preview, PDF)~~ — dropped by the developer: step 13's
-      one-vessel PDF is enough for this module.
-  15. Database backup & restore (export/import the database from Settings).
-      The audit trail viewer is deferred, not part of this module.
-- **Closing out Certificate Control** (order in `docs/roadmap-and-pending.md`):
-  the "latest survey counts" rule, a housekeeping round, then step 15.
-  After that the module is complete and the next module starts.
+  13. CSV import/export, one-vessel PDF statement
+  14. ~~Reports~~ — dropped by the developer; step 13's PDF is enough.
+  15. Database backup & restore (Settings, automatic daily backup,
+      restore at startup and from first-run setup).
+  Plus, outside the numbered steps: list usability fixes, S-14 list-number
+  prefixes, vessel archive/restore, "latest annual survey counts",
+  housekeeping, category tabs.
+- **Active module:** Document Management — `docs/document-management-spec.md`.
+  Build order:
+  1. Library — fleet-wide / per-vessel documents, four categories,
+     uploaded files with full version history (spec §4)
+  2. Manual editor — chapters/sections, draft → publish, change tracking
+  3. Manual output — generated PDF with change bars, Record of Revisions,
+     List of Effective Pages, "Print changed pages", `.odt` export
+  4. Office → vessel packages, master's receipt confirmation
+  Steps 2–4 get their own specs when they come up.
 - **Not yet started:** ship-to-shore sync, role-based access control
-  (deliberately last), all future modules (DMS, PMS, spares, purchasing, vessel
-  life monitoring, budget, crew).
+  (deliberately last), the remaining future modules (PMS, spares, purchasing,
+  vessel life monitoring, budget, crew), the audit trail viewer.
 
 Role-based access control is applied **on top of** working functionality at the
 end. Do not design around roles now — but record `created_by` / `updated_by` on

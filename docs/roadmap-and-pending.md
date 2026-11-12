@@ -1,117 +1,69 @@
 # Roadmap and pending items
 
-A single-page "where are we" view, distilled from `CLAUDE.md` §11's build
-order and `docs/PROJECT-STATUS.md`'s running log. Those two files remain the
-full detailed record — this is the short version to orient a new session (or
-yourself) quickly, not a replacement for either.
+A single-page "where are we" view, distilled from `CLAUDE.md` §11 and
+`docs/PROJECT-STATUS.md`'s running log. Those two remain the full record —
+this is the short version to orient a new session quickly.
 
-## Closing out Certificate Control — the plan
+## Now: Document Management — design discussion
 
-Decided with the developer: finish every pending item for this module, then
-start the next one. Rounds, one at a time, in this order:
+The second module. Design decided with the developer; spec
+`docs/document-management-spec.md`. Steps: 1 library (versions, archive),
+2 manual editor with change tracking, 3 manual output (PDF with change
+bars, Record of Revisions, List of Effective Pages, Print changed pages,
+`.odt`), 4 office → vessel packages with the master's receipt.
 
-1. ✅ **Annual surveys: the latest survey counts.** `6861d24`, spec
-   `docs/survey-latest-counts-spec.md`. The V TRE Load Line no longer shows
-   overdue. Also settled the long-deferred "endorsement model rework"
-   question: keep the full history, schedule from the latest.
-2. ✅ **Housekeeping.** `05016eb`, spec `docs/housekeeping-round-spec.md`.
-   `VesselRepository.cpp` 557 → 430 and `CertificateListWidget.cpp`
-   554 → 379 via helper classes; survey tests split; the attachment chooser
-   remembers the last folder; `TransactionScope` and `QSignalBlocker`
-   fixes. The first-run duplicate-IMO item was dropped — it can't happen.
-3. ✅ **Step 15: database backup & restore.** `d702988`, spec
-   `docs/database-backup-spec.md`. Back up / Restore in Settings, an
-   automatic daily backup to a chosen folder keeping the last 10, restore
-   swapped in at startup with a safety copy kept.
-4. **Category tabs on the certificate list** — requested by the developer
-   during close-out. Spec: `docs/certificate-category-tabs-spec.md`.
-   All | Statutory | Class | Equipment | Other, with counts; a tab turns red
-   when something in it needs attention; exports always the whole vessel.
-5. **Close-out.** Done so far: `433d1b4` (§10 of the backup spec — a side
-   file that won't move cancels the restore; "Restore from a backup
-   instead…" on the first-run setup) and `docs/machine-setup.md` rewritten
-   around Back up → Restore. The developer's on-screen checks 1–4 passed
-   (attachment folder memory, Back up now, automatic backup, Restore).
-   Left: the category tabs (4 above), then a final `PROJECT-STATUS.md`
-   entry marking the module complete and a git tag.
+Worth remembering why manuals are written *in* the program: Qt's PDF
+module can't be built with MinGW, so the program can't print chosen pages
+of an uploaded PDF — but it can print any page of a manual it lays out
+itself. Uploaded files open in the normal viewer.
 
-Then **the next module** — Document Management is next on the project's
-list — starting, as every step has, with a design discussion before any
-spec.
+## Certificate Control — complete ✅
 
-## Completed
+Tagged `certificate-control-v1.0`. Everything in `CLAUDE.md` §11's build
+order is done, except step 14 (Reports), which the developer dropped:
+the one-vessel PDF from step 13 is enough.
 
-**Build order steps 1–13 ✅:** toolchain; core infra; first-run wizard;
-vessel CRUD; certificate CRUD; endorsements + `computeCertificateState()`;
-certificate list screen; settings; alerts; renewal; short-term
-extensions; attachments; CSV import/export + one-vessel PDF.
+The close-out, in order: "latest annual survey counts" (`6861d24`),
+housekeeping (`05016eb`), database backup & restore (`d702988`, `433d1b4`),
+category tabs (`0fff375`, red dot `60a5c41`). All checked on screen by the
+developer.
 
-**Rounds outside the numbered steps ✅:** certificate-list usability fixes;
-List Number prefixes for the S-14 scheme (migration 011); vessel Archive /
-Restore (`11efcd9`) and its follow-up — clearer IMO message,
-`VesselArchiveActions` (`a2d17fe`).
+## Carried over — not part of any module yet
 
-## Dropped or deferred (decided, not forgotten)
-
-- **Step 14, Reports** — dropped by the developer. The one-vessel PDF from
-  step 13 is enough for this module.
+Decided, not forgotten:
 - **Audit trail viewer** — deferred out of step 15.
-- **`--data-dir` startup argument** — would let a manual check run against
-  a throwaway database (`CLAUDE.md` §10.1). Not needed by step 15's design
-  if backup/restore works from inside the running app; revisit if the
-  step 15 spec says otherwise.
 - **Ship-to-shore sync** and **role-based access control** — cross-module,
-  deliberately later, per `CLAUDE.md` §11.
-- **Database in a cloud-synced folder** — rejected. SQLite edited inside a
-  folder that a sync client is copying, or open on two machines at once,
-  ends in corruption or a "conflicted copy." Cloud storage is for an
-  *exported backup file* only.
+  deliberately later (`CLAUDE.md` §11).
+- **`--data-dir` startup argument** — would let a manual check run against
+  a throwaway database. Not needed so far.
+- **Reports beyond the one-vessel PDF** (fleet overview, print preview,
+  certificate history) — unscheduled; added to `CertificateReportBuilder`
+  if a real need appears.
+- **Badge and list share one calculation.** `CertificateAlertProvider` and
+  `CertificateListRows` gather the same data separately; making the badge
+  use `CertificateListRows` is the obvious next move, left out because it
+  could change what the badge counts.
 
-## Decisions made, for the record
+Code size, to tidy when that code is next touched (`CLAUDE.md` §9):
+- `CertificateListWidget.cpp` (416) — grown three rounds running; the
+  constructor is the bulk.
+- `VesselRepository.cpp` (430), `ManagedFileStore.cpp` (424),
+  `EndorsementRepository.cpp` (414), `CertificateRepository.cpp` (402),
+  `VesselAttachmentRoots.cpp` (342), `MainWindow.cpp` (340).
+- Tests: `tst_CertificateCsvImportSurveys.cpp` (430),
+  `tst_CertificateListRows.cpp` (367).
 
-- **Annual survey rule:** the latest annual survey counts for every
-  anniversary before it. Trade-off accepted: a missed earlier annual is no
-  longer flagged once a later one is recorded.
-- **`CLAUDE.md` §9:** a class that outgrows ~300 lines hands self-contained
-  pieces to small helper classes in the same layer, instead of being
-  exempted or split across files.
-- **Step 14 dropped; step 15 = database backup & restore only.**
-
-## Small UX improvement, scheduled in round 2
-
-**The attachment chooser remembers the last folder used**, instead of
-always opening at Documents. `AttachmentChooser::startingFolder()` already
-has a comment anticipating it: *"Documents rather than the last-used
-folder, which nothing stores yet."* Store it in `QSettings`, like
-`TableHeaderSettings` does for column widths — a per-machine UI
-preference, not fleet data. Carry over the existing safety reason: the
-remembered folder must never be the vessel's own `attachment_root_path`
-(copying a file onto itself); fall back to Documents if it would be.
-
-## Technical debt not covered by the rounds above
-
-- **`%APPDATA%` vs. the virtualized path** the running app actually uses
-  is avoided, not understood. Step 15 should work through the app's own
-  open database connection rather than guess a path on disk.
-- Environment quirks, low priority: no SQLite viewer installed (DB Browser
-  for SQLite suggested); Qt Creator's F5 doesn't stop on breakpoints
-  (Ctrl+R works).
+Environment, low priority: no SQLite viewer installed (DB Browser for
+SQLite suggested); Qt Creator's F5 doesn't stop on breakpoints (Ctrl+R
+works).
 
 ## Your pending items
 
-- Everything up to `433d1b4` is pushed.
-- **Setup-time restore on the work laptop** (on-screen check 5) — follow
-  `docs/machine-setup.md` there. Doesn't block the module close-out; it
-  also closes the old laptop / migration-proof-kit item below.
-- **V TRE CSV — two rows still blocked.** No. 19 (Safety Construction) and
-  No. 39 (Ballast Water Management): each annual-survey date is before the
-  certificate's current issue date, which the app refuses. Needs either the
-  correct survey date or the correct issue date. After round 1 you only
-  need the latest annual date for each, not the full history. No. 19's
-  ~2-month issue-to-expiry span is also worth checking against the S-14
-  sheet.
-- **V ALDO CSV — clean.** 214 rows validated; ready to import.
-- **Work laptop.** The old plan (run `dist/migration-proof-kit/` there) is
-  replaced by the setup-time restore above: back up on this computer,
-  restore on the laptop. The restored database is brought up to date
-  automatically on its first start.
+- **Work laptop:** set it up from a backup with the new
+  `docs/machine-setup.md` (setup-time restore). Also the last on-screen check
+  of step 15 that couldn't be done on this computer.
+- **V TRE CSV, rows No. 19 and No. 39:** the annual-survey date is before
+  the certificate's issue date, which the app refuses. Needs the correct
+  survey date or the correct issue date — only the latest annual date is
+  needed now. You can also simply fix them in the app directly.
+- **V ALDO CSV:** clean, 214 rows, ready to import if not done already.
