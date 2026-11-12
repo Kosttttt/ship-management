@@ -48,17 +48,55 @@ public:
         CertificateState state;
     };
 
+    // What one tab of the category bar has to show
+    // (certificate-category-tabs-spec §4).
+    struct CategoryTally {
+        // Unset is the "All" entry — not a category, every category. The
+        // same pun the `category` parameter of build() uses, and the only
+        // value that can never belong to a stored certificate.
+        CertificateCategory category = CertificateCategory::Unset;
+
+        // How many rows this tab would show *as the list is filtered now*.
+        // §3: "the counts follow what is visible", so with the attention
+        // checkbox ticked, "Class (2)" means two class certificates needing
+        // attention. It does not follow which tab is selected: every tab
+        // shows its own number whichever one is open.
+        int visibleCount = 0;
+
+        // Whether this category holds anything needing attention on this
+        // vessel — what turns a tab's text red.
+        //
+        // §3: red follows the vessel, not the checkbox. A certificate the
+        // checkbox is hiding still votes here, because the whole point is to
+        // see a problem in a category you are not looking at.
+        bool needsAttention = false;
+    };
+
+    // The tab bar's entries in display order: All first, then the four real
+    // categories in the order the program already uses (§3).
+    //
+    // build() fills its tallies in exactly this order, so the widget can put
+    // them against its tabs without matching on the category.
+    static QList<CertificateCategory> categoryOrder();
+
+    // `category` is the selected tab; Unset means All and filters nothing.
+    //
     // `today` is a parameter, never QDate::currentDate() inside here, for the
     // same reason computeCertificateState() takes one: every rule stays
     // testable, and one reload uses one date for every row.
+    //
+    // `tallies` comes back with one entry per categoryOrder() entry, counted
+    // in the same pass as the rows — which is the point of it being here and
+    // not in the widget: numbers worked out separately from the rows they
+    // describe are numbers that will eventually disagree with them.
     //
     // Returns false only when the certificate list itself could not be read —
     // the one failure the screen reports to the user. An unreadable
     // endorsement list or extension is warned about and treated as absent,
     // because a row showing the certificate's own dates beats a screen with a
     // hole in it.
-    bool build(const QString& vesselId, bool onlyNeedingAttention, QDate today,
-               QList<Row>* rows);
+    bool build(const QString& vesselId, CertificateCategory category, bool onlyNeedingAttention,
+               QDate today, QList<Row>* rows, QList<CategoryTally>* tallies);
 
     QString errorString() const;
 

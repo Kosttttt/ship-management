@@ -11,6 +11,7 @@ class AppSettingRepository;
 class CertificateAttachmentService;
 class CertificateCsvExporter;
 class CertificateCsvImporter;
+class CertificateCategoryTabs;
 class CertificateExtensionRepository;
 class CertificateIoActions;
 class CertificateListActions;
@@ -116,6 +117,11 @@ private:
     // Which cell of a row holds what (housekeeping-round-spec §3.1). Also a
     // QObject child of this widget, and also built after m_table.
     CertificateRowRenderer* m_rows      = nullptr;
+
+    // The category filter above the table (certificate-category-tabs-spec).
+    // Another QObject child; it draws the tabs and reports which one is
+    // picked, and decides nothing about what they contain.
+    CertificateCategoryTabs* m_categoryTabs = nullptr;
 
     // Remembers the column widths the user drags, under its own QSettings
     // key (certificate-list-usability-fixes.md §1). A QObject child of this

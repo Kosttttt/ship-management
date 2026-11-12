@@ -7,6 +7,34 @@
 
 #include <QDebug>
 
+namespace {
+
+// The tally for one category, or the All entry when asked for Unset.
+//
+// Null when a row carries a category that is not in the list, which no
+// stored certificate can: migration 005's CHECK and the repository both
+// refuse Unset. Such a row is then simply not counted rather than counted
+// somewhere misleading.
+CertificateListRows::CategoryTally* tallyFor(QList<CertificateListRows::CategoryTally>* tallies,
+                                             CertificateCategory                        category)
+{
+    for (CertificateListRows::CategoryTally& tally : *tallies) {
+        if (tally.category == category) {
+            return &tally;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+QList<CertificateCategory> CertificateListRows::categoryOrder()
+{
+    return {CertificateCategory::Unset, CertificateCategory::Statutory,
+            CertificateCategory::Class, CertificateCategory::Equipment,
+            CertificateCategory::Other};
+}
+
 CertificateListRows::CertificateListRows(CertificateRepository&          repository,
                                          EndorsementRepository&          endorsements,
                                          CertificateExtensionRepository& extensions,
@@ -18,11 +46,22 @@ CertificateListRows::CertificateListRows(CertificateRepository&          reposit
 {
 }
 
-bool CertificateListRows::build(const QString& vesselId, bool onlyNeedingAttention, QDate today,
-                                QList<Row>* rows)
+bool CertificateListRows::build(const QString& vesselId, CertificateCategory category,
+                                bool onlyNeedingAttention, QDate today, QList<Row>* rows,
+                                QList<CategoryTally>* tallies)
 {
     m_errorString.clear();
     rows->clear();
+
+    // All five, always, and before anything can fail: a tab that vanished
+    // when its category emptied would move the others under the cursor, and a
+    // vessel that cannot be read should show five zeros rather than no tabs.
+    tallies->clear();
+    for (CertificateCategory entry : categoryOrder()) {
+        CategoryTally tally;
+        tally.category = entry;
+        tallies->append(tally);
+    }
 
     QList<Certificate> certificates;
     if (!m_repository.list(vesselId, &certificates)) {
@@ -83,10 +122,48 @@ bool CertificateListRows::build(const QString& vesselId, bool onlyNeedingAttenti
         row.state =
             computeCertificateState(certificate, endorsements, thresholds, today, extensionExpiry);
 
-        // certificate-list-status-spec §7: the filter works on computed
-        // severity, which is never stored, so it can only be applied here —
-        // after the calculation and before the row exists.
-        if (onlyNeedingAttention && row.state.display == DisplayStatus::Valid) {
+        // certificate-list-status-spec §7: "needs attention" is computed
+        // severity, which is never stored, so everything below can only be
+        // decided here — after the calculation.
+        const bool needsAttention = row.state.display != DisplayStatus::Valid;
+
+        CategoryTally* ownTally = tallyFor(tallies, certificate.category);
+        CategoryTally* allTally = tallyFor(tallies, CertificateCategory::Unset);
+
+        // Red before both filters, and it is the *tab* filter that makes the
+        // order matter: §3 wants the statutory tab red while somebody is
+        // standing on Class, which only works if every certificate on the
+        // vessel votes here. That is the whole point of the colour — a
+        // problem in a category nobody is looking at.
+        //
+        // The checkbox is a different matter: being above it reads right and
+        // matches §3's wording, but it changes nothing either way, because
+        // the only rows the checkbox hides are the ones that do not need
+        // attention and so have no vote to cast. Said here because a probe
+        // moving this below the checkbox failed to break a single test, and
+        // the next person to notice that deserves the reason rather than a
+        // comment that overstates what the order is doing.
+        if (needsAttention) {
+            if (ownTally != nullptr) {
+                ownTally->needsAttention = true;
+            }
+            allTally->needsAttention = true;
+        }
+
+        // The checkbox, which the counts do follow (§3).
+        if (onlyNeedingAttention && !needsAttention) {
+            continue;
+        }
+
+        // Counted before the tab filter and after the checkbox, so each tab
+        // shows its own number whichever tab happens to be open.
+        if (ownTally != nullptr) {
+            ++ownTally->visibleCount;
+        }
+        ++allTally->visibleCount;
+
+        // The selected tab. Unset means All, which filters nothing.
+        if (category != CertificateCategory::Unset && certificate.category != category) {
             continue;
         }
 

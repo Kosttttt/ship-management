@@ -154,6 +154,41 @@ inline QString seedCertificate(QSqlDatabase&  db,
     return id;
 }
 
+// A certificate in a chosen category, with dates chosen by the caller.
+//
+// Every other seed here hardcodes 'STATUTORY', which is fine for suites that
+// do not care; the category-tab suites are the ones that do
+// (certificate-category-tabs-spec §5). An invalid expiryDate seeds SQL NULL —
+// "never expires", which is always Valid and so never needs attention.
+inline QString seedCategorisedCertificate(QSqlDatabase&  db,
+                                          const QString& id,
+                                          const QString& vesselId,
+                                          const QString& name,
+                                          const QString& categoryCode,
+                                          const QDate&   issueDate,
+                                          const QDate&   expiryDate)
+{
+    QSqlQuery query(db);
+    query.prepare(QStringLiteral(
+        "INSERT INTO certificate (id, vessel_id, name, category, issue_date, expiry_date,"
+        " created_at, created_by, updated_at, updated_by, is_deleted, origin_node, revision)"
+        " VALUES (?, ?, ?, ?, ?, ?,"
+        " '2026-01-01T00:00:00Z', 'SEED', '2026-01-01T00:00:00Z', 'SEED', 0, 'OFFICE', 1)"));
+    query.addBindValue(id);
+    query.addBindValue(vesselId);
+    query.addBindValue(name);
+    query.addBindValue(categoryCode);
+    query.addBindValue(issueDate.toString(Qt::ISODate));
+    query.addBindValue(expiryDate.isValid() ? QVariant(expiryDate.toString(Qt::ISODate))
+                                            : QVariant(QMetaType(QMetaType::QString)));
+
+    if (!query.exec()) {
+        qWarning() << "seed failed:" << query.lastError().text();
+        return QString();
+    }
+    return id;
+}
+
 // Seeds a certificate with dates and survey rules chosen by the caller, for
 // the tests that need a specific computed status rather than a generic row.
 // An invalid expiryDate seeds SQL NULL — "never expires".

@@ -3141,6 +3141,137 @@ suites** in each.
 **Not tagged yet.** The developer's on-screen checks come first — the
 roadmap page lists them — then the tag and the module-complete entry.
 
+---
+
+### Certificate list — category tabs ✅
+
+`docs/certificate-category-tabs-spec.md`, asked for by the developer during
+the close-out. A row of tabs above the table: **All | Statutory | Class |
+Equipment | Other**, each labelled with its count and turning red when
+something in it needs attention.
+
+**§4 — the counting is in the service, not the widget.** `build()` gained
+the selected category and now also fills a `CategoryTally` per tab: the
+visible count and whether that category holds anything needing attention.
+Both come out of **the same pass as the rows**, which is the whole reason
+they live there: numbers worked out separately from the rows they describe
+are numbers that will eventually disagree with them. And filtering and
+counting are decisions about what is shown, which `CLAUDE.md` §4 rule 3
+keeps out of a widget.
+
+Three orderings inside that pass carry the behaviour, and they are not
+interchangeable:
+
+- **Red is tallied before both filters.** Every certificate on the vessel
+  votes, which is what lets the statutory tab stay red while somebody is
+  standing on Class — the entire point of the colour.
+- **Counts are tallied after the checkbox and before the tab filter.** So
+  "Class (2)" with the checkbox ticked means two class certificates needing
+  attention (§3), while every tab still shows its own number whichever tab
+  is open.
+- **The tab filter is last**, and `Unset` means All and filters nothing —
+  the same pun the parameter and the All tally use, and the one category
+  value no stored certificate can carry.
+
+The five tallies are filled in before anything can fail, so a vessel that
+cannot be read shows five zeros rather than no tabs. A tab that vanished
+when its category emptied would move the others under the cursor.
+
+**The widget only draws.** `CertificateCategoryTabs` (59 + 110, `ui/`) owns
+the bar: it builds the five tabs, carries each category as tab data so the
+selection is read back rather than inferred from a position, sets text and
+colour from the tallies, and reports when the user picks a different tab.
+It decides nothing. §4 asked for this split if the bar pushed
+`CertificateListWidget.cpp` further over, and it would have.
+
+Behaviour, all from §3:
+
+- **Opens on All**, deliberately not remembered between runs — unlike the
+  column widths. The first thing seen at start-up must never hide an expired
+  certificate behind another tab.
+- **Changing tab clears the selection** before the reload, so Renew, Delete
+  and the attachment actions can never act on a row that has just been
+  hidden. Cleared explicitly rather than relying on the rebuild.
+- **The drill-down returns to All.** `setNeedsAttentionFilter(true)` now
+  selects All *without* the tab bar's signal and then lets the checkbox's
+  own `toggled()` reload — and reloads itself only when the checkbox did not
+  change but the tab did. That keeps the existing "one reload, or none when
+  nothing changed" property that `MainWindow::showAttentionFor()`'s own
+  comment relies on.
+- **Exports are untouched.** CSV and PDF still cover the whole vessel, which
+  is what the four export suites passing unchanged demonstrates: a report
+  handed to a third party must never be short of certificates because of
+  which tab happened to be open.
+
+**Tests — 2 new suites, 21 cases; the project is at 52 suites.**
+
+`tst_CertificateListRows` (12, no widgets): All returns everything, each
+category returns only its own, an empty category returns nothing and still
+has a tab; one tally per tab in display order with the right counts; counts
+identical whichever tab is selected; counts following the checkbox; red set
+for the category holding an expired certificate and clear for the all-valid
+ones; red unchanged by the checkbox *and* by which tab is open; and five
+tallies even when the vessel cannot be read.
+
+`tst_CertificateCategoryTabs` (9, through the real widget): five tabs in
+order, opening on All, each label carrying its count, the statutory tab and
+All red while Class and Equipment are not, picking a tab filtering the
+table, changing tab clearing the selection, and the drill-down coming back
+to All with the checkbox ticked and the expired certificate the one row
+left.
+
+**The three existing list suites pass untouched** — `tst_CertificateListWidget`, `tst_CertificateListStatus`, `tst_CertificateListColumns` — which
+is §5's stated proof that the default view did not change.
+
+**Vacuity check, and a comment I had to correct.** The probe I reached for
+first — moving the red tally below the attention checkbox — broke nothing,
+and the reason is not a weak test: the only rows the checkbox hides are the
+ones that do *not* need attention, so they have no vote to cast either way.
+My comment had claimed that order was load-bearing, which overstated it;
+it now says what actually is. The ordering that matters is against the
+**tab** filter, and the probe for that — moving the red tally below it —
+failed two tests, `redFollowsTheVesselNotTheCheckbox` and
+`countsAreTheSameWhicheverTabIsSelected`. The file came back to the same
+md5 after each probe.
+
+**A second thing worth recording:** `tst_CertificateListRows` first
+crashed before its first test under `QTEST_APPLESS_MAIN`. There are no
+widgets in it, but opening a SQLite connection needs an application object.
+It uses `QTEST_MAIN` with a comment saying why, so nobody switches it back
+on the reasonable-looking grounds that it tests no UI.
+
+**File sizes.** `CertificateListWidget.cpp` **379 → 416** (259 code). The
+tab code is in its own class, as §4 asked; the 37 lines are the wiring that
+has to be in the widget — the member, its construction, the layout line,
+the selection-changed connection, the two extra arguments to `build()`, and
+the rewritten `setNeedsAttentionFilter()`. Reported, not forced further:
+the remaining bulk is still the one constructor, and the argument against
+splitting it has not changed since the housekeeping round.
+
+`tst_CertificateListRows.cpp` is **367** (255 code), over the guideline. It
+came down from 379 by extracting a `Source` fixture struct — the same shape
+`AttachmentFixture` already uses, and necessary rather than tidy, since
+`CertificateListRows` holds references to four repositories that a helper
+function could not keep alive. Twelve tests each building six locals was
+the real duplication; what is left is twelve genuinely distinct cases.
+
+Everything else is comfortable: `CertificateListRows.cpp` 102 → 179,
+its header 71 → 109, `CertificateCategoryTabs` 59 + 110,
+`tst_CertificateCategoryTabs.cpp` 240.
+
+**One small duplication left deliberately.** The four category words now
+exist twice: in `CertificateCategoryTabs` for the tabs and in
+`CertificateEditForm` for its combo box. Not shared, because that combo
+pairs each label with the enum as item data and reads it back, which is a
+different shape from labelling a tab — and a `categoryLabel()` serving both
+would have to satisfy both. Worth one home if a third place ever needs
+them; noted in the tabs file.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **52/52
+suites** in each. No schema change, no migration.
+
+**Not tagged.** Still the developer's call, after the on-screen checks.
+
 
 ## Decisions confirmed by the developer
 
@@ -3798,6 +3929,25 @@ roadmap page lists them — then the tag and the module-complete entry.
   anything else ever needs it, it should ask one of these rather than
   compute it again. `CLAUDE.md` §10.1 is what makes this worth a line here
   at all.
+- **Updated by the category-tabs round.** Two more entries, both reported
+  rather than forced:
+  - `modules/certificates/ui/CertificateListWidget.cpp` **379 → 416**
+    (259 code). The tab bar is in its own `CertificateCategoryTabs` class,
+    as that spec's §4 asked; what grew is the wiring that has to be in the
+    widget — the member, its construction, a layout line, the
+    selection-changed connection, two more arguments to `build()` and the
+    rewritten `setNeedsAttentionFilter()`. The remaining bulk is still the
+    one 125-line constructor, and the argument against splitting that has
+    not changed. It has now grown in three rounds running, which is the
+    thing to watch.
+  - `tests/modules/certificates/tst_CertificateListRows.cpp` **367**
+    (255 code), new this round and over on arrival. Already down from 379
+    by extracting a `Source` fixture struct, which was necessary rather
+    than tidy: `CertificateListRows` holds references to four
+    repositories, so they need somewhere that outlives it. What is left is
+    twelve genuinely distinct cases, and the only cut available would be by
+    topic — counts in one file, colours in another — which separates things
+    that are computed in one pass and read together.
 
 ---
 
@@ -3838,16 +3988,15 @@ were all updated to match.
 ## Next step
 
 **The developer's on-screen checks, then the tag.** Every feature of
-Certificate Control is built, and so are the two follow-ups the step 15
-review asked for. What remains, in the order
-`docs/roadmap-and-pending.md` gives:
+Certificate Control is built, including the category tabs added during
+close-out. What remains, in the order `docs/roadmap-and-pending.md` gives:
 
-1. The checks a person has to do, which that page lists: the attachment
-   chooser's remembered folder; Back up now; the automatic backup turned
-   on, then a restart, then the file appearing in the folder; Restore,
-   then a restart, then the "Backup restored" message with everything
-   still there. The first-run restore is checked on a second computer or
-   a fresh user account.
+1. The checks a person has to do. Four of them have passed already
+   (attachment folder memory, Back up now, the automatic backup, Restore).
+   Left: the setup-time restore, which needs a second computer or a fresh
+   user account because the wizard only opens with no installation row; and
+   a look at the new category tabs — the counts against what is on screen,
+   and a red tab for the category holding something overdue.
 2. `docs/machine-setup.md` is already rewritten around Back up → Restore.
 3. On the developer's word that the checks passed: a final
    `PROJECT-STATUS.md` entry marking the module complete, and a git tag on
@@ -3860,15 +4009,20 @@ design), and the future modules — Document Management is next on the
 project's list, then PMS, spares, purchasing, vessel life monitoring,
 budget, crew.
 
-Two pieces of real work are recorded above as deliberately not done, and
-neither belongs in a close-out:
+Three pieces of real work are recorded above as deliberately not done, and
+none belongs in a close-out:
 
 - Making `CertificateAlertProvider` share `CertificateListRows`. The two
-  gather the same thing and have to agree, but merging them could change
-  what the sidebar badge counts.
+  gather the same thing and have to agree, and now that the list's half
+  also counts per category the case is stronger — but merging them could
+  change what the sidebar badge counts.
+- One home for the four category words, which now exist in
+  `CertificateCategoryTabs` and `CertificateEditForm`. Worth doing when a
+  third place needs them, not before.
 - The file-size debt that remains, each entry with the reason it was left:
-  `VesselRepository.cpp` 430, `CertificateListWidget.cpp` 379,
-  `MainWindow.cpp` 340, `tst_CertificateCsvImportSurveys.cpp` 430.
+  `VesselRepository.cpp` 430, `CertificateListWidget.cpp` 416,
+  `MainWindow.cpp` 340, `tst_CertificateCsvImportSurveys.cpp` 430,
+  `tst_CertificateListRows.cpp` 367.
 
 The endorsement-model question carried here since step 13 — whether to
 keep only the most recent survey per track — was settled by the "latest

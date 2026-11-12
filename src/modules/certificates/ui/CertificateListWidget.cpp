@@ -9,6 +9,7 @@
 #include "modules/certificates/ui/CertificateIoActions.h"
 #include "modules/certificates/ui/CertificateListActions.h"
 #include "modules/certificates/ui/CertificateListRow.h"
+#include "modules/certificates/ui/CertificateCategoryTabs.h"
 #include "modules/certificates/ui/CertificateRowRenderer.h"
 #include "modules/certificates/ui/TableHeaderSettings.h"
 
@@ -132,6 +133,10 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     // (housekeeping-round-spec §3.1).
     m_rows = new CertificateRowRenderer(*m_table, m_attachments, this);
 
+    // The tab bar owns its own labels and colours; what the numbers are comes
+    // back from the service with the rows (category-tabs-spec §4).
+    m_categoryTabs = new CertificateCategoryTabs(this);
+
     // After the table, which it watches for selection changes. It owns the
     // Renew, extension and attachment buttons; this widget only places them.
     m_actions = new CertificateListActions(m_repository, m_endorsements, m_extensions,
@@ -180,6 +185,10 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     listPageLayout->setContentsMargins(0, 0, 0, 0);
     listPageLayout->addLayout(controlRow);
     listPageLayout->addLayout(ioRow);
+    // Directly above the table (category-tabs-spec §1), and below the rows of
+    // buttons: the buttons act on a certificate or the vessel, while the tabs
+    // decide which certificates the table is showing.
+    listPageLayout->addWidget(m_categoryTabs->bar());
     listPageLayout->addWidget(m_table);
     listPageLayout->addWidget(hint);
 
@@ -216,6 +225,13 @@ CertificateListWidget::CertificateListWidget(CertificateRepository&          rep
     // The filter works on computed severity, which is never stored, so it can
     // only be applied by recomputing and rebuilding the rows (§7).
     connect(m_needsAttentionCheck, &QCheckBox::toggled, this, &CertificateListWidget::reload);
+    // §3: the selection is cleared before the reload, so Renew, Delete and
+    // the attachment actions can never act on a row that has just been
+    // hidden by the tab change.
+    connect(m_categoryTabs, &CertificateCategoryTabs::selectionChanged, this, [this] {
+        m_table->clearSelection();
+        reload();
+    });
 
     // In VESSEL mode the vessel is known once, at construction, and never
     // changes — the same certainty VesselDetailPage already relies on.
@@ -242,7 +258,23 @@ QString CertificateListWidget::vesselId() const
 
 void CertificateListWidget::setNeedsAttentionFilter(bool on)
 {
-    m_needsAttentionCheck->setChecked(on);
+    // §3 of the category-tabs spec: the banner's drill-down returns to All as
+    // well as ticking the box, so nothing it is pointing at can be sitting
+    // behind another tab.
+    //
+    // Without the tab bar's signal, because the checkbox below may reload
+    // anyway and two reloads of the same list is work for nothing. The return
+    // value says whether the tab actually moved, which is what decides
+    // whether a reload is still needed when the checkbox does not change.
+    const bool tabMoved = on && m_categoryTabs->selectAllWithoutSignal();
+
+    if (m_needsAttentionCheck->isChecked() != on) {
+        m_needsAttentionCheck->setChecked(on); // its own toggled() reloads
+        return;
+    }
+    if (tabMoved) {
+        reload();
+    }
 }
 
 void CertificateListWidget::updateVisibleState()
@@ -270,8 +302,10 @@ void CertificateListWidget::reload()
     // What goes in the rows is decided a layer down, in the service
     // (housekeeping-round-spec §3.2). This screen asks for the vessel's rows
     // and draws them.
-    QList<CertificateListRows::Row> rows;
-    if (!m_rowSource.build(m_vesselId, m_needsAttentionCheck->isChecked(), today, &rows)) {
+    QList<CertificateListRows::Row>           rows;
+    QList<CertificateListRows::CategoryTally> tallies;
+    if (!m_rowSource.build(m_vesselId, m_categoryTabs->selected(),
+                           m_needsAttentionCheck->isChecked(), today, &rows, &tallies)) {
         qWarning() << "Could not load certificates:" << m_rowSource.errorString();
         QMessageBox::warning(this, tr("Could not load certificates"),
                              m_rowSource.errorString());
@@ -288,6 +322,9 @@ void CertificateListWidget::reload()
     }
 
     m_table->setSortingEnabled(true);
+
+    // After the rows, from the same pass that produced them.
+    m_categoryTabs->updateLabels(tallies);
 
     // reload() can clear the selection, which would otherwise leave Renew
     // enabled with nothing selected. It is also what refreshes the extension
