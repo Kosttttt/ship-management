@@ -47,12 +47,6 @@ private:
     // Choose… button is useful, and when the last automatic backup ran.
     void updateAutomaticLines();
 
-    // §5.3 step 2. Nothing has been swapped at this point — the pending file
-    // is simply sitting beside the database, and the swap happens at the next
-    // start, so a restart that cannot be launched is an inconvenience rather
-    // than a broken installation.
-    void restartToFinishRestore();
-
     QSqlDatabase& m_connection;
     QString       m_nodeId;
     QString       m_dataFolder;

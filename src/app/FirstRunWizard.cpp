@@ -6,13 +6,14 @@
 
 #include <QMessageBox>
 
-FirstRunWizard::FirstRunWizard(InstallationRepository& repository, QWidget* parent)
+FirstRunWizard::FirstRunWizard(InstallationRepository& repository, QSqlDatabase& connection,
+                               const QString& dataFolder, QWidget* parent)
     : QWizard(parent)
     , m_repository(repository)
 {
     setWindowTitle(tr("Ship Management System — Setup"));
 
-    m_modePage     = new InstallationModePage(this);
+    m_modePage     = new InstallationModePage(connection, dataFolder, this);
     m_identityPage = new VesselIdentityPage(this);
 
     setPage(static_cast<int>(WizardPageId::Mode), m_modePage);

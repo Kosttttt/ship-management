@@ -1,13 +1,11 @@
 #include "app/DatabaseBackupSettings.h"
 
-#include "app/RestoreConfirmationDialog.h"
+#include "app/RestoreFromBackup.h"
 #include "core/AutomaticBackup.h"
 #include "core/BackupFileInspector.h"
 #include "core/BackupSettings.h"
 #include "core/DatabaseBackup.h"
 #include "core/InstallationContext.h"
-#include "core/MigrationRunner.h"
-#include "core/RestoreSwap.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -19,7 +17,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
-#include <QProcess>
 #include <QPushButton>
 #include <QSqlDatabase>
 #include <QVBoxLayout>
@@ -185,68 +182,15 @@ void DatabaseBackupSettings::backUpNow()
 
 void DatabaseBackupSettings::restoreFromBackup()
 {
-    const QString chosen = QFileDialog::getOpenFileName(
-        this, tr("Choose a backup to restore"), BackupSettings::lastManualFolder(),
-        kDatabaseFilter);
-    if (chosen.isEmpty()) {
-        return; // cancelled
-    }
-
-    // §5.1: every check happens on a read-only connection of its own before
-    // anything at all is written.
-    MigrationRunner runner(m_connection, MigrationRunner::compiledInPath());
-    int             highestKnown = 0;
-    if (!runner.highestAvailableVersion(&highestKnown)) {
-        QMessageBox::warning(this, tr("Could not check the backup"), runner.errorString());
-        return;
-    }
-
-    BackupSummary backup;
-    QString       error;
-    if (!BackupFileInspector::inspect(chosen, highestKnown, &backup, &error)) {
-        QMessageBox::warning(this, tr("This backup cannot be restored"), error);
-        return;
-    }
-
-    BackupSummary current;
-    if (!BackupFileInspector::summarise(m_connection, &current, &error)) {
-        QMessageBox::warning(this, tr("Could not read this computer's database"), error);
-        return;
-    }
-
-    RestoreConfirmationDialog confirmation(current, backup, chosen, this);
-    if (confirmation.exec() != QDialog::Accepted) {
-        return;
-    }
-
-    // §5.3 step 1. Still nothing replaced: the backup is copied in beside the
-    // live database under a pending name, and the swap happens at the next
-    // start, before anything opens it.
-    if (!RestoreSwap::stage(m_dataFolder, chosen, &error)) {
-        QMessageBox::warning(this, tr("Could not prepare the restore"), error);
-        return;
-    }
-
-    restartToFinishRestore();
-}
-
-void DatabaseBackupSettings::restartToFinishRestore()
-{
-    const QString program = QCoreApplication::applicationFilePath();
-
-    if (QProcess::startDetached(program, QStringList())) {
-        qInfo() << "Restarting to finish a restore.";
+    // The whole sequence lives in RestoreFromBackup, because the first-run
+    // setup offers the same thing and the §5.1 checks must exist in exactly
+    // one place (database-backup-spec §10.2).
+    if (RestoreFromBackup::run(this, m_connection, m_dataFolder, /*showThisComputer=*/true)
+        == RestoreFromBackup::Outcome::Staged) {
+        // The pending file is beside the database; the swap happens at the
+        // next start, so this session has to end for it to happen at all.
         QCoreApplication::quit();
-        return;
     }
-
-    // The pending file is in place either way, so the restore is not lost —
-    // it simply waits for the next start.
-    QMessageBox::information(this, tr("Restart to finish"),
-                             tr("The backup is ready to be restored, but the program could not "
-                                "start itself again.\n\nStart the program again to finish "
-                                "restoring."));
-    QCoreApplication::quit();
 }
 
 void DatabaseBackupSettings::chooseAutomaticFolder()

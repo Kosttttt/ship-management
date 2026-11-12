@@ -49,8 +49,12 @@ enum class Outcome {
 // `ship-management.before-restore-<yyyy-MM-dd_HHmmss>.db`, then renames the
 // pending file into place.
 //
-// If that second rename fails, the safety copy is put back and the original
-// database is left ready to open: the folder is never left without one.
+// If anything after the first rename fails — a side file that will not move
+// (§10.1), or the pending file that will not take the database's name —
+// everything already moved goes back, the pending file is left where it is,
+// and the original database is ready to open. The folder is never left
+// without one, and no file is ever deleted: a restore that has not happened
+// is always safe, while a damaged safety copy is not.
 //
 // `detail` is a sentence for the log and, on failure, for the user. On
 // Restored it names the safety copy.

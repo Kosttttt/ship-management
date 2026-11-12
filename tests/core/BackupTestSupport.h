@@ -178,6 +178,17 @@ inline QVariant scalarFrom(const QString& filePath, const QString& sql)
 // An automatic backup file for a node and date, with nothing inside it. The
 // pruning and "already done today" rules read names, never contents, so a
 // placeholder is exactly the right thing to test them with.
+// The bytes of a file, for asserting that something put back is the same
+// something — an empty QByteArray when it is not there at all.
+inline QByteArray contentsOf(const QString& filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QByteArray();
+    }
+    return file.readAll();
+}
+
 inline bool touchFile(const QString& filePath)
 {
     QFile file(filePath);

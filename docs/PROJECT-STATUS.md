@@ -3029,6 +3029,118 @@ only for tests is worse than four mechanical edits.
 **Verification.** Clean Debug and Release rebuilds, 0 warnings, **49/49
 suites** in each.
 
+---
+
+### Step 15 follow-ups — a cancelled restore, and restoring from first run ✅
+
+`docs/database-backup-spec.md` §10, the two things reviewing `d702988`
+turned up. Also `docs/machine-setup.md`, rewritten around Back up →
+Restore instead of finding `ship-management.db` by hand, which §9 said
+would happen once this shipped.
+
+**§10.1 — a side file that will not move now cancels the restore.**
+
+`applyPending()` used to *delete* a `-journal`, `-wal` or `-shm` it could
+not rename into the safety copy, and carry on. The comment justifying that
+said its contents were already in the safety copy because the database had
+been closed cleanly — and that was wrong about when those files exist at
+all. They are there precisely when the last session did **not** end
+cleanly: a crash, a power cut. A `-journal` left by a crash holds what is
+needed to repair the database, so throwing it away can leave the safety
+copy damaged, which is the one outcome this whole feature exists to
+prevent.
+
+Now: everything already moved goes back (side files first, so the database
+is whole again before it carries the name the program will open), the
+database returns under its own name, the pending file is left where it is,
+and the start carries on with the original database. Nothing is deleted.
+The message is the spec's: *"The restore has not happened. Your data is
+untouched. A file next to the database is in use — close any program that
+might be using it and start again."* A restore that has not happened is
+always safe; a damaged safety copy is not.
+
+The undo is now one `undoMoves()` shared with the other failure path — the
+pending file that will not take the database's name — so the two cannot
+drift apart, and both report through the same "could not be put back"
+message when even the undo fails.
+
+**The new test found a real trap in itself.** `aSideFileThatWillNotMoveCancelsTheRestore` (Windows-only, the same `QSKIP` as
+`aFailedSwapPutsTheOriginalBack`, because forcing a rename to fail needs
+Windows' file-sharing rules) first failed on `QFile::exists(journal)`
+after the journal had just been asserted back in place. The cause was the
+test's own earlier line: opening a database with a hot journal beside it
+makes SQLite roll back and then **delete** that journal. So every
+filesystem assertion now runs before anything opens a database, with a
+comment saying why the order is load-bearing.
+
+Vacuity-checked: a probe restoring the old `QFile::remove(from)` behaviour
+fails that test, and `RestoreSwap.cpp` came back to the same md5.
+
+**§10.2 — "Restore from a backup instead…" on the first-run setup.**
+
+On a brand-new computer the wizard is the only screen there is, and
+Settings — where Restore lives — cannot be reached until setup is
+finished. Moving to a new computer would otherwise have meant inventing an
+installation just to restore over it.
+
+The button sits on the mode page, below the two choices and separated from
+them, because it is not a third kind of installation: it is "do not set
+this up at all, take it from a file".
+
+**The checks are not duplicated, which was the point of §10.2.** The whole
+sequence — choose a file, the §5.1 checks, the §5.2 confirmation,
+`RestoreSwap::stage()`, the restart — moved out of
+`DatabaseBackupSettings` into `app/RestoreFromBackup`, which both screens
+call. They differ in exactly one argument: `showThisComputer`.
+
+`RestoreConfirmationDialog` now takes a `std::optional<BackupSummary>` for
+the left-hand column. Absent on first run, the table has one value column
+instead of two — cells are *missing* rather than blank or `0`, because a
+`0` beside a real number reads as a fact about an empty database rather
+than as "there is nothing here yet". The difference notice is skipped too:
+there is no installation for the backup to differ from, and whatever it
+says the installation is, is what this computer becomes. The closing lines
+change with it, from "Everything on this computer will be replaced" to
+"This computer will be set up from the backup" — on first run the database
+being replaced is the empty one the program made a moment ago.
+
+On success the wizard closes itself as **cancelled**, which is exactly
+right: no installation was configured there. `main()` already treats that
+as "the user declined to set the application up" and exits without an
+error, while the copy already starting does the swap before it opens the
+database. The empty database the program created before the wizard opened
+becomes that start's `before-restore-…` safety copy, which is harmless.
+The restart is shared too, and if it cannot be launched the message says
+to start the program again — the pending file is in place either way, so
+nothing is lost.
+
+`FirstRunWizard` and `InstallationModePage` gained the connection and the
+data folder to reach it, both passed in rather than looked up, so only
+`main()` still names the real folder (§6). Nothing else constructs either
+of them.
+
+**Tests.** `tst_RestoreSwap` 11 → 12 passes. New `tst_FirstRunRestore`
+(3 cases): the button is on the mode page, it is on the page the wizard
+starts at, and adding it left the page's own job alone — still two radio
+buttons, OFFICE by default and last, VESSEL leading to the identity page.
+That is what §10.2 asks for: the sequence behind the button is the one
+`tst_RestoreSwap` and `tst_BackupFileInspector` already cover, and the
+whole point was that there is no second copy of it to test. The project is
+at **50 suites**. The full first-run flow is the developer's own check, on
+a second computer or a fresh user account.
+
+**File sizes.** Everything touched is under the guideline, and two files
+came down: `DatabaseBackupSettings.cpp` **272 → 216** (the restore
+sequence moved out) and `RestoreSwap.cpp` 182 → 222.
+`RestoreConfirmationDialog.cpp` 137 → 165, `InstallationModePage.cpp`
+59 → 109, the new `RestoreFromBackup` 48 + 98, `main.cpp` unchanged at 244.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **50/50
+suites** in each.
+
+**Not tagged yet.** The developer's on-screen checks come first — the
+roadmap page lists them — then the tag and the module-complete entry.
+
 
 ## Decisions confirmed by the developer
 
@@ -3725,22 +3837,28 @@ were all updated to match.
 
 ## Next step
 
-**The close-out round.** Every feature of Certificate Control is built.
-What remains, in the order `docs/roadmap-and-pending.md` gives:
+**The developer's on-screen checks, then the tag.** Every feature of
+Certificate Control is built, and so are the two follow-ups the step 15
+review asked for. What remains, in the order
+`docs/roadmap-and-pending.md` gives:
 
-1. The developer's own checks on screen — in particular the step 15
-   dialogs and the restart, which §7 of that spec leaves to a person: back
-   up, choose a folder, restart, restore, and confirm the
-   `before-restore-…` safety copy is where it says it is.
-2. `docs/machine-setup.md` rewritten around Back up → Restore instead of
-   finding `ship-management.db` by hand (§9 of the backup spec).
-3. A final `PROJECT-STATUS.md` entry marking the module complete, and a
-   git tag on that commit so there is a named version to go back to.
+1. The checks a person has to do, which that page lists: the attachment
+   chooser's remembered folder; Back up now; the automatic backup turned
+   on, then a restart, then the file appearing in the folder; Restore,
+   then a restart, then the "Backup restored" message with everything
+   still there. The first-run restore is checked on a second computer or
+   a fresh user account.
+2. `docs/machine-setup.md` is already rewritten around Back up → Restore.
+3. On the developer's word that the checks passed: a final
+   `PROJECT-STATUS.md` entry marking the module complete, and a git tag on
+   that commit so there is a named version to go back to. **Not tagged
+   yet** — that is the developer's call, after the checks.
 
-Then the next module starts. The build order in `CLAUDE.md` §11 lists
-what is deliberately still not begun: ship-to-shore sync, role-based
-access control (last, by design), and the future modules — DMS, PMS,
-spares, purchasing, vessel life monitoring, budget, crew.
+Then the next module starts. `CLAUDE.md` §11 lists what is deliberately
+still not begun: ship-to-shore sync, role-based access control (last, by
+design), and the future modules — Document Management is next on the
+project's list, then PMS, spares, purchasing, vessel life monitoring,
+budget, crew.
 
 Two pieces of real work are recorded above as deliberately not done, and
 neither belongs in a close-out:

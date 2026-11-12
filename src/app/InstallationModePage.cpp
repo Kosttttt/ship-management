@@ -1,13 +1,20 @@
 #include "app/InstallationModePage.h"
 
 #include "app/FirstRunWizard.h"
+#include "app/RestoreFromBackup.h"
 
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QVBoxLayout>
+#include <QWizard>
 
-InstallationModePage::InstallationModePage(QWidget* parent)
+InstallationModePage::InstallationModePage(QSqlDatabase& connection, const QString& dataFolder,
+                                           QWidget* parent)
     : QWizardPage(parent)
+    , m_connection(connection)
+    , m_dataFolder(dataFolder)
 {
     setTitle(tr("Installation type"));
     setSubTitle(tr("Choose what this copy of the application is. "
@@ -30,6 +37,24 @@ InstallationModePage::InstallationModePage(QWidget* parent)
 
     m_officeButton->setChecked(true);
 
+    // §10.2: the way in for somebody moving to a new computer, who has no
+    // installation to make and a backup to restore. Below the two choices and
+    // separated from them, because it is not a third kind of installation —
+    // it is "do not set this up at all, take it from a file".
+    auto* restoreButton = new QPushButton(tr("&Restore from a backup instead…"), this);
+    restoreButton->setObjectName(QStringLiteral("restoreFromBackupButton"));
+
+    auto* restoreHint = new QLabel(tr("Moving to a new computer? Restore the other computer's "
+                                      "backup and this copy becomes that installation."),
+                                   this);
+    restoreHint->setWordWrap(true);
+    restoreHint->setEnabled(false); // renders as secondary text
+
+    auto* restoreRow = new QHBoxLayout;
+    restoreRow->setContentsMargins(0, 0, 0, 0);
+    restoreRow->addWidget(restoreButton);
+    restoreRow->addStretch();
+
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(m_officeButton);
     layout->addWidget(officeHint);
@@ -37,12 +62,37 @@ InstallationModePage::InstallationModePage(QWidget* parent)
     layout->addWidget(m_vesselButton);
     layout->addWidget(vesselHint);
     layout->addStretch();
+    layout->addWidget(restoreHint);
+    layout->addLayout(restoreRow);
 
     // The Next/Finish button changes meaning with the choice, so the wizard
     // has to be told to re-evaluate which page comes next.
     connect(m_vesselButton, &QRadioButton::toggled, this, [this]() {
         emit completeChanged();
     });
+    connect(restoreButton, &QPushButton::clicked, this,
+            &InstallationModePage::restoreFromBackup);
+}
+
+void InstallationModePage::restoreFromBackup()
+{
+    // showThisComputer is false: there is no installation yet, so there is
+    // nothing to put in the confirmation's "this computer now" column (§10.2).
+    if (RestoreFromBackup::run(this, m_connection, m_dataFolder, /*showThisComputer=*/false)
+        != RestoreFromBackup::Outcome::Staged) {
+        return; // cancelled, or a check refused the file: the wizard stays open
+    }
+
+    // Closed as cancelled, which is exactly right: no installation was
+    // configured here. main() treats that as "the user declined to set the
+    // application up" and exits without an error, and the copy already
+    // starting does the swap before it opens the database.
+    //
+    // The empty database the program created before this wizard opened becomes
+    // the before-restore- safety copy at the next start, which is harmless.
+    if (wizard() != nullptr) {
+        wizard()->reject();
+    }
 }
 
 InstallationMode InstallationModePage::selectedMode() const

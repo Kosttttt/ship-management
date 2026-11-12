@@ -4,6 +4,8 @@
 
 #include <QDialog>
 
+#include <optional>
+
 // The "are you sure" for a restore (database-backup-spec §5.2).
 //
 // Its own class rather than a QMessageBox: §5.2 asks for the two databases
@@ -21,14 +23,19 @@ class RestoreConfirmationDialog : public QDialog
 public:
     // `current` is this computer's database, `backup` the file chosen. The
     // path is shown so the person can see which file they picked.
-    RestoreConfirmationDialog(const BackupSummary& current,
-                              const BackupSummary& backup,
-                              const QString&       backupFilePath,
-                              QWidget*             parent = nullptr);
+    //
+    // `current` is empty on first run, where there is no database on this
+    // computer worth comparing against: the table then has one value column
+    // instead of two (database-backup-spec §10.2).
+    RestoreConfirmationDialog(const std::optional<BackupSummary>& current,
+                              const BackupSummary&                backup,
+                              const QString&                      backupFilePath,
+                              QWidget*                            parent = nullptr);
 
 private:
     // "This backup is from the vessel V UNO; this computer will become that
     // vessel's installation." Empty when both sides are the same
     // installation, where there is nothing to warn about.
-    static QString differenceNotice(const BackupSummary& current, const BackupSummary& backup);
+    static QString differenceNotice(const std::optional<BackupSummary>& current,
+                                    const BackupSummary&                backup);
 };

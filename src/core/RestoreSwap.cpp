@@ -23,6 +23,38 @@ const QStringList& sideCarSuffixes()
     return suffixes;
 }
 
+// What §10.1 says to tell the user. The restore is cancelled rather than
+// carried out with a side file thrown away, so the reassurance comes first
+// and the thing to do about it second.
+const QString kSideFileInUseMessage = QStringLiteral(
+    "The restore has not happened. Your data is untouched.\n\nA file next to the database is "
+    "in use — close any program that might be using it and start again.");
+
+// Puts back whatever has already been moved aside: the side files first, so
+// the database is whole again before it carries the name the program will
+// open, and then the database itself.
+//
+// Returns whether the database is back under its own name. Nothing is
+// deleted here and nothing is reported — every caller is already on a failure
+// path and says its own piece.
+bool undoMoves(const QString& live, const QString& safety, const QStringList& movedSideCars)
+{
+    for (const QString& suffix : movedSideCars) {
+        QFile::rename(safety + suffix, live + suffix);
+    }
+    return QFile::rename(safety, live);
+}
+
+// When even putting the database back fails, which needs something outside
+// the program holding the files. Says where the database actually is rather
+// than pretending it is where it should be.
+QString couldNotPutBackMessage(const QString& safety, const QString& liveName)
+{
+    return QStringLiteral("The restore failed and the database could not be put back. It is "
+                          "now at:\n%1\n\nRename it to %2 before starting again.")
+        .arg(QDir::toNativeSeparators(safety), liveName);
+}
+
 } // namespace
 
 QString RestoreSwap::liveFileName()
@@ -145,30 +177,38 @@ RestoreSwap::Outcome RestoreSwap::applyPending(const QString& dataFolder, QStrin
         }
         if (QFile::rename(from, safety + suffix)) {
             movedSideCars.append(suffix);
-        } else {
-            // Left behind it would be applied to the restored database, which
-            // is a different database — so this one is removed instead. Its
-            // content is already in the safety copy, which was closed
-            // cleanly when the program last quit.
-            qWarning() << "Could not move" << from << "aside; removing it instead.";
-            QFile::remove(from);
+            continue;
         }
+
+        // §10.1: it is **not** deleted, and the restore is cancelled instead.
+        //
+        // An earlier version removed it, on the reasoning that its contents
+        // were already in the safety copy because the database had been
+        // closed cleanly. That reasoning was wrong about when these files
+        // exist at all: a -journal or -wal beside the database means the last
+        // session did *not* end cleanly — a crash, a power cut — and the
+        // journal is what holds the information needed to repair the
+        // database. Throwing it away can leave the safety copy damaged, which
+        // is the one outcome this whole feature exists to prevent.
+        //
+        // So everything already moved goes back, the pending file is left
+        // where it is, and the start carries on with the original database. A
+        // restore that has not happened is always safe.
+        qWarning() << "Could not move" << from << "aside; cancelling the restore.";
+
+        if (!undoMoves(live, safety, movedSideCars)) {
+            *detail = couldNotPutBackMessage(safety, liveFileName());
+            return Outcome::Failed;
+        }
+        *detail = kSideFileInUseMessage;
+        return Outcome::Failed;
     }
 
     if (!QFile::rename(pending, live)) {
-        // Put the original back, side files first so the database is whole
-        // again before it is named.
-        for (const QString& suffix : movedSideCars) {
-            QFile::rename(safety + suffix, live + suffix);
-        }
-        if (!QFile::rename(safety, live)) {
-            // Both renames failed, which needs something outside the program
-            // holding the files. Say so plainly and name where the database
-            // now is, rather than pretending it is where it should be.
-            *detail = QStringLiteral(
-                          "The restore failed and the database could not be put back. It is "
-                          "now at:\n%1\n\nRename it to %2 before starting again.")
-                          .arg(QDir::toNativeSeparators(safety), liveFileName());
+        // The same undo the side-file failure above performs, for the same
+        // reason: whatever has been moved goes back, and nothing is deleted.
+        if (!undoMoves(live, safety, movedSideCars)) {
+            *detail = couldNotPutBackMessage(safety, liveFileName());
             return Outcome::Failed;
         }
         *detail = QStringLiteral("The restore failed, so the database has been put back as it "

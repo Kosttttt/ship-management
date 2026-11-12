@@ -220,6 +220,7 @@ qt_add_library(ShipApp STATIC
     src/app/VesselArchiveActions.h src/app/VesselArchiveActions.cpp
     src/app/DatabaseBackupSettings.h src/app/DatabaseBackupSettings.cpp
     src/app/RestoreConfirmationDialog.h src/app/RestoreConfirmationDialog.cpp
+    src/app/RestoreFromBackup.h src/app/RestoreFromBackup.cpp
     src/app/VesselDetailPage.h     src/app/VesselDetailPage.cpp
     src/app/SettingsPage.h         src/app/SettingsPage.cpp
     src/app/AttachmentFolderSettings.h src/app/AttachmentFolderSettings.cpp

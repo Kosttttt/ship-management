@@ -32,10 +32,17 @@ QLabel* boldLabel(const QString& text, QWidget* parent)
 
 } // namespace
 
-QString RestoreConfirmationDialog::differenceNotice(const BackupSummary& current,
-                                                    const BackupSummary& backup)
+QString RestoreConfirmationDialog::differenceNotice(const std::optional<BackupSummary>& current,
+                                                    const BackupSummary&                backup)
 {
-    if (current.nodeId == backup.nodeId) {
+    // First run: there is no installation yet, so there is nothing for this
+    // backup to differ *from*. Whatever it says the installation is, is what
+    // this computer becomes, which is the whole point of restoring here
+    // (database-backup-spec §10.2).
+    if (!current.has_value()) {
+        return QString();
+    }
+    if (current->nodeId == backup.nodeId) {
         return QString();
     }
 
@@ -53,10 +60,10 @@ QString RestoreConfirmationDialog::differenceNotice(const BackupSummary& current
         .arg(backup.nodeId);
 }
 
-RestoreConfirmationDialog::RestoreConfirmationDialog(const BackupSummary& current,
-                                                     const BackupSummary& backup,
-                                                     const QString&       backupFilePath,
-                                                     QWidget*             parent)
+RestoreConfirmationDialog::RestoreConfirmationDialog(const std::optional<BackupSummary>& current,
+                                                     const BackupSummary&                backup,
+                                                     const QString&                      backupFilePath,
+                                                     QWidget*                            parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Restore this backup?"));
@@ -85,37 +92,58 @@ RestoreConfirmationDialog::RestoreConfirmationDialog(const BackupSummary& curren
     layout->addSpacing(12);
 
     // The side-by-side table §5.2 asks for. A grid rather than a form,
-    // because a form has one value column and this needs two.
+    // because a form has one value column and this needs two — or one, on
+    // first run, where there is nothing on this computer yet (§10.2).
     auto* grid = new QGridLayout;
-    grid->addWidget(boldLabel(tr("This computer now"), this), 0, 1);
-    grid->addWidget(boldLabel(tr("The backup"), this), 0, 2);
 
+    if (current.has_value()) {
+        grid->addWidget(boldLabel(tr("This computer now"), this), 0, 1);
+    }
+    grid->addWidget(boldLabel(tr("The backup"), this), 0, current.has_value() ? 2 : 1);
+
+    // Built a row at a time so that the "this computer" cell is simply
+    // absent rather than blank or zero: a 0 next to a real number reads as a
+    // fact about an empty database, which is not what is being said here.
     const QList<QStringList> rows{
-        {tr("Mode"), current.modeLabel(), backup.modeLabel()},
-        {tr("Vessels"), QString::number(current.vesselCount),
+        {tr("Mode"), current.has_value() ? current->modeLabel() : QString(), backup.modeLabel()},
+        {tr("Vessels"),
+         current.has_value() ? QString::number(current->vesselCount) : QString(),
          QString::number(backup.vesselCount)},
-        {tr("Certificates"), QString::number(current.certificateCount),
+        {tr("Certificates"),
+         current.has_value() ? QString::number(current->certificateCount) : QString(),
          QString::number(backup.certificateCount)},
-        {tr("Last change"), formatLastChange(current.lastChangeUtc),
+        {tr("Last change"),
+         current.has_value() ? formatLastChange(current->lastChangeUtc) : QString(),
          formatLastChange(backup.lastChangeUtc)},
     };
 
     for (int row = 0; row < rows.size(); ++row) {
         const QStringList& cells = rows.at(row);
-        for (int column = 0; column < cells.size(); ++column) {
-            grid->addWidget(new QLabel(cells.at(column), this), row + 1, column);
+        grid->addWidget(new QLabel(cells.at(0), this), row + 1, 0);
+        if (current.has_value()) {
+            grid->addWidget(new QLabel(cells.at(1), this), row + 1, 1);
         }
+        grid->addWidget(new QLabel(cells.at(2), this), row + 1,
+                        current.has_value() ? 2 : 1);
     }
     grid->setColumnMinimumWidth(1, 140);
-    grid->setColumnMinimumWidth(2, 140);
+    if (current.has_value()) {
+        grid->setColumnMinimumWidth(2, 140);
+    }
     layout->addLayout(grid);
 
     layout->addSpacing(12);
 
+    // On first run the database this replaces is the empty one the program
+    // created a moment ago, so "everything will be replaced" would be a
+    // small untruth and the safety copy is not worth mentioning.
     auto* consequences =
-        new QLabel(tr("Everything on this computer will be replaced by the backup.\n"
-                      "The current database is kept as a safety copy.\n"
-                      "The program will restart to finish."),
+        new QLabel(current.has_value()
+                       ? tr("Everything on this computer will be replaced by the backup.\n"
+                            "The current database is kept as a safety copy.\n"
+                            "The program will restart to finish.")
+                       : tr("This computer will be set up from the backup.\n"
+                            "The program will restart to finish."),
                    this);
     consequences->setWordWrap(true);
     layout->addWidget(consequences);

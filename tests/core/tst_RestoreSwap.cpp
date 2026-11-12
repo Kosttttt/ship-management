@@ -28,6 +28,7 @@ private slots:
     void thePendingFileBecomesTheDatabase();
     void theOldDatabaseIsKeptAsASafetyCopy();
     void sideFilesOfTheOldDatabaseTravelWithIt();
+    void aSideFileThatWillNotMoveCancelsTheRestore();
     void withNoDatabaseYetThePendingFileSimplyBecomesIt();
     void aFailedSwapPutsTheOriginalBack();
 
@@ -180,6 +181,58 @@ void TestRestoreSwap::withNoDatabaseYetThePendingFileSimplyBecomesIt()
     QVERIFY(safetyCopies().isEmpty());
 }
 
+
+void TestRestoreSwap::aSideFileThatWillNotMoveCancelsTheRestore()
+{
+#ifndef Q_OS_WIN
+    QSKIP("Forcing a rename to fail needs Windows file-sharing rules; on POSIX an open "
+          "file renames happily. The recovery path is the same code on every platform.");
+#endif
+
+    // §10.1. A -journal beside the database means the last session did not
+    // end cleanly, and that journal holds what is needed to repair the
+    // database — so it must not be thrown away to let the restore through.
+    // An earlier version removed it and carried on, which could leave the
+    // safety copy damaged.
+    QVERIFY(makeDatabaseFile(livePath(), QStringLiteral("OFFICE"), /*certificateCount=*/4));
+    QVERIFY(makeDatabaseFile(pendingPath(), QStringLiteral("OFFICE"), /*certificateCount=*/9));
+
+    const QString journal = livePath() + QStringLiteral("-journal");
+    QVERIFY(touchFile(journal));
+    const QByteArray journalBefore = contentsOf(journal);
+
+    // Held open, which is how this actually goes wrong: something else has
+    // the file. On Windows Qt opens without FILE_SHARE_DELETE, so the rename
+    // fails.
+    QFile holder(journal);
+    QVERIFY(holder.open(QIODevice::ReadOnly));
+
+    QString detail;
+    QCOMPARE(RestoreSwap::applyPending(dataFolder(), &detail), RestoreSwap::Outcome::Failed);
+    holder.close();
+
+    // Every file assertion comes before anything opens a database, and that
+    // order is load-bearing: SQLite rolls back and then *deletes* a journal
+    // it finds beside a database it opens, so a read here would destroy the
+    // very thing being checked for.
+    QVERIFY2(QFile::exists(livePath()), "the folder must never be left without a database");
+    QVERIFY2(QFile::exists(journal), "the journal must be put back, not deleted");
+    QCOMPARE(contentsOf(journal), journalBefore);
+
+    // Nothing half-moved, and the restore still waiting to be tried again
+    // once whatever holds the file lets go.
+    QVERIFY(safetyCopies().isEmpty());
+    QVERIFY(QFile::exists(pendingPath()));
+
+    QVERIFY2(detail.contains(QStringLiteral("is in use")), qPrintable(detail));
+    QVERIFY2(detail.contains(QStringLiteral("untouched")), qPrintable(detail));
+
+    // Last, because these open both files: the database is the one that was
+    // there, and the pending file is still the backup that was chosen.
+    QCOMPARE(scalarFrom(livePath(), QStringLiteral("SELECT COUNT(*) FROM certificate")).toInt(), 4);
+    QCOMPARE(scalarFrom(pendingPath(), QStringLiteral("SELECT COUNT(*) FROM certificate")).toInt(),
+             9);
+}
 void TestRestoreSwap::aFailedSwapPutsTheOriginalBack()
 {
 #ifndef Q_OS_WIN

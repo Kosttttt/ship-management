@@ -24,6 +24,7 @@ add_ship_test(tst_InstallationRepository core/tst_InstallationRepository.cpp)
 add_ship_test(tst_VesselRepositoryScope  core/tst_VesselRepositoryScope.cpp)
 add_ship_test(tst_VesselRepositoryWrites core/tst_VesselRepositoryWrites.cpp)
 add_ship_test(tst_VesselEditForm         app/tst_VesselEditForm.cpp ShipApp)
+add_ship_test(tst_FirstRunRestore        app/tst_FirstRunRestore.cpp ShipApp)
 
 add_ship_test(tst_AppSettingRepository  core/tst_AppSettingRepository.cpp)
 add_ship_test(tst_ManagedFileStore      core/tst_ManagedFileStore.cpp)
@@ -87,6 +88,7 @@ add_ship_test(tst_EndorsementUi
 
 # These run the real migrations, so they need them compiled in.
 ship_add_migrations(tst_InstallationRepository)
+ship_add_migrations(tst_FirstRunRestore)
 ship_add_migrations(tst_VesselRepositoryScope)
 ship_add_migrations(tst_VesselRepositoryWrites)
 ship_add_migrations(tst_AppSettingRepository)

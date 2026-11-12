@@ -109,7 +109,7 @@ StartupOutcome resolveInstallation(Database& database, InstallationContext* cont
     }
 
     qInfo() << "No installation row found — running the first-run wizard.";
-    FirstRunWizard wizard(repository);
+    FirstRunWizard wizard(repository, database.connection(), dataFolder());
     if (wizard.exec() != QDialog::Accepted) {
         return StartupOutcome::Cancelled;
     }
