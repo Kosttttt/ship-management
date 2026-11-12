@@ -23,13 +23,17 @@ start the next one. Rounds, one at a time, in this order:
    `docs/database-backup-spec.md`. Back up / Restore in Settings, an
    automatic daily backup to a chosen folder keeping the last 10, restore
    swapped in at startup with a safety copy kept.
-4. **Close-out.** Two small additions from the step 15 review
-   (`database-backup-spec.md` §10: a side file that won't move cancels the
-   restore instead of being deleted; "Restore from a backup instead…" on
-   the first-run setup), your on-screen checks, a final `PROJECT-STATUS.md`
-   entry marking the module complete, and a git tag so there is a named
-   version to go back to. `docs/machine-setup.md` is already rewritten
-   around Back up → Restore.
+4. **Category tabs on the certificate list** — requested by the developer
+   during close-out. Spec: `docs/certificate-category-tabs-spec.md`.
+   All | Statutory | Class | Equipment | Other, with counts; a tab turns red
+   when something in it needs attention; exports always the whole vessel.
+5. **Close-out.** Done so far: `433d1b4` (§10 of the backup spec — a side
+   file that won't move cancels the restore; "Restore from a backup
+   instead…" on the first-run setup) and `docs/machine-setup.md` rewritten
+   around Back up → Restore. The developer's on-screen checks 1–4 passed
+   (attachment folder memory, Back up now, automatic backup, Restore).
+   Left: the category tabs (4 above), then a final `PROJECT-STATUS.md`
+   entry marking the module complete and a git tag.
 
 Then **the next module** — Document Management is next on the project's
 list — starting, as every step has, with a design discussion before any
@@ -95,13 +99,10 @@ remembered folder must never be the vessel's own `attachment_root_path`
 
 ## Your pending items
 
-- Everything up to `d702988` is pushed. The V TRE Load Line is confirmed
-  fixed on screen by the developer.
-- **On-screen checks before the module is called complete:**
-  attachment chooser (second attach opens where the first file was);
-  Back up now; automatic backup turned on → restart → file appears;
-  Restore → restart → a "Backup restored" message and everything still
-  there.
+- Everything up to `433d1b4` is pushed.
+- **Setup-time restore on the work laptop** (on-screen check 5) — follow
+  `docs/machine-setup.md` there. Doesn't block the module close-out; it
+  also closes the old laptop / migration-proof-kit item below.
 - **V TRE CSV — two rows still blocked.** No. 19 (Safety Construction) and
   No. 39 (Ballast Water Management): each annual-survey date is before the
   certificate's current issue date, which the app refuses. Needs either the
@@ -110,6 +111,7 @@ remembered folder must never be the vessel's own `attachment_root_path`
   ~2-month issue-to-expiry span is also worth checking against the S-14
   sheet.
 - **V ALDO CSV — clean.** 214 rows validated; ready to import.
-- **Work laptop.** Your plan was to run `dist/migration-proof-kit/` against
-  its real database before migration 011 reaches it. Still open — or, once
-  step 15 exists, simply move to it with Export/Import instead.
+- **Work laptop.** The old plan (run `dist/migration-proof-kit/` there) is
+  replaced by the setup-time restore above: back up on this computer,
+  restore on the laptop. The restored database is brought up to date
+  automatically on its first start.
