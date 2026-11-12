@@ -2,6 +2,7 @@
 
 #include "modules/certificates/service/CertificateListRows.h"
 
+#include <QIcon>
 #include <QList>
 #include <QObject>
 
@@ -9,14 +10,15 @@ class QTabBar;
 
 // The row of category tabs above the certificate table
 // (certificate-category-tabs-spec §1): All | Statutory | Class | Equipment |
-// Other, each labelled with its count and turning red when something in it
-// needs attention.
+// Other, each labelled with its count and marked with a red dot when
+// something in it needs attention (§6 — the first version coloured the label
+// text instead, which the Windows 11 style quietly ignored).
 //
 // Its own class rather than another sixty lines inside CertificateListWidget,
 // which §4 of that spec asks for and which CLAUDE.md §9 would require anyway
 // — that file is already over the guideline. The seam is a real one:
 // everything here is about the tab bar, and it decides nothing. What the
-// counts and colours are comes from CertificateListRows, a layer down.
+// counts and marks are comes from CertificateListRows, a layer down.
 //
 // A QObject so Qt's parent-child ownership deletes it, like the other helper
 // objects on that screen.
@@ -56,4 +58,9 @@ signals:
 
 private:
     QTabBar* m_bar = nullptr;
+
+    // The red dot a marked tab carries (§6). Drawn once in the constructor,
+    // from this bar's own font and device pixel ratio, rather than on every
+    // reload.
+    QIcon m_attentionMark;
 };

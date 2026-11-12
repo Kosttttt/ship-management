@@ -3272,9 +3272,105 @@ suites** in each. No schema change, no migration.
 
 **Not tagged.** Still the developer's call, after the on-screen checks.
 
+---
+
+### Category tabs — a red dot, not red text ✅
+
+`docs/certificate-category-tabs-spec.md` §6, after the developer looked at
+`0fff375` on screen.
+
+**Why the first version passed its tests and showed nothing.** It marked a
+tab by setting the label's colour with `QTabBar::setTabTextColor(index,
+Qt::red)`. The *decision* was right — the tooltip "Something in this
+category needs attention" appeared on exactly the right tabs, so the service
+was counting correctly — but **no tab was drawn red** on the developer's
+Windows 11 machine. The program uses Qt's default style, which there paints
+tab labels in its own colours and ignores a per-tab text colour entirely.
+
+The reason nothing caught it is the part worth remembering: the test asserted
+`tabTextColor(index) == QColor(Qt::red)`, which reads back **the value that
+was stored**, not the pixels that were painted. Qt had accepted the
+instruction and filed it; the style never asked. A property-level assertion
+can only ever prove that the program asked for something — and for anything
+whose whole purpose is to be *seen*, that is not the same claim.
+
+**The fix.** A small filled red circle, drawn in code with `QPainter` onto a
+`QPixmap` and set with `setTabIcon()`; `QIcon()` clears it, so a tab cannot
+stay marked once its category is clean. Tab icons are drawn by every style.
+No image file, so no resource, no path to get wrong and no deployment step.
+
+Three details in it:
+
+- The dot is sized from the bar's own `fontMetrics().height() / 2`, with an
+  8-pixel floor, so it keeps its proportion to the label at any font size or
+  display scaling rather than being a fixed number of pixels that looks
+  wrong at one of them.
+- The pixmap is built at the bar's `devicePixelRatioF()` with that ratio set
+  on it *before* the painter starts, so the drawing is done in logical units
+  and comes out sharp on a scaled display instead of enlarged and soft.
+- The bar's `iconSize()` is set to match the dot, so the style draws it at
+  its natural size instead of scaling a small pixmap up to the default
+  16 by 16.
+
+A dot also does not rely on colour alone, which helps anyone who does not
+distinguish red easily. The `setTabTextColor()` call is **removed**, not left
+in beside the icon: a line that silently does nothing on the machine this
+program runs on is worse than no line.
+
+**Tests — what is painted, not just what is stored.**
+`tst_CertificateCategoryTabs` is at 10 passes.
+
+- `aTabWithSomethingNeedingAttentionIsMarked` replaces the colour assertions
+  with `tabIcon(index).isNull()` ones, and now also asserts the tooltip is on
+  exactly the marked tabs.
+- `theAttentionMarkIsActuallyPainted` is new: it `grab()`s the tab bar — with
+  **no style forced**, so it renders with whatever the program itself uses —
+  and checks that clearly red pixels appear inside `tabRect()` for exactly
+  the tabs needing attention and none of the others. On Windows that is the
+  same Windows 11 style the program runs under, which makes it the test that
+  would have caught the first build.
+
+  Two things it has to get right. It looks for a pixel plainly more red than
+  anything else rather than an exact `Qt::red`, because antialiasing blends
+  the edge of a small shape. And it scales `tabRect()` by the grabbed
+  pixmap's device pixel ratio, because the rect is in logical pixels while
+  the pixmap is in device pixels — without that it would read the wrong part
+  of the image on any display above 100% and quietly report nothing red.
+
+  It sizes the bar from its own `sizeHint()` rather than showing a window:
+  `grab()` needs real geometry and `tabRect()` needs the tabs laid out, and
+  neither needs anything on screen. No other suite in this project shows a
+  window and this one does not start.
+
+**Vacuity-checked, and in the right order.** The render test was written and
+run **first, against the unchanged `setTabTextColor()` build**, where it
+failed with *"tab 'All (4)' should have shown something red"* — the
+developer's screen, reproduced by a test. Only then was the icon put in.
+
+**File sizes.** `CertificateCategoryTabs.cpp` 110 → 161,
+its header 59 → 66, `tst_CertificateCategoryTabs.cpp` 240 → 297. All under
+the guideline.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **52/52
+suites** in each. The render test runs in both, so the mark is checked
+against the style each build actually uses.
+
+**Not tagged.** Still the developer's call, after the on-screen checks — and
+this round is a reminder of why those checks are a real step and not a
+formality.
+
 
 ## Decisions confirmed by the developer
 
+- **A property assertion is not a proof that something is visible.** The
+  category tabs' first build stored a red text colour, reported it through
+  `tabTextColor()`, passed its tests — and drew nothing, because the
+  Windows 11 style ignores a per-tab text colour
+  (`certificate-category-tabs-spec.md` §6). Anything whose whole purpose is
+  to be *seen* needs a check on what was painted: `grab()` the widget with
+  no style forced and read the pixels. Added after the developer found it on
+  screen, which is also why the on-screen checks are a real step in every
+  round and not a formality.
 - `schema_version` **carries the full column set from `CLAUDE.md` §6.5**,
   including `origin_node` (`'LOCAL'`) and `revision` (always `1`) —
   correcting an earlier note here that said it was exempt. It never actually
@@ -3996,7 +4092,8 @@ close-out. What remains, in the order `docs/roadmap-and-pending.md` gives:
    Left: the setup-time restore, which needs a second computer or a fresh
    user account because the wizard only opens with no installation row; and
    a look at the new category tabs — the counts against what is on screen,
-   and a red tab for the category holding something overdue.
+   and a red dot on the category holding something overdue (the first build
+   coloured the label text instead and drew nothing; §6 of that spec).
 2. `docs/machine-setup.md` is already rewritten around Back up → Restore.
 3. On the developer's word that the checks passed: a final
    `PROJECT-STATUS.md` entry marking the module complete, and a git tag on

@@ -8,6 +8,8 @@
 #include "modules/certificates/ui/CertificateListWidget.h"
 
 #include <QCheckBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QTabBar>
 #include <QTableWidget>
 #include <QtTest>
@@ -32,7 +34,8 @@ private slots:
     void fiveTabsInTheOrderAllStatutoryClassEquipmentOther();
     void theScreenOpensOnAll();
     void eachLabelCarriesItsCount();
-    void aTabWithSomethingNeedingAttentionIsRed();
+    void aTabWithSomethingNeedingAttentionIsMarked();
+    void theAttentionMarkIsActuallyPainted();
 
     void pickingATabShowsOnlyThatCategory();
     void changingTabClearsTheSelection();
@@ -52,6 +55,38 @@ private:
     static QCheckBox* attentionCheckOf(CertificateListWidget& widget)
     {
         return widget.findChild<QCheckBox*>(QStringLiteral("needsAttentionCheck"));
+    }
+
+    // Whether anything clearly red was *painted* inside one tab.
+    //
+    // §6 exists because the first build only ever checked what was stored.
+    // Antialiasing blends the edges of a small shape, so this looks for a
+    // pixel that is plainly more red than anything else rather than for an
+    // exact Qt::red.
+    //
+    // The rect comes from tabRect() in logical pixels while grab() returns a
+    // pixmap in device pixels, so it is scaled by the device pixel ratio
+    // before being read — without that it would look in the wrong place on
+    // any screen above 100%.
+    static bool hasRedPixelIn(const QPixmap& grabbed, const QRect& logicalArea)
+    {
+        const QImage image = grabbed.toImage();
+        const qreal  ratio = grabbed.devicePixelRatio();
+
+        const QRect area = QRectF(logicalArea.x() * ratio, logicalArea.y() * ratio,
+                                  logicalArea.width() * ratio, logicalArea.height() * ratio)
+                               .toAlignedRect()
+                               .intersected(image.rect());
+
+        for (int y = area.top(); y <= area.bottom(); ++y) {
+            for (int x = area.left(); x <= area.right(); ++x) {
+                const QColor pixel = image.pixelColor(x, y);
+                if (pixel.red() > 150 && pixel.green() < 100 && pixel.blue() < 100) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // The index of a tab by the category it carries, so no test depends on
@@ -167,19 +202,59 @@ void TestCertificateCategoryTabs::eachLabelCarriesItsCount()
              QStringLiteral("Other (0)"));
 }
 
-void TestCertificateCategoryTabs::aTabWithSomethingNeedingAttentionIsRed()
+void TestCertificateCategoryTabs::aTabWithSomethingNeedingAttentionIsMarked()
 {
     BUILD_WIDGET(widget);
 
     QTabBar* tabs = tabsOf(widget);
 
-    // §2: the expired Load Line is statutory, so that tab — and All — are
-    // red, and the categories holding only valid certificates are not. The
-    // value of the colour is entirely in not being on everything.
-    QCOMPARE(tabs->tabTextColor(indexOf(tabs, CertificateCategory::Statutory)), QColor(Qt::red));
-    QCOMPARE(tabs->tabTextColor(indexOf(tabs, CertificateCategory::Unset)), QColor(Qt::red));
-    QVERIFY(!tabs->tabTextColor(indexOf(tabs, CertificateCategory::Class)).isValid());
-    QVERIFY(!tabs->tabTextColor(indexOf(tabs, CertificateCategory::Equipment)).isValid());
+    // §2 and §6: the expired Load Line is statutory, so that tab — and All —
+    // carry the mark, and the categories holding only valid certificates do
+    // not. The value of the mark is entirely in not being on everything.
+    QVERIFY(!tabs->tabIcon(indexOf(tabs, CertificateCategory::Statutory)).isNull());
+    QVERIFY(!tabs->tabIcon(indexOf(tabs, CertificateCategory::Unset)).isNull());
+    QVERIFY(tabs->tabIcon(indexOf(tabs, CertificateCategory::Class)).isNull());
+    QVERIFY(tabs->tabIcon(indexOf(tabs, CertificateCategory::Equipment)).isNull());
+    QVERIFY(tabs->tabIcon(indexOf(tabs, CertificateCategory::Other)).isNull());
+
+    // The tooltip stays, and is on exactly the marked tabs (§6).
+    QVERIFY(!tabs->tabToolTip(indexOf(tabs, CertificateCategory::Statutory)).isEmpty());
+    QVERIFY(tabs->tabToolTip(indexOf(tabs, CertificateCategory::Class)).isEmpty());
+}
+
+void TestCertificateCategoryTabs::theAttentionMarkIsActuallyPainted()
+{
+    BUILD_WIDGET(widget);
+
+    QTabBar* tabs = tabsOf(widget);
+
+    // No style is forced: this renders with whatever the program itself uses,
+    // which on Windows 11 is the style that ignored setTabTextColor() and let
+    // the first build ship a mark nobody could see (§6).
+    //
+    // Sized from its own hint rather than shown — grab() needs real geometry
+    // and tabRect() needs the tabs laid out, and neither needs a window.
+    tabs->resize(tabs->sizeHint());
+    QVERIFY(tabs->width() > 0);
+
+    const QPixmap painted = tabs->grab();
+    QVERIFY(!painted.isNull());
+
+    // Exactly the tabs that need attention, read off the pixels rather than
+    // off a property: that is the whole point of this test existing.
+    const QList<CertificateCategory> marked{CertificateCategory::Unset,
+                                            CertificateCategory::Statutory};
+
+    for (int index = 0; index < tabs->count(); ++index) {
+        const auto category = static_cast<CertificateCategory>(tabs->tabData(index).toInt());
+        const bool expected = marked.contains(category);
+
+        QVERIFY2(hasRedPixelIn(painted, tabs->tabRect(index)) == expected,
+                 qPrintable(QStringLiteral("tab '%1' %2 have shown something red")
+                                .arg(tabs->tabText(index),
+                                     expected ? QStringLiteral("should")
+                                              : QStringLiteral("should not"))));
+    }
 }
 
 void TestCertificateCategoryTabs::pickingATabShowsOnlyThatCategory()

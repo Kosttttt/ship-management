@@ -1,5 +1,8 @@
 #include "modules/certificates/ui/CertificateCategoryTabs.h"
 
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
 #include <QSignalBlocker>
 #include <QTabBar>
 
@@ -30,6 +33,50 @@ QString labelFor(CertificateCategory category)
 // category rather than inferred from its position.
 constexpr int kCategoryRole = Qt::UserRole + 1;
 
+// How big the dot is, as a fraction of the label's height — so it keeps its
+// proportion to the text at any font size or display scaling instead of
+// being a fixed number of pixels that looks wrong at one of them.
+constexpr int kDotDivisor = 2;
+constexpr int kDotMinimum = 8;
+
+int dotSizeFor(const QTabBar& bar)
+{
+    return qMax(kDotMinimum, bar.fontMetrics().height() / kDotDivisor);
+}
+
+// The mark on a tab that needs attention (§6): a small filled red circle,
+// drawn here with QPainter rather than loaded from a file, which needs no
+// resource, no path to get wrong and no deployment step.
+//
+// An icon and not a text colour, which is what the first build used. On this
+// project's Windows 11 machine the default style paints tab labels in its own
+// colours and ignores QTabBar::setTabTextColor() entirely, so the mark was
+// stored, reported by the tooltip, asserted by the tests — and never drawn.
+// Tab icons are drawn by every style. A dot also does not rely on colour
+// alone, which helps anyone who does not distinguish red easily.
+QIcon makeAttentionDot(const QTabBar& bar)
+{
+    const int   logicalSize = dotSizeFor(bar);
+    const qreal ratio       = bar.devicePixelRatioF();
+
+    QPixmap pixmap(QSize(logicalSize, logicalSize) * ratio);
+    pixmap.fill(Qt::transparent);
+    // Set before the painter is made, so drawing below is in logical units
+    // and comes out sharp on a scaled display rather than enlarged and soft.
+    pixmap.setDevicePixelRatio(ratio);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(Qt::red));
+    // Inset by half a pixel so the antialiased edge has somewhere to go and
+    // the circle is not clipped flat on its sides.
+    painter.drawEllipse(QRectF(0.5, 0.5, logicalSize - 1.0, logicalSize - 1.0));
+    painter.end();
+
+    return QIcon(pixmap);
+}
+
 } // namespace
 
 CertificateCategoryTabs::CertificateCategoryTabs(QWidget* parent)
@@ -40,6 +87,13 @@ CertificateCategoryTabs::CertificateCategoryTabs(QWidget* parent)
     m_bar->setExpanding(false);
     m_bar->setDrawBase(false);
     m_bar->setFocusPolicy(Qt::StrongFocus);
+
+    // Built once, from this bar's own font and device pixel ratio, and the
+    // bar's icon size is set to match so the style draws the dot at its
+    // natural size instead of scaling it to the default 16 by 16.
+    m_attentionMark = makeAttentionDot(*m_bar);
+    const int dotSize = dotSizeFor(*m_bar);
+    m_bar->setIconSize(QSize(dotSize, dotSize));
 
     for (CertificateCategory category : CertificateListRows::categoryOrder()) {
         const int index = m_bar->addTab(labelFor(category));
@@ -94,11 +148,11 @@ void CertificateCategoryTabs::updateLabels(
                                          .arg(labelFor(tally.category))
                                          .arg(tally.visibleCount));
 
-            // §2: red means "something in here needs attention". An invalid
-            // QColor is how QTabBar is told to go back to the palette's own
-            // colour, so this sets and clears with the same call rather than
-            // leaving a tab red once it has been.
-            m_bar->setTabTextColor(index, tally.needsAttention ? QColor(Qt::red) : QColor());
+            // §2 and §6: a red dot means "something in here needs attention".
+            // A null QIcon is how a tab is told to have none, so this sets
+            // and clears with the same call rather than leaving a tab marked
+            // once it has been.
+            m_bar->setTabIcon(index, tally.needsAttention ? m_attentionMark : QIcon());
 
             m_bar->setTabToolTip(index,
                                  tally.needsAttention
