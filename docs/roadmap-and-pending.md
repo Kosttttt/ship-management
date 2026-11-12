@@ -19,14 +19,17 @@ start the next one. Rounds, one at a time, in this order:
    554 → 379 via helper classes; survey tests split; the attachment chooser
    remembers the last folder; `TransactionScope` and `QSignalBlocker`
    fixes. The first-run duplicate-IMO item was dropped — it can't happen.
-3. **Step 15: database backup & restore.** Spec written:
-   `docs/database-backup-spec.md`. Database only (documents stay in their
-   folders); Back up / Restore in Settings; an automatic daily backup to a
-   chosen folder (e.g. Google Drive), keeping the last 10. The audit trail
-   viewer is deferred, not part of this module.
-4. **Close-out.** Your own checks (below), a final `PROJECT-STATUS.md`
-   entry marking the module complete, and a git tag on that commit so
-   there is a named version to go back to.
+3. ✅ **Step 15: database backup & restore.** `d702988`, spec
+   `docs/database-backup-spec.md`. Back up / Restore in Settings, an
+   automatic daily backup to a chosen folder keeping the last 10, restore
+   swapped in at startup with a safety copy kept.
+4. **Close-out.** Two small additions from the step 15 review
+   (`database-backup-spec.md` §10: a side file that won't move cancels the
+   restore instead of being deleted; "Restore from a backup instead…" on
+   the first-run setup), your on-screen checks, a final `PROJECT-STATUS.md`
+   entry marking the module complete, and a git tag so there is a named
+   version to go back to. `docs/machine-setup.md` is already rewritten
+   around Back up → Restore.
 
 Then **the next module** — Document Management is next on the project's
 list — starting, as every step has, with a design discussion before any
@@ -92,10 +95,13 @@ remembered folder must never be the vessel's own `attachment_root_path`
 
 ## Your pending items
 
-- Everything up to `05016eb` is pushed. The V TRE Load Line is confirmed
+- Everything up to `d702988` is pushed. The V TRE Load Line is confirmed
   fixed on screen by the developer.
-- **Check the attachment chooser** on screen: attach a file, then attach
-  another — the second dialog should open where the first file was.
+- **On-screen checks before the module is called complete:**
+  attachment chooser (second attach opens where the first file was);
+  Back up now; automatic backup turned on → restart → file appears;
+  Restore → restart → a "Backup restored" message and everything still
+  there.
 - **V TRE CSV — two rows still blocked.** No. 19 (Safety Construction) and
   No. 39 (Ballast Water Management): each annual-survey date is before the
   certificate's current issue date, which the app refuses. Needs either the

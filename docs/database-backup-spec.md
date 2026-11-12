@@ -202,4 +202,50 @@ attachment folders, CSV import/export.
 ## 9. After this ships
 
 `docs/machine-setup.md` gets rewritten around Back up → Restore instead of
-finding the file by hand. That happens in the close-out round.
+finding the file by hand. Done alongside §10.
+
+## 10. Close-out additions (after `d702988` was reviewed)
+
+### 10.1 A side file that won't move cancels the restore
+
+`RestoreSwap::applyPending()` today: if a `-journal`/`-wal`/`-shm` beside
+the current database can't be renamed into the safety copy, it is
+**deleted** and the restore carries on. Its comment assumes the database
+was closed cleanly — but these side files only exist when it *wasn't*
+(a crash, a power cut). A `-journal` left by a crash holds what is needed
+to repair the database; deleting it can leave the safety copy damaged.
+
+Change: if any existing side file can't be moved, **undo and stop** — move
+back whatever side files were already moved, rename the safety copy back
+to `ship-management.db`, leave the pending file where it is, and return
+`Failed` with a plain message ("The restore has not happened. Your data is
+untouched. A file next to the database is in use — close any program that
+might be using it and start again."). A restore that doesn't happen is
+always safe; a damaged safety copy is not.
+
+Test (Windows-only like `aFailedSwapPutsTheOriginalBack`, same `QSKIP`
+reason): a locked side file → `Failed`, the original database and its side
+file are back under their original names with the same contents, the
+pending file is still there.
+
+### 10.2 Restore straight from the first-run setup
+
+On a brand-new computer the program opens the first-run wizard, and
+Settings — where Restore lives — can't be reached until setup is finished.
+Moving to a new computer would mean inventing a fake installation just to
+restore over it.
+
+Add to the wizard's first page (installation mode): a button **"Restore
+from a backup instead…"**. It runs exactly the Settings restore path —
+choose file, the §5.1 checks, a confirmation (no "this computer now"
+column, since there is nothing yet), `RestoreSwap::stage()`, restart. Reuse
+the same classes; don't duplicate the checks. The empty database the
+program created before the wizard opened becomes the `before-restore-…`
+safety copy at the next start, which is harmless.
+
+If restarting can't be launched, say "Start the program again to finish
+restoring" and close the wizard as cancelled.
+
+Test what can be tested without a dialog (the button exists on the mode
+page; the restore path it calls is the already-tested one). The developer
+checks the full flow by hand on a second computer or a fresh user account.
