@@ -32,4 +32,19 @@ public:
 
     virtual QList<Migration>      migrations() const = 0;
     virtual QList<AlertProvider*> alertProviders()   = 0;
+
+    // Called when the toolbar's vessel selection changes (OFFICE mode), and
+    // once at start-up. Default: nothing.
+    //
+    // **Non-pure on purpose** (document-management-spec.md §3.1). Without it,
+    // the shell has to find a module's screen by its concrete type to rescope
+    // it — which is what MainWindow does for the certificate list today — and
+    // every new module whose screen depends on the vessel would mean another
+    // qobject_cast in app/ naming another module's widget. CLAUDE.md §7 says
+    // adding a module must require zero changes to existing modules, and a
+    // shell that has to learn each one's type is not that.
+    //
+    // A module whose screen does not care about the vessel — and there will be
+    // such modules — overrides nothing and notices no difference.
+    virtual void setSelectedVessel(const QString& vesselId) { Q_UNUSED(vesselId) }
 };

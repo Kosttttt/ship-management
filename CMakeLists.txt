@@ -46,6 +46,7 @@ set(SHIP_MIGRATION_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/009_add_certificate_extension_attachment_path.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/010_add_vessel_attachment_root_path.sql
     ${CMAKE_CURRENT_SOURCE_DIR}/migrations/011_widen_certificate_list_number_check.sql
+    ${CMAKE_CURRENT_SOURCE_DIR}/migrations/012_create_document.sql
 )
 
 # Compiles the migrations into a target, reachable at ":/migrations/...".
@@ -83,6 +84,7 @@ qt_add_library(ShipCore STATIC
     src/core/DatabaseBackup.h         src/core/DatabaseBackup.cpp
     src/core/AutomaticBackup.h        src/core/AutomaticBackup.cpp
     src/core/RestoreSwap.h            src/core/RestoreSwap.cpp
+    src/core/DocumentsFolder.h        src/core/DocumentsFolder.cpp
     src/core/TransactionScope.h
     src/core/FileTree.h               src/core/FileTree.cpp
     src/core/ManagedFileStore.h       src/core/ManagedFileStore.cpp
@@ -199,6 +201,46 @@ qt_add_library(ShipCertificates STATIC
 target_link_libraries(ShipCertificates PUBLIC ShipCore Qt6::Widgets Qt6::PrintSupport)
 
 # ---------------------------------------------------------------------------
+# ShipDocuments — the Document Management module.
+#
+# Its own library, like ShipCertificates and for the same reason. It links
+# ShipCore and nothing else: a module may never reach into another module's
+# folders (CLAUDE.md §5), and the build says so rather than trusting everyone
+# to remember. An #include of anything under modules/certificates/ from here
+# fails to compile, which is the point.
+# ---------------------------------------------------------------------------
+qt_add_library(ShipDocuments STATIC
+    src/modules/documents/DocumentsModule.h
+    src/modules/documents/DocumentsModule.cpp
+    src/modules/documents/domain/Document.h
+    src/modules/documents/domain/Document.cpp
+    src/modules/documents/data/DocumentAccessRules.h
+    src/modules/documents/data/DocumentAccessRules.cpp
+    src/modules/documents/data/DocumentVersionStore.h
+    src/modules/documents/data/DocumentVersionStore.cpp
+    src/modules/documents/data/DocumentRepository.h
+    src/modules/documents/data/DocumentRepository.cpp
+    src/modules/documents/service/DocumentFileStore.h
+    src/modules/documents/service/DocumentFileStore.cpp
+    src/modules/documents/ui/DocumentCategoryTabs.h
+    src/modules/documents/ui/DocumentCategoryTabs.cpp
+    src/modules/documents/ui/DocumentVersionFields.h
+    src/modules/documents/ui/DocumentVersionFields.cpp
+    src/modules/documents/ui/DocumentEditDialog.h
+    src/modules/documents/ui/DocumentEditDialog.cpp
+    src/modules/documents/ui/DocumentVersionDialog.h
+    src/modules/documents/ui/DocumentVersionDialog.cpp
+    src/modules/documents/ui/DocumentVersionsDialog.h
+    src/modules/documents/ui/DocumentVersionsDialog.cpp
+    src/modules/documents/ui/DocumentActions.h
+    src/modules/documents/ui/DocumentActions.cpp
+    src/modules/documents/ui/DocumentListWidget.h
+    src/modules/documents/ui/DocumentListWidget.cpp
+)
+
+target_link_libraries(ShipDocuments PUBLIC ShipCore Qt6::Widgets)
+
+# ---------------------------------------------------------------------------
 # ShipApp — the shell: MainWindow, the module registry, the wizard, vessels.
 #
 # A library rather than sources compiled straight into the executable, so the
@@ -222,12 +264,13 @@ qt_add_library(ShipApp STATIC
     src/app/DatabaseBackupSettings.h src/app/DatabaseBackupSettings.cpp
     src/app/RestoreConfirmationDialog.h src/app/RestoreConfirmationDialog.cpp
     src/app/RestoreFromBackup.h src/app/RestoreFromBackup.cpp
+    src/app/DocumentsFolderSettings.h src/app/DocumentsFolderSettings.cpp
     src/app/VesselDetailPage.h     src/app/VesselDetailPage.cpp
     src/app/SettingsPage.h         src/app/SettingsPage.cpp
     src/app/AttachmentFolderSettings.h src/app/AttachmentFolderSettings.cpp
 )
 
-target_link_libraries(ShipApp PUBLIC ShipCore ShipCertificates Qt6::Widgets)
+target_link_libraries(ShipApp PUBLIC ShipCore ShipCertificates ShipDocuments Qt6::Widgets)
 
 # ---------------------------------------------------------------------------
 # The application.

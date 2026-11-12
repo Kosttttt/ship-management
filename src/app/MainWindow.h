@@ -66,6 +66,15 @@ private:
     // filtered to the vessel in question.
     void showAttentionFor(IModule* module, const QString& vesselId);
 
+    // Tells every module which vessel is selected and lets each decide
+    // whether it cares (document-management-spec.md §3.1).
+    //
+    // This is what stops the shell having to name a second module's screen
+    // type the way it names CertificateListWidget below. That one piece of
+    // direct wiring stays as it is — moving it onto the hook is a tidy-up for
+    // its own round, not part of the module that introduced the hook.
+    void announceSelectedVessel(const QString& vesselId);
+
     VesselRepository* m_vesselRepository = nullptr;
 
     // The status bar's own line, kept so a startup notice can be added to it
@@ -86,6 +95,10 @@ private:
     // does not exist yet (certificate-crud-spec §3). The moment a second one
     // appears, this is the line to generalise.
     CertificateListWidget* m_certificates = nullptr;
+
+    // Every registered module, for announceSelectedVessel(). Non-owning: the
+    // registry owns them and outlives this window.
+    QList<IModule*> m_modules;
 
     AlertBanner* m_alertBanner = nullptr;
 

@@ -59,6 +59,12 @@ MainWindow::MainWindow(const InstallationContext& installation,
     // vessel, which has only itself.
     if (installation.mode() == InstallationMode::Office) {
         buildVesselSelector();
+    } else {
+        // No selector to announce from, so the one vessel this installation
+        // has is announced once here. A module whose screen shows the
+        // vessel's name needs to be told it even where there is no choice
+        // (document-management-spec.md §3.1).
+        announceSelectedVessel(installation.vesselId());
     }
 
     // alerts-spec.md §8: the banner is a startup snapshot, decided after the
@@ -116,6 +122,7 @@ void MainWindow::buildSidebar(const InstallationContext& installation,
         // Remember which row is this module's, so its badge can be rewritten
         // and the banner's drill-down can find its page.
         m_moduleSidebarRows.insert(module, m_sidebar->count() - 1);
+        m_modules.append(module);
 
         QWidget* screen = module->createMainWidget(this);
         m_pages->addWidget(screen);
@@ -278,6 +285,10 @@ void MainWindow::buildVesselSelector()
         const QString vesselId =
             (index < 0) ? QString() : m_vesselSelector->itemData(index).toString();
         m_certificates->setVesselId(vesselId);
+
+        // And every module, which is how a screen other than the certificate
+        // list hears about it without the shell knowing its type (§3.1).
+        announceSelectedVessel(vesselId);
     });
 
     // The fleet can change while the application is running, and the selector
@@ -334,7 +345,21 @@ void MainWindow::refreshVesselSelector()
 
     // Signals were blocked above, so the certificates screen is re-pointed
     // explicitly. This also covers a selection that no longer exists.
+    const QString nowSelected = restoredIndex < 0 ? QString() : selectedId;
     if (m_certificates != nullptr) {
-        m_certificates->setVesselId(restoredIndex < 0 ? QString() : selectedId);
+        m_certificates->setVesselId(nowSelected);
+    }
+    announceSelectedVessel(nowSelected);
+}
+
+void MainWindow::announceSelectedVessel(const QString& vesselId)
+{
+    // Every module, not the ones that look as though they need it: IModule's
+    // default does nothing, so a module that does not care costs one call
+    // through a vtable and notices nothing (§3.1).
+    for (IModule* module : m_modules) {
+        if (module != nullptr) {
+            module->setSelectedVessel(vesselId);
+        }
     }
 }

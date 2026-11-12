@@ -24,7 +24,7 @@ private slots:
     void init();
     void cleanup();
 
-    void registryExposesExactlyOneModule();
+    void registryExposesEveryModuleInSidebarOrder();
     void theModuleIdentifiesItself();
     void theModuleContributesNoMigrationsOrAlertsYet();
     void sidebarShowsVesselsPlusEveryModule();
@@ -111,13 +111,20 @@ QString TestModuleRegistry::seedVessel(const QString& id, const QString& name, c
     return id;
 }
 
-void TestModuleRegistry::registryExposesExactlyOneModule()
+void TestModuleRegistry::registryExposesEveryModuleInSidebarOrder()
 {
     QSqlDatabase              db      = database();
     const InstallationContext context = officeContext();
     ModuleRegistry            registry(db, context);
 
-    QCOMPARE(registry.modules().size(), 1);
+    // By id rather than by a count, so registering the next module is still
+    // one line here instead of a number to remember. The order is the
+    // sidebar's, which is the registry's own promise.
+    QStringList ids;
+    for (IModule* module : registry.modules()) {
+        ids.append(module->id());
+    }
+    QCOMPARE(ids, QStringList({QStringLiteral("certificates"), QStringLiteral("documents")}));
 }
 
 void TestModuleRegistry::theModuleIdentifiesItself()
@@ -168,10 +175,17 @@ void TestModuleRegistry::sidebarShowsVesselsPlusEveryModule()
 
     // Vessels first, then one row per module, then Settings — both of the
     // fixed entries are core rather than modules (settings-app-setting-spec §6).
-    QCOMPARE(sidebar->count(), 3);
+    //
+    // Counted from the registry rather than written down, so a new module
+    // needs no change here: that is what "adding a module requires zero
+    // changes to existing modules" has to mean for the shell's own tests too.
+    const QList<IModule*> modules = registry.modules();
+    QCOMPARE(sidebar->count(), modules.size() + 2);
     QCOMPARE(sidebar->item(0)->text(), QStringLiteral("Vessels"));
-    QCOMPARE(sidebar->item(1)->text(), registry.modules().first()->displayName());
-    QCOMPARE(sidebar->item(2)->text(), QStringLiteral("Settings"));
+    for (int index = 0; index < modules.size(); ++index) {
+        QCOMPARE(sidebar->item(index + 1)->text(), modules.at(index)->displayName());
+    }
+    QCOMPARE(sidebar->item(sidebar->count() - 1)->text(), QStringLiteral("Settings"));
 
     // Vessels is core, not a module, so it is always first and always present.
     QCOMPARE(sidebar->currentRow(), 0);
@@ -228,8 +242,12 @@ void TestModuleRegistry::settingsEntryIsPresentInVesselModeToo()
 
     auto* sidebar = window.findChild<QListWidget*>(QStringLiteral("navigationSidebar"));
     QVERIFY(sidebar != nullptr);
-    QCOMPARE(sidebar->count(), 3);
-    QCOMPARE(sidebar->item(2)->text(), QStringLiteral("Settings"));
+
+    // Settings is always last, whatever the modules are. Found by position
+    // from the end rather than by a fixed index, so this stays about Settings
+    // and not about how many modules there happen to be.
+    QCOMPARE(sidebar->count(), registry.modules().size() + 2);
+    QCOMPARE(sidebar->item(sidebar->count() - 1)->text(), QStringLiteral("Settings"));
 }
 
 QTEST_MAIN(TestModuleRegistry)

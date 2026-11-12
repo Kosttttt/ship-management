@@ -6,6 +6,7 @@
 class AppSettingRepository;
 class AttachmentFolderSettings;
 class DatabaseBackupSettings;
+class DocumentsFolderSettings;
 class InstallationContext;
 class QSqlDatabase;
 class QLabel;
@@ -69,6 +70,11 @@ private:
     // Its own widget for the same reason, and because nothing about a backup
     // belongs to the Save button either (database-backup-spec §3).
     DatabaseBackupSettings*   m_databaseBackup    = nullptr;
+
+    // Where the Documents module files its uploads
+    // (document-management-spec.md §4.5). Its own widget for the same reason
+    // the two above are.
+    DocumentsFolderSettings*  m_documentsFolder   = nullptr;
 
     QString m_settingId;
 };

@@ -2,12 +2,14 @@
 
 #include "app/IModule.h"
 #include "modules/certificates/CertificatesModule.h"
+#include "modules/documents/DocumentsModule.h"
 
 ModuleRegistry::ModuleRegistry(QSqlDatabase& database, const InstallationContext& installation)
 {
     // Registering a module is one line. This is the only place in the
     // application that names a module type.
     m_modules.push_back(std::make_unique<CertificatesModule>(database, installation));
+    m_modules.push_back(std::make_unique<DocumentsModule>(database, installation));
 }
 
 // Declared out of line because the header only forward-declares IModule, and

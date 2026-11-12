@@ -153,6 +153,20 @@ ship_add_migrations(tst_CertificateListColumns)
 add_ship_test(tst_CertificateBulkDelete
     modules/certificates/tst_CertificateBulkDelete.cpp ShipCertificates)
 ship_add_migrations(tst_CertificateBulkDelete)
+
+# Document Management, step 1 — the library (document-management-spec.md §4.6).
+add_ship_test(tst_DocumentScope
+    modules/documents/tst_DocumentScope.cpp ShipDocuments)
+add_ship_test(tst_DocumentVersions
+    modules/documents/tst_DocumentVersions.cpp ShipDocuments)
+add_ship_test(tst_DocumentFileStore
+    modules/documents/tst_DocumentFileStore.cpp ShipDocuments)
+add_ship_test(tst_DocumentListWidget
+    modules/documents/tst_DocumentListWidget.cpp ShipApp ShipDocuments)
 add_ship_test(tst_CertificateImportPlaceholder
     modules/certificates/tst_CertificateImportPlaceholder.cpp ShipCertificates)
 ship_add_migrations(tst_CertificateImportPlaceholder)
+ship_add_migrations(tst_DocumentScope)
+ship_add_migrations(tst_DocumentVersions)
+ship_add_migrations(tst_DocumentFileStore)
+ship_add_migrations(tst_DocumentListWidget)

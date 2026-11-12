@@ -1,6 +1,7 @@
 #include "BackupTestSupport.h"
 
 #include "core/BackupFileInspector.h"
+#include "core/MigrationRunner.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
@@ -33,10 +34,22 @@ private:
     // this every test would inherit the previous one's files.
     QString pathFor(const QString& name) const { return QDir(m_work).filePath(name); }
 
-    // What this program carries. Every check but the version one is
-    // independent of it, so a fixed, generous number keeps those tests from
-    // needing a new migration every round.
-    static constexpr int kKnownMigrations = 11;
+    // What this program carries, asked rather than written down.
+    //
+    // It was a constant, 11, with a comment claiming a fixed number would
+    // keep these tests out of the way of new migrations. That was wrong the
+    // first time a migration landed: at 12 the seeded database was "newer
+    // than this program" and three tests failed for a reason that had
+    // nothing to do with what they were testing. Asking MigrationRunner is
+    // what the program itself does, so the test cannot drift from it again.
+    static int knownMigrations()
+    {
+        QSqlDatabase    db = QSqlDatabase::database();
+        MigrationRunner runner(db, QStringLiteral(":/migrations"));
+        int             highest = 0;
+        runner.highestAvailableVersion(&highest);
+        return highest;
+    }
 
     QString       m_work;
     QTemporaryDir m_folder;
@@ -57,7 +70,7 @@ void TestBackupFileInspector::aCompleteBackupIsAccepted()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY2(BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error),
+    QVERIFY2(BackupFileInspector::inspect(path, knownMigrations(), &summary, &error),
              qPrintable(error));
     QVERIFY(error.isEmpty());
 }
@@ -69,7 +82,7 @@ void TestBackupFileInspector::theSummaryReportsWhatIsInTheFile()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY2(BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error),
+    QVERIFY2(BackupFileInspector::inspect(path, knownMigrations(), &summary, &error),
              qPrintable(error));
 
     QCOMPARE(summary.nodeId, QStringLiteral("OFFICE"));
@@ -105,7 +118,7 @@ void TestBackupFileInspector::aVesselInstallationIsNamedInTheSummary()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY2(BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error),
+    QVERIFY2(BackupFileInspector::inspect(path, knownMigrations(), &summary, &error),
              qPrintable(error));
 
     QVERIFY(summary.isVesselMode);
@@ -121,7 +134,7 @@ void TestBackupFileInspector::aFileThatIsNotADatabaseIsRefused()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY(!BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error));
+    QVERIFY(!BackupFileInspector::inspect(path, knownMigrations(), &summary, &error));
     QVERIFY(!error.isEmpty());
 
     // Also the half of §2 that tst_DatabaseBackup cannot reach: a file that
@@ -135,7 +148,7 @@ void TestBackupFileInspector::aMissingFileIsRefused()
 {
     BackupSummary summary;
     QString       error;
-    QVERIFY(!BackupFileInspector::inspect(pathFor(QStringLiteral("absent.db")), kKnownMigrations,
+    QVERIFY(!BackupFileInspector::inspect(pathFor(QStringLiteral("absent.db")), knownMigrations(),
                                           &summary, &error));
     QVERIFY2(error.contains(QStringLiteral("no file")), qPrintable(error));
 }
@@ -155,7 +168,7 @@ void TestBackupFileInspector::aDatabaseWithoutOurTablesIsRefused()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY(!BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error));
+    QVERIFY(!BackupFileInspector::inspect(path, knownMigrations(), &summary, &error));
     QVERIFY2(error.contains(QStringLiteral("not one belonging to this program")),
              qPrintable(error));
 }
@@ -171,7 +184,7 @@ void TestBackupFileInspector::aDatabaseWithNoInstallationRowIsRefused()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY(!BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error));
+    QVERIFY(!BackupFileInspector::inspect(path, knownMigrations(), &summary, &error));
     QVERIFY2(error.contains(QStringLiteral("no installation row")), qPrintable(error));
 }
 
@@ -202,7 +215,7 @@ void TestBackupFileInspector::aDatabaseWithTwoInstallationRowsIsRefused()
 
     BackupSummary summary;
     QString       error;
-    QVERIFY(!BackupFileInspector::inspect(path, kKnownMigrations, &summary, &error));
+    QVERIFY(!BackupFileInspector::inspect(path, knownMigrations(), &summary, &error));
     QVERIFY2(error.contains(QStringLiteral("more than one installation row")), qPrintable(error));
 }
 

@@ -3425,6 +3425,167 @@ agreed with the code.
 **Next: Document Management**, starting as every step has, with a design
 discussion before any spec.
 
+---
+
+### Document Management, step 1 — the library ✅
+
+`docs/document-management-spec.md` §3 and §4. The second module's first step:
+documents, fleet-wide or per vessel, in four categories, with every version
+kept and openable.
+
+**A second module, which is the point.** `src/modules/documents/` with
+`domain/ data/ service/ ui/`, a `DocumentsModule` implementing `IModule`, and
+**one line** in `ModuleRegistry` (`CLAUDE.md` §7). It includes nothing from
+`modules/certificates/` — and the build says so rather than trusting everyone
+to remember: `ShipDocuments` links `ShipCore` and nothing else, so an
+`#include` of anything under the other module fails to compile. What the two
+genuinely share — `ManagedFileStore`, `Vessel`, `VesselRepository` — comes
+from `core/`, which is the direction dependencies are allowed to point.
+
+**§3.1 — the vessel selector is a hook now.** `IModule::setSelectedVessel()`,
+non-pure with an empty default. `MainWindow` calls it on every module and
+learns no module's screen type to do it.
+
+Without it the shell would need a second `qobject_cast` naming a second
+module's widget, and a third for the module after that — which is not what
+"adding a module requires zero changes to existing modules" can mean.
+`CertificatesModule` is **not** changed: it keeps its existing direct wiring,
+and moving it onto the hook is a tidy-up for its own round. The existing
+selector tests pass untouched, which is what that promise looks like from
+the outside.
+
+In VESSEL mode there is no selector to announce from, so the installation's
+own vessel is announced once at start-up — a module whose screen shows the
+vessel's name still needs telling where there is no choice.
+
+**§4.1 — migration 012.** `document` and `document_version`. A fleet-wide
+document has a **NULL** `vessel_id`; no foreign key, for the same reason
+`certificate.vessel_id` has none — rows will arrive from the other side of a
+sync before their vessel does. "Current" is the highest live `sequence` and
+is **never stored** (`CLAUDE.md` §6.7): a stored "is current" flag is a
+second answer, free to disagree with the first.
+
+**§4.2 — the files.** `<documents folder>/Fleet/<CATEGORY>/` and
+`<documents folder>/<IMO>/<CATEGORY>/`, so somebody can find a document in a
+file browser without the program's help — which matters for paperwork that
+may have to be produced on a computer that will not start. Named
+`SMS-03__v5.pdf`: the reference (or the title), the sequence, and the source
+file's own extension, because the computer's normal viewer decides by
+extension and that is what opens these (§1).
+
+**A version is never overwritten.** Each one is a new file; `ManagedFileStore`
+does the copying and adds a suffix if anything is already at that name, and
+sequence numbers count past deleted rows so a number is never reused. A
+vessel with no IMO number is **refused** rather than filed under an empty
+name, which would collect every such vessel's documents into one folder.
+
+The folder is in `QSettings`, not the database, for the reason the backup
+folder is: it is a path on *this* computer, and in a backup it would arrive
+on another machine pointing at nothing. Changing it does not move what is
+already filed, and the Settings row says so when it is changed rather than
+letting somebody discover it later.
+
+**§4.3 — who may change what, in the repository.** OFFICE sees and edits
+everything; a VESSEL sees fleet-wide documents plus its own and may change
+only its own. Fleet-wide documents are **read-only on a ship** — they will
+arrive from the office in step 4.
+
+Enforced in `DocumentAccessRules`, consulted by every write and both reads.
+Its own class because it is the rule rather than a detail of any one query:
+spread through eight methods it would eventually be applied in seven. The
+screen greys the three changing buttons for a fleet-wide row on a ship and
+says why in a tooltip, but Open and Versions stay enabled — a vessel may
+*read* the company's SMS, it just may not issue its own revision of it.
+
+**§4.4 — the screen.** Category tabs with counts (no red marks: nothing here
+has a date that can fall due), a search box filtering title or reference as
+it is typed, the seven columns, and Add Document, Add New Version, Open,
+Versions, Edit Details and Delete. Delete is a soft delete and the
+confirmation says the files stay in the folder — an SMS record is not
+something to destroy because somebody clicked the wrong row.
+
+Counts follow the search but not the selected tab, so every tab shows its own
+number whichever one is open — the same rule the certificate list's tabs
+follow, implemented separately because the two modules may not share code.
+
+**Tests — 4 suites, 42 cases; the project is at 56 suites.** All on in-memory
+databases and `QTemporaryDir`s; nothing touches the real data folder, the
+real documents folder or the real settings (`CLAUDE.md` §10.1).
+
+`tst_DocumentScope` (9) is the one that matters most: the office sees
+fleet-wide plus the chosen vessel and not another ship's; a vessel sees
+fleet-wide plus its own whatever it asks for; another vessel's document is
+invisible in the list, **by id, and in its history**; and a vessel cannot
+add, edit, version or delete a fleet-wide document, with the stored row
+checked afterwards rather than just the call refused.
+
+`tst_DocumentVersions` (7): the first version is current, a new one makes the
+old one superseded with both files distinct, numbers are never reused, and a
+soft delete hides the document and its history while leaving both rows in the
+database.
+
+`tst_DocumentFileStore` (10): `Fleet/SMS` and `9074729/PLAN_MANUAL`; a vessel
+with no IMO number refused; the naming rules including a reference with
+`/` and `:` in it; and the one that earns its place — storing two versions
+leaves **two** files, each with its own contents.
+
+`tst_DocumentListWidget` (8): the tabs, their counts, the search, the module
+hook reaching the screen through `setSelectedVessel()`, and the registry
+exposing the module.
+
+**The tests caught a real bug, and it was one this project has a comment
+about.** `findById()` was written with `... OR ? = ''` to let an unscoped
+OFFICE installation see everything. An empty `QString` binds as SQL **NULL**,
+and `NULL = ''` is unknown rather than true — so the clause was false for
+every row, and the office could not read any vessel's document at all.
+`VesselRepository::findImoNumberHolder()` carries a comment about exactly
+this trap on its own `excludeId`. It is now an integer parameter — `? = 0 OR
+…` — which cannot go wrong that way, and the comment says why.
+
+Vacuity-checked: removing the write rule fails exactly the four tests that
+assert it, and the file came back to the same md5.
+
+**Existing tests that had to change, and why.** Two, both because this round
+changed what they assert about rather than because they broke:
+
+- `tst_ModuleRegistry` asserted "exactly one module" and a sidebar of three
+  rows. It now reads the module ids from the registry and counts the sidebar
+  as `modules + 2`, so registering the next module needs no change here —
+  which is what §7's promise has to mean for the shell's own tests too.
+- `tst_BackupFileInspector` had `kKnownMigrations = 11`, with a comment of
+  mine claiming a fixed number would keep it out of the way of new
+  migrations. That was wrong the first time one landed: at 12 the seeded
+  database was "newer than this program" and three tests failed for a reason
+  unrelated to what they test. It now asks
+  `MigrationRunner::highestAvailableVersion()`, which is what the program
+  does, so it cannot drift again.
+
+**File sizes.** `DocumentRepository.cpp` was **558** lines when first
+written — which is not something to report and leave, since §9 exists to stop
+exactly that. Two helpers came out of it, both in the same layer and used
+only by it: `DocumentAccessRules` (§4.3's rule) and `DocumentVersionStore`
+(the `document_version` SQL, including the positional column list, so the
+join in `list()` and the reads share one definition). It is now **415**
+(310 code) — still over, and stopping there: what is left is the eight CRUD
+methods and the row mapping, which is the class, the same place
+`VesselRepository` ended up.
+
+`DocumentActions.cpp` is **306**, down from 310 by giving its five handlers
+one `selectedDocument()` instead of the same six lines four times — a real
+simplification rather than a size trick. Six lines over ~300, reported.
+
+`tst_DocumentScope.cpp` (286) and `tst_DocumentVersions.cpp` (197) were one
+425-line file, split along the spec's own two §4.6 bullets. Everything else
+this round added is comfortably under: the next largest are
+`DocumentListWidget.cpp` 286 and `tst_DocumentListWidget.cpp` 291.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **56/56
+suites** in each.
+
+**Not in step 1** (§4.7): the manual editor, generated PDFs, page printing,
+packages, acknowledgements, any dates or alerts, and moving files when the
+folder changes.
+
 
 ## Decisions confirmed by the developer
 
@@ -4110,6 +4271,18 @@ discussion before any spec.
     twelve genuinely distinct cases, and the only cut available would be by
     topic — counts in one file, colours in another — which separates things
     that are computed in one pass and read together.
+- **Added by Document Management step 1.** Two files over the guideline,
+  both already reduced once and both reported rather than forced further:
+  - `modules/documents/data/DocumentRepository.cpp` **415** (310 code), down
+    from 558 as first written. `DocumentAccessRules` and
+    `DocumentVersionStore` came out of it, both in the same layer and used
+    only by it. What is left is the eight CRUD methods and the row mapping,
+    which is the class — the same place `VesselRepository.cpp` ended up, for
+    the same reason.
+  - `modules/documents/ui/DocumentActions.cpp` **306**, six over, down from
+    310 by giving its five handlers one `selectedDocument()` instead of the
+    same six lines four times. Nothing else in it is separable without
+    splitting five sibling actions across two files.
 
 ---
 
@@ -4149,18 +4322,35 @@ were all updated to match.
 
 ## Next step
 
-**Document Management — the second module.** Certificate Control is
-complete and tagged `certificate-control-v1.0`; the entry above says what
-it ended up being.
+**Document Management, step 2 — the manual editor.** The library is
+working; what comes next is writing manuals *in* the program.
 
-The next module starts the way every step in this project has: a design
-discussion with the developer first, then a spec, then one step at a time
-with a working module at the end of each (`CLAUDE.md` §1).
+Chapters and sections in a rich-text editor (headings, lists, tables,
+pictures, paste from Word), draft → publish revision, automatic
+section-level change tracking, and a revision record per revision. Steps 3
+and 4 follow: the generated PDF with change bars, Record of Revisions, List
+of Effective Pages and "print changed pages"; then office → vessel packages
+with the master's receipt.
 
-`docs/roadmap-and-pending.md` carries what was deliberately left behind —
-the deferred items with their reasons, the file-size debt to tidy when that
-code is next touched, and the developer's own pending items (the work
-laptop's setup-time restore, two V TRE CSV rows with a survey date before
-the issue date).
+No spec for step 2 yet — bring it up here first, the same way every step in
+this project has gone.
+
+Worth keeping in view while designing it: the reason manuals are written in
+the program at all is that printing chosen pages of an *uploaded* PDF needs
+a renderer, and Qt PDF cannot be built with MinGW, which is this project's
+Windows compiler. A manual the program lays out itself knows which pages a
+changed section falls on. That constraint shapes step 3, so step 2's data
+model should be designed with it in mind rather than against it.
+
+Carried over, unchanged by this round and listed with reasons in
+`docs/roadmap-and-pending.md`: the audit trail viewer; ship-to-shore sync
+and role-based access control (deliberately last); making the sidebar badge
+share `CertificateListRows`; and the file-size debt, to which this round
+adds `DocumentRepository.cpp` (415) and `DocumentActions.cpp` (306), both
+with the reason they stopped there.
+
+The developer's own pending items are on that page too: the work laptop's
+setup-time restore, and two V TRE CSV rows whose survey date is before the
+certificate's issue date.
 
 Full build order is in `CLAUDE.md` §11.
