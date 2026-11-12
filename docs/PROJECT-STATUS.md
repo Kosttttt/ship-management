@@ -3359,6 +3359,72 @@ against the style each build actually uses.
 this round is a reminder of why those checks are a real step and not a
 formality.
 
+---
+
+### Certificate Control — complete ✅
+
+Tagged **`certificate-control-v1.0`**. The first module is finished: the
+developer's on-screen checks all passed, and what is in the application now
+is what the module set out to do.
+
+**What it does.** A fleet of vessels, each with its certificates. Every
+certificate carries its own name and survey rules — there is deliberately no
+type catalogue — and its status is **computed from dates at the moment of
+display**, never stored: expiry severity against editable thresholds, the
+annual and intermediate survey tracks, short-term extensions, and the worst
+of the two shown on one row. Around that: the list screen with category tabs,
+status colours, filters and remembered column widths; endorsements; renewal;
+attachments with archive-on-replace and per-vessel folders; CSV import and
+export with a one-vessel PDF statement; a sidebar badge, a daily toast and a
+drill-down; vessel archive and restore; and database backup and restore with
+an automatic daily backup.
+
+**The shape of it.** One binary that is either an OFFICE or a VESSEL
+installation, chosen once at first run, with the vessel filter applied in the
+repository layer on every query rather than by any screen. UUID keys, UTC
+timestamps, calendar dates as plain text, soft deletes, `origin_node` and
+`revision` on every row — so that two databases that have both been written
+to offline can be merged when ship-to-shore sync arrives. 11 migrations,
+none ever edited after being committed. 83 .cpp and 91 .h files under `src/`,
+**52 test suites**, 0 warnings in a clean Debug or Release build.
+
+**What was dropped or deferred, decided rather than forgotten:** step 14
+(Reports) — the one-vessel PDF from step 13 is enough; the audit trail
+viewer; ship-to-shore sync and role-based access control, both deliberately
+last and cross-module. `docs/roadmap-and-pending.md` carries the list, each
+with its reason, along with the file-size debt and the one real piece of work
+left behind — making the sidebar badge share `CertificateListRows`, left out
+because it could change what the badge counts.
+
+**Three things this module taught the project**, all now written into
+`CLAUDE.md` or the decisions list below:
+
+- **§10.1 — never run a destructive command against the real app-data
+  folder.** Written after a "back up, delete, restore" sequence from outside
+  the application used the plain `%APPDATA%` path while the running program
+  was on a virtualized copy, and a real database was lost. It is also why
+  step 15 backs up through the program's own open connection and restores by
+  swapping files in the folder `Database::defaultFilePath()` returns.
+- **§9 as amended — a class over ~300 lines hands self-contained pieces to
+  small helper classes in the same layer**, rather than being exempted or
+  split across two files. Eight helper classes in this module exist because
+  of it.
+- **A property assertion is not a proof that something is visible.** The
+  category tabs' first build stored a red text colour, reported it back
+  through `tabTextColor()`, passed its tests and drew nothing. Anything whose
+  purpose is to be seen now gets a check on what was painted.
+
+**And one about working this way.** Every round in this module went spec →
+implementation → the developer's own check on screen, and the checks earned
+their place: they are what caught the invisible red text, and the V TRE Load
+Line reading "Overdue, −519 days" on a certificate that was up to date —
+which turned into the "latest annual survey counts" round and a rule change
+in the domain. Neither was going to come out of a test suite that only ever
+agreed with the code.
+
+**Next: Document Management**, starting as every step has, with a design
+discussion before any spec.
+
 
 ## Decisions confirmed by the developer
 
@@ -4083,47 +4149,18 @@ were all updated to match.
 
 ## Next step
 
-**The developer's on-screen checks, then the tag.** Every feature of
-Certificate Control is built, including the category tabs added during
-close-out. What remains, in the order `docs/roadmap-and-pending.md` gives:
+**Document Management — the second module.** Certificate Control is
+complete and tagged `certificate-control-v1.0`; the entry above says what
+it ended up being.
 
-1. The checks a person has to do. Four of them have passed already
-   (attachment folder memory, Back up now, the automatic backup, Restore).
-   Left: the setup-time restore, which needs a second computer or a fresh
-   user account because the wizard only opens with no installation row; and
-   a look at the new category tabs — the counts against what is on screen,
-   and a red dot on the category holding something overdue (the first build
-   coloured the label text instead and drew nothing; §6 of that spec).
-2. `docs/machine-setup.md` is already rewritten around Back up → Restore.
-3. On the developer's word that the checks passed: a final
-   `PROJECT-STATUS.md` entry marking the module complete, and a git tag on
-   that commit so there is a named version to go back to. **Not tagged
-   yet** — that is the developer's call, after the checks.
+The next module starts the way every step in this project has: a design
+discussion with the developer first, then a spec, then one step at a time
+with a working module at the end of each (`CLAUDE.md` §1).
 
-Then the next module starts. `CLAUDE.md` §11 lists what is deliberately
-still not begun: ship-to-shore sync, role-based access control (last, by
-design), and the future modules — Document Management is next on the
-project's list, then PMS, spares, purchasing, vessel life monitoring,
-budget, crew.
-
-Three pieces of real work are recorded above as deliberately not done, and
-none belongs in a close-out:
-
-- Making `CertificateAlertProvider` share `CertificateListRows`. The two
-  gather the same thing and have to agree, and now that the list's half
-  also counts per category the case is stronger — but merging them could
-  change what the sidebar badge counts.
-- One home for the four category words, which now exist in
-  `CertificateCategoryTabs` and `CertificateEditForm`. Worth doing when a
-  third place needs them, not before.
-- The file-size debt that remains, each entry with the reason it was left:
-  `VesselRepository.cpp` 430, `CertificateListWidget.cpp` 416,
-  `MainWindow.cpp` 340, `tst_CertificateCsvImportSurveys.cpp` 430,
-  `tst_CertificateListRows.cpp` 367.
-
-The endorsement-model question carried here since step 13 — whether to
-keep only the most recent survey per track — was settled by the "latest
-survey counts" round: keep the full history in the `endorsement` table,
-and schedule forward from the latest survey.
+`docs/roadmap-and-pending.md` carries what was deliberately left behind —
+the deferred items with their reasons, the file-size debt to tidy when that
+code is next touched, and the developer's own pending items (the work
+laptop's setup-time restore, two V TRE CSV rows with a survey date before
+the issue date).
 
 Full build order is in `CLAUDE.md` §11.
