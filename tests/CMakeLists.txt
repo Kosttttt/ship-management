@@ -87,6 +87,8 @@ add_ship_test(tst_CertificateListRows
 
 add_ship_test(tst_CertificateStateSurveyMatching
     modules/certificates/tst_CertificateStateSurveyMatching.cpp ShipCertificates)
+add_ship_test(tst_CertificateAnniversaryDates
+    modules/certificates/tst_CertificateAnniversaryDates.cpp ShipCertificates)
 add_ship_test(tst_EndorsementRepository
     modules/certificates/tst_EndorsementRepository.cpp ShipCertificates)
 add_ship_test(tst_EndorsementUi

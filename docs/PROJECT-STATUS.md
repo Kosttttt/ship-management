@@ -3818,6 +3818,140 @@ with change bars, Record of Revisions and List of Effective Pages (step 5);
 office → vessel packages and the master's receipt (step 6).
 
 
+### Certificate Control v1.0.1 — anniversary dates on terms that are not whole years ✅
+
+`docs/anniversary-dates-fix-spec.md`, version 1.0. A safety bug in a module
+that was already finished and tagged `certificate-control-v1.0`, so this is
+the first entry in this file that fixes closed work rather than adding to it.
+
+**Found on screen, by reading the real fleet.** Not by a failing test — the
+suite was green and stayed green. The developer was looking at the list.
+V TRE No. 14, the S.M.C., issued 12 Jan 2026 and expiring 30 Dec 2030, gave
+its intermediate survey window as 30 Sep 2028 – 30 Mar 2030, a full year
+later than the correct 30 Sep 2027 – 30 Mar 2029. The same cause showed its
+worse face on No. 13, the office DOC, issued 16 Jan 2026 and expiring
+21 Dec 2030: the row read **Valid, 494 days**, while that certificate's first
+annual window had in fact been open since 21 Sep 2026. A survey that was due
+now was reported as nothing to do, which is the one failure this module
+exists to prevent. Everything else it does — colours, badges, alerts, the
+PDF statement — is downstream of the anniversary dates, so all of it was
+wrong on those certificates and confidently so.
+
+**The code was right and the spec was wrong.** `termInYears()` counted the
+whole years between issue and expiry and rounded down, which is exactly what
+`certificate-control-spec.md` §4.5 told it to do. 12 Jan 2026 → 30 Dec 2030
+is two weeks short of five years, so the term came out as 4 and the list was
+expiry − 3, − 2, − 1 years: 30 Dec 2026 was simply missing. Every later
+anniversary then sat one place too early, so `anniversaries.at(1)` and
+`.at(2)` — which §4.5 means as the 2nd and 3rd anniversaries, and which are
+what the intermediate window is anchored to — were really the 3rd and 4th.
+That is why the error was exactly one year and not something ragged: an
+off-by-one in a list of yearly dates.
+
+**The rule as it should always have read.** Under SOLAS and the HSSC the
+anniversary date is the day and month of the certificate's expiry date, in
+each year of its term — and the term is counted to the **nearest** whole
+year, six months or more rounding up.
+
+Rounding, rather than "every date with the expiry's day and month after the
+issue date", because the issue date sits up to about three months either side
+of that day and month in ordinary practice, and the two sides want opposite
+answers:
+
+- a renewal survey done within the three months before expiry produces a
+  certificate that runs from the old expiry date, so it is issued *before*
+  its own term starts — issue 1 Jun 2025, expiry 21 Jun 2030. 21 Jun 2025 is
+  where that term begins, not an anniversary needing a survey;
+- a certificate issued late, or after a short-term extension, starts up to
+  three months *after* that day and month — issue 12 Jan 2026, expiry
+  30 Dec 2030. 30 Dec 2026 **is** its first anniversary.
+
+Rounding to the nearest year gets both right. Rounding down, which is what
+the program did, loses the first anniversary of the second kind; taking every
+matching date after the issue date would invent one for the first kind.
+
+**The change is four lines of arithmetic** in `SurveySchedule.cpp`: after the
+whole years are counted as before, the part year that is left over is
+measured, and six months or more of it rounds the term up. It asks the
+question by comparing the expiry date against `issueDate + years + 6 months`
+rather than by counting days, so it stays a calendar question — months are
+not all the same length, and `QDate::addMonths` already clamps a day the
+target month does not have, which is the behaviour §4.5 asks for and the
+29 February case depends on. `anniversariesOf()` keeps its shape exactly.
+
+The reasoning above it is longer than the code, deliberately: the next person
+to read four lines of date arithmetic will want to know why it rounds, and
+the answer is a fact about how certificates are issued, not about C++.
+
+**What else calls it — asked, not assumed.** `termInYears()` is file-local,
+in the anonymous namespace of `SurveySchedule.cpp`, and has exactly **one**
+caller: `anniversariesOf()`. That in turn has exactly one caller in
+production, `CertificateState.cpp`. Everything downstream takes the list as
+it is given and recomputes nothing — `evaluateAnnual`, `evaluateIntermediate`,
+the REPLACES_ANNUAL rule, the days-left and due-date rules, attachment naming
+under addendum 2 §7, the CSV export, the sidebar badge and the daily toast.
+The only other year arithmetic anywhere in the module is
+`CertificateEditForm`'s default expiry of today + 5 years, which is a
+convenience in a form and not a rule. So one four-line fix reaches all of it,
+which is what §4 of CLAUDE.md is for: the rule had exactly one home.
+
+**Nothing to repair in the database.** Status, days remaining and survey
+windows are never stored (CLAUDE.md §6.7), so there is no migration and no
+data to correct: every row works itself out again the next time it is shown.
+Certificates whose issue date is a whole number of years before expiry — the
+great majority, and every one the existing suites were built on — do not move
+at all. The ones that move are those issued a little after the expiry's day
+and month, and they gain back the first anniversary they were missing.
+
+One of those was already in the suite: No. 12, the Load Line certificate,
+issued 29 May 2022 and expiring 09 Mar 2027, which is four years nine months
+and now reads as a five-year term with anniversaries from 09 Mar 2023 instead
+of a four-year term from 09 Mar 2024. Its assertions are unchanged — the one
+recorded survey, 12 Apr 2026, covers the last anniversary either way — but
+its comment said "four whole years", so the comment was corrected, a local
+named `third` that is now the last of four was renamed, and the real
+anniversary list is asserted outright so the two questions stay separable.
+
+**Tests** (§5): a suite of its own, `tst_CertificateAnniversaryDates`, 8
+cases. Not more cases in `tst_CertificateStateSurvey`, which is 285 lines and
+would have gone past the ~300-line guideline (CLAUDE.md §9) — the same split
+that already put `tst_CertificateStateSurveyMatching` in a file of its own.
+That suite asks which anniversaries one survey accounts for, this one asks
+what the anniversaries are in the first place, and the original keeps the
+window, severity and days-left rules.
+
+Both real certificates are in it with their real dates and the real date the
+developer was looking at them on, and both were **proved to fail against the
+unfixed code before the fix was written**: 3 anniversaries where 4 were
+expected, the S.M.C.'s window a year late, the DOC's 494 days. Each asserts
+the old answer is gone as well as the new one being right, so neither can
+quietly start passing against a term counted the old way.
+
+The other six fence the rule in from both sides: the exact five-year term
+(must not move), the early renewal that must **not** gain 21 Jun 2025, the
+certificate issued after an extension, the rounding boundary from each side
+(four years six months rounds up, four years five months down), a 29 February
+expiry that clamps to 28 February in the three non-leap years, and short
+terms under 18 months that still have no anniversaries at all. Four of those
+six passed against the old code too, which is the point of them: they are
+what says the fix moved only what it should.
+
+None of them uses the shared `anniversary()` test helper, which works a term
+out from the difference of the two years and would make the same mistake the
+fix is about. Every date is written out literally, so a test cannot agree
+with the code about a wrong answer.
+
+**No existing assertion had to change.** 59 suites and 836 cases, up from
+58/826: the one new suite and its ten cases, nothing else. The only edits to
+an existing test were the Load Line comment, the rename, and one assertion
+*added*.
+
+**Verification.** Clean Debug and Release rebuilds from empty build
+directories, 0 warnings, **59/59 suites and 836/836 cases** in each. `dist\`
+redeployed with the exe copied first and `windeployqt` after it. The app was
+not launched (the developer does the on-screen checks). Tagged
+`certificate-control-v1.0.1`.
+
 
 ## Decisions confirmed by the developer
 

@@ -13,13 +13,46 @@ QString formatDate(const QDate& date)
     return date.toString(QStringLiteral("dd MMM yyyy"));
 }
 
-// The whole years between issue and expiry — the certificate's term.
+// The certificate's term: issue to expiry in whole years, rounded to the
+// NEAREST year — six months or more of a part year rounds up
+// (certificate-control-spec.md §4.5, as corrected by
+// docs/anniversary-dates-fix-spec.md).
+//
+// Rounding down, which is what this did until v1.0.1, threw away the first
+// anniversary of every certificate issued a little after the day and month of
+// its expiry. An S.M.C. issued 12 Jan 2026 and expiring 30 Dec 2030 is two
+// weeks short of five years; counted as a four-year term, its first
+// anniversary (30 Dec 2026) simply vanished and every later one sat one place
+// too early in the list, so the intermediate window was reported a year late.
+//
+// Rounding is what gets both of the normal cases right. A renewal done up to
+// three months early runs from the old expiry date, so the certificate is
+// issued *before* its term starts (issue 1 Jun 2025, expiry 21 Jun 2030):
+// that is still a five-year term, and 21 Jun 2025 is where it begins, not an
+// anniversary. A certificate issued late, or after a short-term extension,
+// starts up to three months *after* that day and month (issue 20 Mar 2026,
+// expiry 30 Dec 2030): also a five-year term, whose first anniversary is
+// 30 Dec 2026. Taking every date with the expiry's day and month after the
+// issue date would invent one for the first case; rounding down loses one for
+// the second.
 int termInYears(const Certificate& certificate)
 {
+    // The whole years first: the largest n for which issue + n years is still
+    // on or before expiry.
     int years = certificate.expiryDate.year() - certificate.issueDate.year();
     if (certificate.expiryDate < certificate.issueDate.addYears(years)) {
         --years;
     }
+
+    // Then the part year left over. Six months or more of it rounds the term
+    // up, which is the whole of the fix. Asked by comparing against the date
+    // six months on rather than by counting days, so it stays a calendar
+    // question: months are not all the same length, and QDate::addMonths
+    // clamps a day the target month does not have, exactly as §4.5 wants.
+    if (certificate.expiryDate >= certificate.issueDate.addYears(years).addMonths(6)) {
+        ++years;
+    }
+
     return years;
 }
 

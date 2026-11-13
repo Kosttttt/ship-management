@@ -257,6 +257,7 @@ this number says "this is how long you have".
 ### 4.5 Determining the next required survey
 
 ```
+totalYears    = issue → expiry in years, rounded to the NEAREST year
 anniversaries = [ expiryDate minus n years  for n = totalYears-1 down to 1 ]
     (day and month of expiry; if that day does not exist in the target month,
      use the last day of that month)
@@ -278,6 +279,10 @@ INTERMEDIATE track (only if the type requires it):
 When intermediate_mode = 'REPLACES_ANNUAL', an INTERMEDIATE endorsement
 inside annualWindow(2) or annualWindow(3) also satisfies that annual.
 ```
+
+> Corrected by `docs/anniversary-dates-fix-spec.md` — counting whole years
+> rounded down dropped the first anniversary of any certificate a few days
+> short of whole years.
 
 **The latest annual survey counts — superseded rule, see
 `docs/survey-latest-counts-spec.md`.** The annual track looks forward from

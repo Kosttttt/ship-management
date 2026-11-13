@@ -1,5 +1,7 @@
 #include "CertificateStateTestSupport.h"
 
+#include "modules/certificates/domain/SurveySchedule.h"
+
 #include <QtTest>
 
 using namespace CertificateStateTestSupport;
@@ -45,23 +47,34 @@ void TestCertificateStateSurveyMatching::theRealLoadLineCaseWithOnlyTheLatestSur
 {
     // survey-latest-counts-spec.md §1, with that certificate's real dates:
     // V TRE, No. 12, Load Line, issued 29 May 2022, expires 09 Mar 2027, one
-    // annual endorsement recorded, 12 Apr 2026 at Iskenderun. The term is four
-    // whole years, so the anniversaries are 09 Mar 2024, 2025 and 2026 — set
-    // out literally here rather than through anniversary(), which assumes a
-    // term of whole years from the issue date.
+    // annual endorsement recorded, 12 Apr 2026 at Iskenderun. Four years and
+    // nine months, so the term rounds to five and the anniversaries are
+    // 09 Mar 2023, 2024, 2025 and 2026 — set out literally here rather than
+    // through anniversary(), which assumes a term of whole years from the
+    // issue date.
+    //
+    // That first date is new: until anniversary-dates-fix-spec.md this
+    // certificate was read as a four-year term and 09 Mar 2023 was missing.
+    // Both answers leave this test's assertions where they were, because the
+    // survey on 12 Apr 2026 covers the last anniversary either way, but the
+    // list itself is now asserted so the two questions stay separable.
     Certificate certificate = certificateExpiring(QDate(2027, 3, 9));
     certificate.issueDate   = QDate(2022, 5, 29);
     certificate.name        = QStringLiteral("Load Line Certificate");
 
-    const QDate third = QDate(2026, 3, 9); // its window: 09 Dec 2025 - 09 Jun 2026
+    const QList<QDate> expectedAnniversaries{QDate(2023, 3, 9), QDate(2024, 3, 9),
+                                             QDate(2025, 3, 9), QDate(2026, 3, 9)};
+    QCOMPARE(SurveySchedule::anniversariesOf(certificate), expectedAnniversaries);
+
+    const QDate last = QDate(2026, 3, 9); // window 09 Dec 2025 - 09 Jun 2026
     const QDate today = QDate(2026, 11, 10);
 
     const CertificateState state = computeCertificateState(
         certificate, {endorsementOn(QDate(2026, 4, 12), SurveyType::Annual)},
         AlertThresholds(), today);
 
-    // The survey fell inside the third anniversary's window, so that one and
-    // the two before it are all covered and nothing is outstanding. Under the
+    // The survey fell inside the last anniversary's window, so that one and
+    // the ones before it are all covered and nothing is outstanding. Under the
     // old claim-walk this row read "Overdue, -519 days" against a window that
     // had closed on 09 Jun 2025.
     QVERIFY2(state.survey != SurveySeverity::Overdue, qPrintable(state.reason));
@@ -77,12 +90,12 @@ void TestCertificateStateSurveyMatching::theRealLoadLineCaseWithOnlyTheLatestSur
     QVERIFY2(state.daysLeft != -519, "the old claim-walk's answer");
 
     // The other half of the rule: had the survey been a year earlier, the
-    // anniversary after it would be what remains — the third, not the first.
+    // anniversary after it would be what remains — not the first.
     const CertificateState earlier = computeCertificateState(
         certificate, {endorsementOn(QDate(2025, 4, 12), SurveyType::Annual)},
         AlertThresholds(), today);
 
-    QCOMPARE(earlier.nextAnniversary, third);
+    QCOMPARE(earlier.nextAnniversary, last);
     QCOMPARE(earlier.nextSurveyType, SurveyType::Annual);
     QCOMPARE(earlier.survey, SurveySeverity::Overdue); // that window has closed
 }
