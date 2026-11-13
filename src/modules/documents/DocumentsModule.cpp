@@ -1,14 +1,21 @@
 #include "modules/documents/DocumentsModule.h"
 
-#include "modules/documents/ui/DocumentListWidget.h"
+#include "modules/documents/ui/DocumentsWidget.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 
 DocumentsModule::DocumentsModule(QSqlDatabase& database, const InstallationContext& installation)
     : m_installation(installation)
-    , m_documents(database, installation)
     , m_vessels(database, installation)
-    , m_files(m_vessels)
+    , m_spaces(database, installation, m_vessels)
+    , m_vesselSpaces(database, installation, m_vessels)
+    , m_pages(database, m_spaces)
+    , m_moves(database, m_pages)
+    , m_removals(database, m_pages)
+    , m_revisions(database, installation.nodeId())
+    , m_images(database, installation.nodeId())
+    , m_publisher(database, m_spaces, m_pages, m_removals, m_revisions)
 {
 }
 
@@ -31,42 +38,33 @@ QIcon DocumentsModule::icon() const
 
 QWidget* DocumentsModule::createMainWidget(QWidget* parent)
 {
-    m_screen = new DocumentListWidget(m_documents, m_files, m_vessels, m_installation, parent);
+    // §4.3: one space per active vessel, made the first time this screen is
+    // built rather than at start-up, so a program that never opens Documents
+    // never writes a row — and idempotent, so opening it again changes
+    // nothing.
+    int created = 0;
+    if (!m_vesselSpaces.ensureAll(&created)) {
+        // Not fatal: the company spaces are still readable, and the vessel
+        // spaces will be made the next time this screen opens.
+        qWarning() << "Could not create the vessel spaces:" << m_vesselSpaces.errorString();
+    }
 
-    // The screen belongs to its parent, so it can outlive nothing and this
-    // module must not be left holding a dangling pointer when the window
-    // closes. Qt's destroyed() signal is what makes that automatic.
-    QObject::connect(m_screen, &QObject::destroyed, m_screen,
-                     [this](QObject*) { m_screen = nullptr; });
-
-    // A selection may already have been made — MainWindow fills its toolbar
-    // after it builds the screens — so the screen opens on it rather than
-    // waiting for the next change.
-    m_screen->setVesselId(m_selectedVesselId);
-
-    return m_screen;
+    return new DocumentsWidget(m_spaces, m_pages, m_moves, m_removals, m_revisions, m_publisher,
+                               m_images, parent);
 }
 
 QList<Migration> DocumentsModule::migrations() const
 {
     // Deliberately empty, the same call the certificates module makes:
-    // migrations/ stays one flat, globally numbered folder, and
-    // 012_create_document.sql is listed in CMakeLists.txt exactly as 001 is.
+    // migrations/ stays one flat, globally numbered folder, and 013 and 014
+    // are listed in CMakeLists.txt exactly as 001 is.
     return {};
 }
 
 QList<AlertProvider*> DocumentsModule::alertProviders()
 {
     // Nothing to alert about: this module has no dates that fall due (§1 of
-    // its spec). A later step may add something; step 1 does not.
+    // its spec — no expiry or review tracking). A later step may add
+    // something; step 1 does not.
     return {};
-}
-
-void DocumentsModule::setSelectedVessel(const QString& vesselId)
-{
-    m_selectedVesselId = vesselId;
-
-    if (m_screen != nullptr) {
-        m_screen->setVesselId(vesselId);
-    }
 }

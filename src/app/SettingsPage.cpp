@@ -2,7 +2,6 @@
 
 #include "app/AttachmentFolderSettings.h"
 #include "app/DatabaseBackupSettings.h"
-#include "app/DocumentsFolderSettings.h"
 #include "core/AppSettingRepository.h"
 #include "core/VesselRepository.h"
 
@@ -97,7 +96,6 @@ SettingsPage::SettingsPage(AppSettingRepository&      settings,
     // (database-backup-spec §3).
     m_databaseBackup = new DatabaseBackupSettings(connection, installation, dataFolder, this);
 
-    m_documentsFolder = new DocumentsFolderSettings(this);
 
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(heading);
@@ -111,8 +109,6 @@ SettingsPage::SettingsPage(AppSettingRepository&      settings,
     layout->addWidget(m_attachmentFolders);
     layout->addSpacing(16);
     layout->addWidget(m_databaseBackup);
-    layout->addSpacing(16);
-    layout->addWidget(m_documentsFolder);
     layout->addStretch();
 
     for (QSpinBox* spin : {m_criticalSpin, m_expiringSoonSpin, m_dueSoonSpin}) {
@@ -135,9 +131,6 @@ void SettingsPage::reload()
     }
     if (m_databaseBackup != nullptr) {
         m_databaseBackup->reload();
-    }
-    if (m_documentsFolder != nullptr) {
-        m_documentsFolder->reload();
     }
 
     AppSetting setting;

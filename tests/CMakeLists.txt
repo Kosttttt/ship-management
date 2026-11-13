@@ -154,19 +154,25 @@ add_ship_test(tst_CertificateBulkDelete
     modules/certificates/tst_CertificateBulkDelete.cpp ShipCertificates)
 ship_add_migrations(tst_CertificateBulkDelete)
 
-# Document Management, step 1 — the library (document-management-spec.md §4.6).
-add_ship_test(tst_DocumentScope
-    modules/documents/tst_DocumentScope.cpp ShipDocuments)
-add_ship_test(tst_DocumentVersions
-    modules/documents/tst_DocumentVersions.cpp ShipDocuments)
-add_ship_test(tst_DocumentFileStore
-    modules/documents/tst_DocumentFileStore.cpp ShipDocuments)
-add_ship_test(tst_DocumentListWidget
-    modules/documents/tst_DocumentListWidget.cpp ShipApp ShipDocuments)
+# Document Management, step 1 — spaces, tree, editor, publishing
+# (document-management-spec.md §7).
+add_ship_test(tst_DocumentMigrations
+    modules/documents/tst_DocumentMigrations.cpp ShipDocuments)
+add_ship_test(tst_DocumentSpaces
+    modules/documents/tst_DocumentSpaces.cpp ShipDocuments)
+add_ship_test(tst_DocumentTree
+    modules/documents/tst_DocumentTree.cpp ShipDocuments)
+add_ship_test(tst_DocumentPublishing
+    modules/documents/tst_DocumentPublishing.cpp ShipDocuments)
+add_ship_test(tst_DocumentImages
+    modules/documents/tst_DocumentImages.cpp ShipDocuments)
+add_ship_test(tst_WordPasteCleaner
+    modules/documents/tst_WordPasteCleaner.cpp ShipDocuments)
 add_ship_test(tst_CertificateImportPlaceholder
     modules/certificates/tst_CertificateImportPlaceholder.cpp ShipCertificates)
 ship_add_migrations(tst_CertificateImportPlaceholder)
-ship_add_migrations(tst_DocumentScope)
-ship_add_migrations(tst_DocumentVersions)
-ship_add_migrations(tst_DocumentFileStore)
-ship_add_migrations(tst_DocumentListWidget)
+ship_add_migrations(tst_DocumentMigrations)
+ship_add_migrations(tst_DocumentSpaces)
+ship_add_migrations(tst_DocumentTree)
+ship_add_migrations(tst_DocumentPublishing)
+ship_add_migrations(tst_DocumentImages)

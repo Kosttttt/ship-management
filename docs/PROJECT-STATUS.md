@@ -3586,6 +3586,238 @@ suites** in each.
 packages, acknowledgements, any dates or alerts, and moving files when the
 folder changes.
 
+**Removed in the next round.** This whole step was dropped by the developer
+and replaced by version 2.0 of the spec — see the entry below for why.
+
+
+### Document Management, step 1 — a simple Confluence (version 2.0) ✅
+
+`docs/document-management-spec.md` **version 2.0**, §4–§7. Migrations **013**
+and **014**.
+
+**Why version 1.0 was removed.** The module shipped one round earlier as a
+*file library*: upload a PDF or a Word file against a vessel or the fleet,
+keep versions of it, open it in whatever program the machine uses. It worked,
+and the developer looked at it and decided it was not the module this project
+needs. A library holds documents somebody else wrote. What a company actually
+does with an SMS manual is **write it, revise it, issue the revision to the
+ships and record what changed** — and none of that is possible when the
+content is an opaque file. The two were not variations on one design: one
+stores files, the other stores text, and nothing of the first was reusable by
+the second. So it is gone rather than kept beside it, because a module with a
+file library *and* a page editor would be two half-answers to one question,
+and the crew would have to know which one the office used this time.
+
+What that cost, stated plainly in §4.1 and done as it says: the test
+documents in the developer's database are lost, and their uploaded files stay
+in the old `Documents/` folder for the developer to delete by hand — the
+program no longer knows they exist.
+
+**Migration 013 drops, it does not edit.** `migrations/012_create_documents.sql`
+has already run on this machine, and a committed migration is never edited
+(CLAUDE.md §6.6) — an installed copy would never see the correction. So 013
+is a new file, `DROP TABLE IF EXISTS document_version;` then `document`
+(child first, because of the foreign key), and `IF EXISTS` so a fresh install
+where 012 and 013 run back to back is a no-op rather than an error that stops
+the program starting. The test for this is the case the developer's own
+database is in: open a database migrated to **version 12**, insert a
+`document` row and a `document_version` row, run the rest of the migrations,
+and assert both tables are gone with their rows. `DocumentTestSupport.h`
+gained `openDatabaseAtVersion()` to make that possible — it copies the real
+migration files up to version N into a temporary folder and runs
+`MigrationRunner` against that, so what the test exercises is what will run
+on the machine, not a hand-written copy of it.
+
+Removed with it: 33 files (the repository, access rules, version store,
+domain entity, file store, and the list, edit, versions, category-tab and
+action widgets; `core/DocumentsFolder`, `app/DocumentsFolderSettings`, and
+all five of its test suites), and the **Documents folder row in Settings** —
+pictures now live in the database, so there is no folder to choose. Kept, as
+§4.1 asks: `DocumentsModule`, the `ShipDocuments` library that links
+`ShipCore` and nothing else, and `IModule::setSelectedVessel()`.
+
+**The five new tables** (014), designed so that nothing derived is stored
+(CLAUDE.md §6.7):
+
+- `document_space` — a Manual or a Collection. `vessel_id` NULL means a
+  company space; when it is set it is **UNIQUE**, which makes "one space per
+  vessel, no duplicates" a guarantee the database keeps rather than a promise
+  the code makes.
+- `document_page` — the tree (`parent_id`, `position`) and **the draft only**
+  (`draft_title`, `draft_content`, `withdraw_pending`). The published title
+  and content are deliberately not copied here: two copies of the same text
+  are two things to keep in step, and the stale one is always the one being
+  read.
+- `document_page_revision` and `document_space_revision` — **never changed
+  once written.** There is no update anywhere in `DocumentRevisionStore` and
+  there never will be: a published revision of a controlled manual that could
+  be edited afterwards is not a record of anything.
+- `document_image` — pictures, as a BLOB. In the database and not in a folder
+  for two reasons this project already cares about: a page and its pictures
+  are then in every backup, and in step 6 they travel to the ship in one
+  package instead of arriving separately or not at all.
+
+"Current revision", "has unpublished changes" and a manual page's revision
+number are all **computed when read** — the first from the highest live
+number, the second from whether the draft columns are empty, the third from
+the space revision the page revision belongs to.
+
+**§4.3, enforced in the repository, not on the screen.** At the office,
+everything. On a ship, company spaces are readable and **read-only** (they
+arrive from the office by package in step 6, and until then nothing on board
+may touch them), its own vessel space is entirely the ship's, and another
+vessel's space is not visible at all — not in the list and not by id, which
+is the route a screen would take. The "which vessel spaces exist for me" half
+is not reimplemented here: it asks `VesselRepository`, which already applies
+the installation's vessel filter on every query. One rule, in one place, and
+it makes "an archived vessel's space is hidden" fall out for free — hidden,
+not deleted, so restoring the vessel brings its pages back with it.
+
+Whether that rule is actually load-bearing was checked rather than assumed:
+replacing `mayEdit()` with `return true` fails
+`aVesselSeesCompanySpacesReadOnly` and
+`aPageOfAReadOnlySpaceCannotBeCreatedOrMoved`, which is what those tests are
+for.
+
+**The screen** (§5): spaces top left, the page tree beneath them, the page on
+the right, in splitters because a manual's page titles are long and how much
+room they need is the reader's business. Breadcrumb, a revision line that
+reads `Rev 3 · 14 Nov 2026` or `Draft — not published`, Edit and Publish, and
+the unpublished-changes bar with Continue editing / Discard draft. A page
+with a draft shows a marker in the tree; one marked for withdrawal is struck
+through.
+
+**The editor** (§6.1). A `QTextEdit` with a toolbar: paragraph style (Normal,
+Heading 1–3, sized as multiples of the body font so a page looks right
+whatever font the program runs with), bold, italic, underline, bulleted and
+numbered lists, insert table with add and remove row and column, insert
+picture, undo and redo. The emphasis buttons follow the cursor rather than
+showing what was last clicked.
+
+*Paste from Word* keeps the structure and drops the decoration. A manual
+pasted out of twelve Word files by four people over six years is otherwise
+twelve different-looking manuals, and the first thing a reader at sea notices
+about a page is that it does not match the one before it. The cleaning is
+written the safe way round: instead of listing what to strip — a list that
+needs adding to every time Word learns a new property — it builds a **fresh**
+character format carrying only bold, italic and underline, so only what is
+named survives. Pictures are the exception, keeping their reference and size,
+because a picture is not emphasis and stripping it would lose it. Tables and
+lists survive as tables and lists; paragraph and cell shading, fonts, sizes
+and colours do not.
+
+*Pictures* are scaled down on the way in. **The limit chosen is 1600 pixels
+on the longest side**, keeping the aspect ratio. 1024 is visibly soft on a
+large screen; 2400 is roughly twice the bytes for a difference nobody sees on
+a page of A4; 1600 is still sharper than anything this program prints and
+keeps a manual with fifty photographs a database somebody can email. Stored
+as **PNG when the picture has transparency and JPEG at quality 85 otherwise**,
+so a screenshot or a diagram keeps its crisp edges and a photograph is not
+stored at five times the size it needs. Pasted `data:` pictures are pulled
+into the store and the HTML rewritten to refer to them, so a paste from a web
+page or a recent Word keeps its pictures instead of leaving dead references.
+
+**Publishing** (§6.2). A Collection publishes page by page: the page gets its
+next number, the note is optional, and the draft is cleared — both or
+neither, in one transaction, because a revision with the draft still sitting
+there would show "unpublished changes" on a page that was just published. A
+Manual publishes **the whole manual**: the dialog lists what changed and what
+is being withdrawn, a note is required (a revision of a controlled manual
+with no statement of what changed is not a record of anything), and the space
+revision, one page revision per change, the cleared drafts and the
+withdrawals all go in **one transaction**. A manual whose Rev 8 covers three
+of its four changed pages is worse than one still at Rev 7.
+
+A page that has not changed keeps the revision it had, which is the point:
+publishing a manual as a whole does not reissue every page, it makes every
+page's revision known.
+
+§6.3's three cases for removal: a never-published page with nothing beneath
+it goes straight away; a published page, or one with pages beneath it, is
+confirmed first and takes its branch with it; and a **published page of a
+manual is not deleted at all** — it is marked for withdrawal, stays in the
+manual struck through until the next revision is issued, and can be undone
+until then. The revision that removes it records the title and content it had
+when it went, so "Rev 7 withdrew Chapter 6 — Towing" stays answerable. That
+question is answered structurally — a page revision belonging to this manual
+revision whose page is no longer in the tree — rather than from a marker
+column that a later step might quietly want to mean something else.
+
+**Three real bugs, each found by a test rather than by looking.**
+
+1. **Binding an empty `QString` sends SQL NULL, and `NULL = ''` is
+   *unknown*.** The sibling conditions were written the obvious way,
+   `((? = '' AND parent_id IS NULL) OR parent_id = ?)` — which matches
+   **nothing**, silently, for a page at the top of the tree. Every top-level
+   page was created at position 0, and Move up reported success and did
+   nothing. It is the same trap that cost a round in the certificates module
+   and that `VesselRepository` carries a comment about, which is why it is
+   now one named helper, `DocumentSql::siblingCondition()`, asking with an
+   integer flag that cannot arrive as NULL. Caught by
+   `moveUpAndMoveDownReorderSiblings`.
+2. **Changing a character format invalidates the fragment you are standing
+   on.** The paste cleaner walked a block's fragments and reformatted each as
+   it went; the first change merged and split fragments under the iterator,
+   and the invalidated fragment reported a position of whatever was in that
+   memory (`QTextCursor::setPosition: Position '1074790400' out of range`) —
+   so the rest of every block went uncleaned. Now the runs are **collected
+   first and formatted afterwards**, which is safe because nothing here
+   changes the text, only its formatting.
+3. **A block carries a font and a colour of its own**, separate from any run.
+   Cleaning the runs alone left Word's `<p style="color:#FF0000">` and
+   `<li style="font-family:Verdana">` behind — which is what an empty
+   paragraph keeps and what a list's bullet is drawn with, so a pasted
+   procedure had red bullets and Verdana blank lines. The block char format
+   is cleaned too now.
+
+The first two were invisible from the outside — the tree looked ordered
+because the ties happened to come back in insert order, and the pasted text
+looked mostly clean because the first run of each block *was* cleaned.
+
+**Tests** (§7), all on temporary in-memory databases; nothing can reach the
+real one (CLAUDE.md §10.1). Six new suites, 51 cases between them:
+`tst_DocumentMigrations` (4), `tst_DocumentSpaces` (9),
+`tst_DocumentTree` (10), `tst_DocumentPublishing` (10),
+`tst_DocumentImages` (9), `tst_WordPasteCleaner` (9). The five suites of
+version 1.0 went with it, so the project total is **58 suites, 826 cases**.
+
+The one worth describing is "a failed publish leaves nothing half-written",
+because waiting for a full disk is not a test. It arranges the failure with a
+SQLite trigger that refuses the *second* page's revision, then asserts that
+the manual's revision, the first page's revision and the cleared draft are
+all absent — and then **drops the trigger and publishes again successfully**,
+which is what proves the failure was the trigger and not something broken for
+good.
+
+**File sizes** (CLAUDE.md §9). Three files came back over the guideline and
+were split along real seams rather than cut to fit:
+
+- `DocumentPageRepository.cpp` 447 → **305**, by moving withdrawal and
+  deletion into `DocumentPageRemovals` (data layer, beside it, the same shape
+  as `DocumentPageMoves`). §6.3 is a set of rules of its own, and nothing
+  that only reads or edits a page needs it. It asks the repository
+  `mayWrite()` rather than keeping a second copy of §4.3.
+- `DocumentTreePanel.cpp` 430 → **279**, by moving the five buttons that ask
+  the user something into `DocumentTreeActions` — the same split as
+  `VesselArchiveActions` out of `VesselListWidget`. The panel draws the tree
+  and knows what is selected; the actions know what each button asks. Each
+  returns true when something changed, so the reload is in one place.
+- `DocumentSpaceRepository.cpp` 354 → **289**, by moving the one-off setup
+  step into `DocumentVesselSpaces`. Everything left answers a question about
+  spaces that exist; that one makes the ones that should.
+
+The largest file in the module is now `DocumentPageRepository.cpp` at 305.
+
+**Verification.** Clean Debug and Release rebuilds, 0 warnings, **58/58
+suites** and 826/826 cases in each. The app was not launched (the developer does the
+on-screen checks).
+
+**Not in step 1:** history, compare and restore (step 2); attachments and
+search (step 3); links between pages and templates (step 4); printed output
+with change bars, Record of Revisions and List of Effective Pages (step 5);
+office → vessel packages and the master's receipt (step 6).
+
+
 
 ## Decisions confirmed by the developer
 
@@ -4322,35 +4554,45 @@ were all updated to match.
 
 ## Next step
 
-**Document Management, step 2 — the manual editor.** The library is
-working; what comes next is writing manuals *in* the program.
+**Document Management, step 2 — history, compare and restore.** Step 1 is
+working: spaces, the page tree, the editor, and draft → publish. What is
+missing is being able to look back.
 
-Chapters and sections in a rich-text editor (headings, lists, tables,
-pictures, paste from Word), draft → publish revision, automatic
-section-level change tracking, and a revision record per revision. Steps 3
-and 4 follow: the generated PDF with change bars, Record of Revisions, List
-of Effective Pages and "print changed pages"; then office → vessel packages
-with the master's receipt.
+Per `docs/document-management-spec.md` §3 the step is: a page's revision
+history, a side-by-side or marked-up comparison of two revisions, and
+restoring an older revision as the current draft (never as a published
+revision — restoring is an edit, and an edit is published like any other).
+The data for it is already there and already immutable: every revision has
+its title, content, number and date, and a Manual page's revision knows
+which manual revision it belongs to.
 
 No spec for step 2 yet — bring it up here first, the same way every step in
 this project has gone.
 
-Worth keeping in view while designing it: the reason manuals are written in
-the program at all is that printing chosen pages of an *uploaded* PDF needs
-a renderer, and Qt PDF cannot be built with MinGW, which is this project's
-Windows compiler. A manual the program lays out itself knows which pages a
-changed section falls on. That constraint shapes step 3, so step 2's data
-model should be designed with it in mind rather than against it.
+Worth keeping in view while designing it: step 5's printed output needs
+change bars, which means the comparison written in step 2 is the same
+comparison the PDF will use. Designing it as something that returns *what
+changed* rather than something that paints a diff on screen is what makes
+that reuse possible — the rule belongs in the service or domain layer, and
+the screen and the report are both callers (CLAUDE.md §4).
+
+Also worth remembering why manuals are written in the program at all:
+printing chosen pages of an *uploaded* PDF needs a renderer, and Qt PDF
+cannot be built with MinGW, which is this project's Windows compiler. A
+manual the program lays out itself knows which pages a changed section falls
+on.
 
 Carried over, unchanged by this round and listed with reasons in
 `docs/roadmap-and-pending.md`: the audit trail viewer; ship-to-shore sync
-and role-based access control (deliberately last); making the sidebar badge
-share `CertificateListRows`; and the file-size debt, to which this round
-adds `DocumentRepository.cpp` (415) and `DocumentActions.cpp` (306), both
-with the reason they stopped there.
+and role-based access control (deliberately last); and making the sidebar
+badge share `CertificateListRows`. The file-size debt that version 1.0 of
+this module added (`DocumentRepository.cpp` and `DocumentActions.cpp`) is
+gone with it; what this round added is split and under the guideline, the
+largest being `DocumentPageRepository.cpp` at 305.
 
 The developer's own pending items are on that page too: the work laptop's
-setup-time restore, and two V TRE CSV rows whose survey date is before the
-certificate's issue date.
+setup-time restore, two V TRE CSV rows whose survey date is before the
+certificate's issue date, and now the old `Documents/` folder, whose files
+can be deleted by hand — the program no longer knows about them.
 
 Full build order is in `CLAUDE.md` §11.
