@@ -1,216 +1,227 @@
 # Document Management — module specification
 
-Version 1.0. The second module, started after Certificate Control was
-closed out (`certificate-control-v1.0`). Module-level decisions first, then
-step 1 in implementable detail; steps 2–4 are outlined and get their own
-specs when they come up.
+Version 2.0. **Replaces version 1.0** (a table of uploaded files with
+versions, built as step 1 in `47179f5`). After seeing it, the developer
+decided the module should not look and work like Certificate Control, but
+like a simple **Confluence**: spaces, a page tree, pages read and edited in
+place, history. Version 1.0's library is removed completely (§4.1).
 
 ---
 
-## 1. What the module is for — decided with the developer
+## 1. Decided with the developer
 
-**Documents held** — all four kinds:
-- **SMS manuals & procedures** — the company's Safety Management System,
-  under ISM document control (one current revision; older ones kept but
-  superseded).
-- **Circulars & notices** — company circulars, flag and class notices.
-- **Plans & manuals** — approved plans, drawings, makers' manuals.
-- **Reports & records** — PSC / flag / vetting inspection reports, survey
-  and audit reports.
+- **Confluence-style:** spaces → page tree → pages, read and edited inside
+  the program.
+- **Spaces:** company spaces the office creates (e.g. SMS Manual, Cargo
+  Manual, Circulars, Forms), plus **one space per vessel, created
+  automatically**.
+- **Revisions of a manual are numbered for the whole manual:** "SMS Manual
+  Rev 8" changes, say, 5.2 and 7.1; those pages are edited as drafts and
+  Rev 8 is published for the manual in one go, with one note. Each page
+  shows the revision it was last changed in. This matches ISM document
+  control — only a published revision counts — and gives the Record of
+  Revisions and List of Effective Pages later.
+- **First version's features:** page tree + rich editor; history +
+  compare; attachments + search; links between pages + templates.
+- **Later:** printed output (PDF with change bars, Record of Revisions,
+  List of Effective Pages, Print changed pages, `.odt` for Word); office →
+  vessel packages with the master's receipt confirmation.
+- **No expiry/review dates** in this module for now.
 
-**Purpose:** an organised library with full version history first; document
-control on top of it. Old versions go to an archive, never lost.
+Why manuals are written *in* the program rather than uploaded as PDFs:
+Qt's PDF module can't be built with MinGW, this project's Windows compiler,
+so the program can't print chosen pages of an uploaded PDF — but it can
+print any page it lays out itself.
 
-**Manuals written in the program, with change tracking.** The office edits
-SMS manuals inside the program; the program works out what changed between
-revisions, and the vessel can **print exactly the changed pages** with one
-button to replace them in the printed manual. Export: PDF, and Word via
-OpenDocument `.odt` (opens in Word; no extra library). True `.docx` only
-later, if `.odt` proves insufficient.
+## 2. Two kinds of space
 
-**Office → vessel:** export/import **packages** (a file sent by email or
-USB), and the **master confirms receipt for the vessel** (name and date),
-the confirmation going back to the office the same way.
+| | **Manual space** | **Collection space** |
+|---|---|---|
+| For | SMS Manual, Cargo Manual, any controlled manual | Circulars, Forms, each vessel's space |
+| Publishing | the **whole space** gets Rev N; every page changed since Rev N−1 is included | **each page** is published on its own |
+| Page shows | "Rev 8 · 12 Nov 2026" — the manual revision it last changed in | "Rev 3 · 12 Nov 2026" — its own count |
+| Created by | the office | company: the office; vessel spaces: automatic |
 
-**No dates for now** — no expiry or review-due tracking in this module.
-Each version may carry a revision date as plain information; nothing is
-scheduled or alerted from it.
+Vessel spaces are always Collection spaces.
 
-### Why manuals are written *in* the program (and uploaded PDFs aren't page-printed)
+## 3. Build order for this module
 
-Printing chosen pages of an *uploaded* PDF needs a PDF renderer. Qt's own,
-Qt PDF, **cannot be built with MinGW** ("Currently, it is not possible to
-build Qt PDF using MinGW" — Qt PDF Platform Notes), and MinGW is this
-project's Windows compiler (`CLAUDE.md` §2). The alternatives — switching
-to MSVC, or an outside PDF library — are large changes.
+1. **Spaces, page tree, rich editor, draft → publish** — *this spec, §4–§6*.
+2. **History + compare + restore** — every published revision of a page and
+   of a manual; compare any two with changes highlighted; restore an old
+   revision into the draft.
+3. **Attachments + search** — files (Word, PDF, anything) attached to a
+   page with every version kept; search across page titles and text.
+4. **Links + templates** — links from one page to another; page templates
+   (circular, procedure, …).
+5. **Printed output** — PDF and `.odt` of a manual; revision in page
+   footers; change bars; Record of Revisions; List of Effective Pages;
+   **Print changed pages**.
+6. **Office → vessel packages** — export/import of published revisions;
+   the master's receipt confirmation sent back the same way.
 
-A manual written in the program avoids the problem entirely: the program
-lays out the pages itself (`QTextDocument` + `QPrinter`, as the certificate
-PDF already does), so it knows which pages each changed section falls on
-and can print those pages directly. Uploaded files (circulars, plans,
-reports, and any manual not yet moved into the editor) are stored with full
-version history and **opened in the computer's normal viewer**.
+Steps 2–6 get their own short specs when they come up. Each step leaves a
+working module.
 
-## 2. Build order for this module
+## 4. Step 1 — cleaning up, and the data
 
-1. **Library** — documents (fleet-wide or per vessel), four categories,
-   upload Word/PDF/any file, every version kept, older ones superseded.
-   *This document, §4.*
-2. **Manual editor** — manuals as chapters and sections in a rich-text
-   editor (headings, lists, tables, pictures; paste from Word), draft →
-   publish revision, automatic section-level change tracking, a revision
-   record per revision.
-3. **Manual output** — generated PDF with the revision in every page
-   footer and a change bar beside changed text; Record of Revisions and
-   List of Effective Pages generated; **Print changed pages**; export `.odt`.
-4. **Packages** — office exports new/changed documents (files and in-app
-   manuals) as one package file; vessel imports it; the master's receipt
-   confirmation comes back as a package. A package can itself be a small
-   SQLite file, so no zip library is needed. Designed to follow `CLAUDE.md`
-   §6 (UUIDs, `origin_node`, `revision`) so the later ship-to-shore sync can
-   reuse it.
+### 4.1 Remove version 1.0 completely
 
-Each step leaves a working module (`CLAUDE.md` §1).
+- **New migration that drops** `document_version` and `document` (migration
+  012 has already run on the developer's machine and is never edited —
+  `CLAUDE.md` §6.6). Any test documents entered in them are gone; their
+  files stay in the old documents folder on disk, where the developer can
+  delete them by hand.
+- Remove the version-1.0 code and tests: the list screen, its dialogs,
+  actions, category tabs, file store, repository and its helpers, and the
+  **Documents folder** row in Settings.
+- **Keep** `IModule::setSelectedVessel()` — it is generic and harmless.
+  The new Documents screen doesn't need it (spaces are picked in its own
+  panel) and needn't override it.
+- **Keep** the module's place: `src/modules/documents/`, `DocumentsModule`,
+  the `ShipDocuments` library that links only `ShipCore`, one line in
+  `ModuleRegistry`.
 
-## 3. Architecture, for the whole module
+### 4.2 Tables (all `document_` prefixed, standard audit/sync columns, `CLAUDE.md` §6)
 
-- Folder `src/modules/documents/` with `domain/ data/ service/ ui/`, and a
-  `DocumentsModule` implementing `IModule`, registered with one line in
-  `ModuleRegistry` (`CLAUDE.md` §7).
-- **Never** includes anything from `modules/certificates/` (`CLAUDE.md` §5).
-  Shared needs go through `core/` (e.g. `ManagedFileStore`, `Vessel`).
-- Tables named with a `document_` prefix where needed; migrations continue
-  the one global numbered folder (next: `012_…`). `CLAUDE.md` §5 gets a
-  line saying the documents module owns them.
+- **`document_space`** — `name`, `kind` (`MANUAL` / `COLLECTION`),
+  `vessel_id` (set only for a vessel's automatic space), `description`,
+  `position` (order in the list).
+- **`document_page`** — `space_id`, `parent_id` (NULL = top of the tree),
+  `position` (order among siblings), and **the draft**: `draft_title`,
+  `draft_content` (empty when there is no unpublished change). The
+  published title and content are those of the page's latest revision —
+  not copied onto the page row. A page with no revision yet is a draft
+  page.
+  `withdraw_pending` (a published page marked for removal in a manual's next
+  revision — §6.3).
+- **`document_page_revision`** — immutable: `page_id`, `number` (the page's
+  own count), `space_revision_id` (set in a Manual space), `title`,
+  `content`, `note`.
+- **`document_space_revision`** — immutable, Manual spaces only: `space_id`,
+  `number` (Rev N), `note`.
+- **`document_image`** — immutable: `data` (BLOB), `mime_type`. Pictures
+  live **in the database**, so pages and their pictures are in every backup.
+  Content refers to an image by id; a changed picture is a new row, so old
+  revisions still show their own.
 
-### 3.1 The vessel selector — a hook, not more direct wiring
+"Has unpublished changes", the current revision of a page and of a manual
+are **computed**, never stored (`CLAUDE.md` §6.7).
 
-Today `MainWindow` finds the certificate screen by type (`qobject_cast` to
-`CertificateListWidget`) to rescope it when the toolbar vessel changes.
-Doing the same for documents would mean the shell naming a second module's
-screen, and `CLAUDE.md` §7 says adding a module must require zero changes to
-existing modules.
+Content is stored as the HTML `QTextDocument` produces.
 
-Add to `IModule` a **non-pure** virtual with an empty default:
+### 4.3 Who may change what
 
-```cpp
-// Called when the toolbar's vessel selection changes (OFFICE mode), and once
-// at start-up. Default: nothing. A module whose screen depends on the
-// selected vessel overrides it.
-virtual void setSelectedVessel(const QString& vesselId) {}
-```
+- **OFFICE:** everything. Creates, renames and deletes company spaces.
+- **VESSEL:** sees company spaces **read-only** (they will arrive from the
+  office by package in step 6) and **its own vessel space**, which it may
+  edit. Other vessels' spaces are not shown.
+- **Vessel spaces** are created automatically for each active vessel the
+  first time the Documents screen needs them; an archived vessel's space is
+  hidden, not deleted.
+- Enforced in the repository (`CLAUDE.md` §3), not only the screen.
 
-`MainWindow` calls it on every module. `DocumentsModule` overrides it;
-`CertificatesModule` is **not** changed — it keeps its existing wiring, and
-moving it onto the hook is a later tidy-up, not part of this module.
-
-## 4. Step 1 — the library
-
-### 4.1 Data
-
-`document`:
-- `id`, `vessel_id` (**NULL = fleet-wide**; no foreign key, same reasoning
-  as `certificate.vessel_id`), `category` (`CHECK` in `'SMS'`,
-  `'CIRCULAR'`, `'PLAN_MANUAL'`, `'REPORT'`), `reference` (optional, e.g.
-  `SMS-03`, `Circular 12/2026`), `title` (required), `notes` (optional),
-  plus the standard audit/sync columns (`CLAUDE.md` §6.5).
-
-`document_version`:
-- `id`, `document_id`, `sequence` (1, 2, 3… per document; the highest
-  non-deleted one is **current**, all others are **superseded**),
-  `revision_label` (optional, e.g. `Rev 5`), `revision_date` (optional
-  `YYYY-MM-DD`, information only), `change_note` (optional one line — "what
-  changed"), `file_path` (**relative** to the documents folder, `CLAUDE.md`
-  §6.9), `original_file_name`, plus audit/sync columns.
-
-"Current" is computed from `sequence`, never stored (`CLAUDE.md` §6.7).
-
-### 4.2 Where the files live
-
-One **documents folder** per installation, chosen in Settings, holding:
+## 5. Step 1 — the screen
 
 ```
-<documents folder>/Fleet/<CATEGORY>/…
-<documents folder>/<IMO>/<CATEGORY>/…
+┌──────────────┬─────────────────────────────────────────────┐
+│ SPACES       │ SMS Manual › Chapter 5 › 5.2 Fire Drills     │
+│  SMS Manual  │ Rev 7 · 12 Nov 2026     [Edit] [Publish…]    │
+│  Circulars   │──────────────────────────────────────────────│
+│  V UNO       │ page content                                 │
+│  V TRE       │                                              │
+│──────────────│                                              │
+│ PAGES        │                                              │
+│ ▾ Chapter 5  │                                              │
+│    5.1       │                                              │
+│    5.2  ◀    │                                              │
+└──────────────┴─────────────────────────────────────────────┘
 ```
 
-Each version is its own file and is **never overwritten** — a new version
-is a new file, so every old version stays openable. File names are built
-from the reference (or title) and the sequence, e.g.
-`SMS-03__v5.pdf`; reuse `ManagedFileStore` and the naming helpers in
-`core/` rather than writing new file code.
+- **Left, top:** spaces — company spaces first, then vessel spaces. Office:
+  **New Space…** (name, Manual or Collection), Rename, Delete (only an
+  empty space, or with a confirmation that soft-deletes its pages).
+- **Left, bottom:** the page tree of the selected space. **New Page**
+  (child of the selected page, or top-level), **Move up / Move down**,
+  **Move to…** (pick a new parent), **Delete…** (§6.3). A page with
+  unpublished changes shows a small marker in the tree.
+- **Right:** a breadcrumb, the page's revision line, then the page.
+  - **Reading** shows the **published** content. If a draft exists, a bar
+    says "This page has unpublished changes" with **Continue editing** /
+    **Discard draft**. A never-published page shows its draft, marked
+    "Draft — not published".
+  - **Edit** turns the page into the editor (§6.1); **Save** keeps the
+    draft, **Cancel** leaves it as it was.
 
-**The folder's path is stored in `QSettings`**, not the database: it is a
-path on *this* computer (same reasoning as the backup folder). After a
-restore on another computer the user chooses the documents folder there,
-just as each vessel's attachment folder is re-chosen.
+## 6. Step 1 — editing and publishing
 
-**Not in the database backup.** Uploaded files stay in the folder, like
-certificate attachments; `docs/machine-setup.md` gets a line about copying
-the documents folder when this ships. (Manuals written in the editor, from
-step 2, live *in* the database and are in every backup.)
+### 6.1 The editor
 
-### 4.3 Who can change what
+`QTextEdit` with a toolbar: paragraph style (Normal, Heading 1–3), bold,
+italic, underline, bulleted and numbered lists, insert table (rows ×
+columns) with add/remove row and column, insert picture, undo/redo.
 
-- **OFFICE:** sees and edits everything.
-- **VESSEL:** sees fleet-wide documents **plus its own vessel's**; may add
-  and change only its own vessel's documents. Fleet-wide documents are
-  **read-only** on a vessel — they will arrive from the office in step 4.
-- Enforced in the repository (`CLAUDE.md` §3), not only in the screen.
+- **Paste from Word** keeps the structure — paragraphs, bold/italic/
+  underline, lists, tables, pictures — and **drops Word's fonts, sizes and
+  colours**, so every page looks the same. (Word headings may arrive as big
+  bold text rather than Heading 1–3; reapplying the heading style is fine.)
+- **Pictures** (inserted or pasted) go into `document_image`. Very large
+  pictures are scaled down on the way in so the database doesn't balloon;
+  the limit is Claude Code's call, stated in the report.
 
-### 4.4 The Documents screen
+### 6.2 Publishing
 
-A sidebar entry **Documents**, after Certificates.
+- **Collection space — per page:** **Publish…** asks for an optional note;
+  the page gets its next revision number.
+- **Manual space — the whole manual:** on the space, **Publish revision…**
+  lists every page with unpublished changes (new, changed, or marked for
+  withdrawal), asks for a **note** (required) and shows the new number
+  ("Rev 8"). Publishing creates the space revision and one page revision
+  for each listed page, all in **one transaction** — a half-published
+  manual must be impossible. Pages without changes keep their old revision.
+  Individual pages in a Manual space have no Publish of their own.
+- After publishing, the draft is cleared (the published content is now
+  what Edit starts from).
 
-- **Scope:** in OFFICE mode the list shows **fleet-wide documents plus the
-  vessel selected in the toolbar**; a VESSEL installation shows fleet-wide
-  plus its own. A **Scope** column says "Fleet" or the vessel name.
-- **Category tabs** above the table, like the certificate list:
-  `All | SMS | Circulars | Plans & manuals | Reports`, each with a count.
-  No red marks (no dates in this module). Opens on All.
-- **Search box:** filters by title or reference as you type.
-- **Columns:** Category, Reference, Title, Scope, Current version (label or
-  `v<sequence>`), Revision date, Versions (count).
-- **Actions:**
-  - **Add Document…** — scope (fleet-wide / selected vessel; vessel only on
-    a VESSEL installation), category, reference, title, notes, and the first
-    file with its optional revision label, date and change note.
-  - **Add New Version…** — choose a file, optional label/date/note; it
-    becomes current, the previous one becomes superseded.
-  - **Open** (double-click) — opens the current version in the computer's
-    normal viewer (`QDesktopServices`).
-  - **Versions…** — every version, newest first, current one marked, each
-    openable; superseded ones are the archive.
-  - **Edit Details…** — reference, title, notes, category.
-  - **Delete…** — soft delete (`CLAUDE.md` §6.4). The files stay in the
-    documents folder: an SMS record is not something to destroy by
-    accident. The confirmation says so.
-- If no documents folder is chosen yet, Add Document / Add New Version say
-  so and point to Settings.
+### 6.3 Deleting pages
 
-### 4.5 Settings
+- A **never-published** page: deleted straight away (soft delete).
+- A **published page in a Collection space**: soft-deleted after a
+  confirmation.
+- A **published page in a Manual space**: marked **"to be withdrawn"**
+  (struck through in the tree); it disappears when the next manual
+  revision is published, and that revision lists it as withdrawn —
+  removing a section is a change to the manual like any other. "Undo
+  withdraw" is available until then.
+- A page with children: the confirmation names how many pages go with it.
 
-A **Documents folder** row on the Settings page (Choose…), built as its own
-small widget like `AttachmentFolderSettings`. Changing it later does **not**
-move existing files in step 1 — it says so; moving is a later addition if
-needed.
+## 7. Step 1 — tests
 
-### 4.6 Tests
+All on temporary databases (`CLAUDE.md` §10.1).
 
-All on temporary folders and databases, never the real ones (`CLAUDE.md`
-§10.1):
-- Repository scope: OFFICE sees all; VESSEL sees fleet-wide plus its own
-  and nothing of another vessel; VESSEL cannot add, edit, version or delete
-  a fleet-wide document (refused in the repository).
-- Versions: first version is current; adding one makes it current and the
-  old one superseded; both files exist and are distinct; soft-deleting a
-  document hides it and its versions and leaves the files.
-- File naming and placement under `Fleet/` vs `<IMO>/` and category.
-- The `IModule::setSelectedVessel()` hook reaches the documents screen;
-  the existing certificate selector tests pass unchanged.
-- Category tabs and search filter the list; counts correct.
+- Migrations: the drop runs cleanly on a database that has 012's tables
+  with rows in them, and on one that doesn't.
+- Access: OFFICE edits all; VESSEL edits only its own space, sees company
+  spaces read-only, never sees another vessel's space; refused in the
+  repository.
+- Vessel spaces: created once per active vessel (running it twice creates
+  no duplicates); archived vessel → space hidden.
+- Tree: create child and top-level pages; move up/down; move to a new
+  parent; a page can't be moved under itself or its own child.
+- Draft/publish, Collection: edit → draft; publish → revision 1, draft
+  cleared; edit again → revision 2.
+- Draft/publish, Manual: edit two of three pages → Publish revision lists
+  exactly those two → Rev 1 with two page revisions; the third page keeps
+  no revision; a failed publish leaves nothing half-written.
+- Withdraw: a published manual page marked for withdrawal is still there
+  until publish; after publish it's gone and Rev N lists it as withdrawn;
+  Undo withdraw before publish restores it.
+- Paste from Word: pasted HTML with fonts/colours keeps bold/lists/tables
+  and loses the fonts and colours.
+- Pictures: stored in `document_image`; an edited picture is a new row;
+  the older revision still refers to the old one.
 
-### 4.7 Not in step 1
+## 8. Not in step 1
 
-The editor, generated PDFs, page printing, packages, acknowledgement, any
-dates/alerts, moving files when the folder changes.
+History/compare/restore, attachments, search, links, templates, printed
+output, packages, acknowledgement.

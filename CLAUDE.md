@@ -103,9 +103,11 @@ database.
   the name unambiguous once other modules have tables of their own).
   There is deliberately no `certificate_type` table — see
   `docs/certificate-control-spec.md` §5 for why.
-- **The documents module owns:** `document`, `document_version`, and the
-  tables its later steps add (manual chapters/sections, revisions,
-  packages) — see `docs/document-management-spec.md`.
+- **The documents module owns:** `document_space`, `document_page`,
+  `document_page_revision`, `document_space_revision`, `document_image`,
+  and the tables its later steps add (attachments, packages) — see
+  `docs/document-management-spec.md`. (`document` and `document_version`
+  from that spec's version 1.0 were dropped by a later migration.)
 
 There is **no equipment registry in this project**. Equipment and planned
 maintenance belong to a future PMS module and are not this module's concern.
@@ -296,15 +298,18 @@ Rules going forward:
   Plus, outside the numbered steps: list usability fixes, S-14 list-number
   prefixes, vessel archive/restore, "latest annual survey counts",
   housekeeping, category tabs.
-- **Active module:** Document Management — `docs/document-management-spec.md`.
-  Build order:
-  1. Library — fleet-wide / per-vessel documents, four categories,
-     uploaded files with full version history (spec §4)
-  2. Manual editor — chapters/sections, draft → publish, change tracking
-  3. Manual output — generated PDF with change bars, Record of Revisions,
-     List of Effective Pages, "Print changed pages", `.odt` export
-  4. Office → vessel packages, master's receipt confirmation
-  Steps 2–4 get their own specs when they come up.
+- **Active module:** Document Management — a simple Confluence-style
+  module, `docs/document-management-spec.md` (version 2.0; version 1.0's
+  file library was built and then removed by the developer). Build order:
+  1. Spaces, page tree, rich editor, draft → publish (Manual spaces publish
+     a whole-manual revision; Collection spaces publish page by page)
+  2. History + compare + restore
+  3. Attachments + search
+  4. Links between pages + templates
+  5. Printed output — PDF/`.odt`, change bars, Record of Revisions, List of
+     Effective Pages, "Print changed pages"
+  6. Office → vessel packages, master's receipt confirmation
+  Steps 2–6 get their own specs when they come up.
 - **Not yet started:** ship-to-shore sync, role-based access control
   (deliberately last), the remaining future modules (PMS, spares, purchasing,
   vessel life monitoring, budget, crew), the audit trail viewer.

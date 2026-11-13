@@ -4,18 +4,25 @@ A single-page "where are we" view, distilled from `CLAUDE.md` §11 and
 `docs/PROJECT-STATUS.md`'s running log. Those two remain the full record —
 this is the short version to orient a new session quickly.
 
-## Now: Document Management — design discussion
+## Now: Document Management — a simple Confluence
 
-The second module. Design decided with the developer; spec
-`docs/document-management-spec.md`. Steps: 1 library (versions, archive),
-2 manual editor with change tracking, 3 manual output (PDF with change
+Spec `docs/document-management-spec.md` (version 2.0). The developer saw
+the first step 1 — a table of uploaded files, built in `47179f5` — and
+decided the module should work like Confluence instead: spaces, a page
+tree, pages read and edited in place, history. That library is removed.
+
+Steps: 1 spaces + page tree + editor + draft/publish; 2 history + compare;
+3 attachments + search; 4 links + templates; 5 printed output (PDF, change
 bars, Record of Revisions, List of Effective Pages, Print changed pages,
-`.odt`), 4 office → vessel packages with the master's receipt.
+`.odt`); 6 office → vessel packages with the master's receipt.
+
+Two kinds of space: **Manual** spaces publish a whole-manual revision
+("SMS Manual Rev 8"); **Collection** spaces (circulars, forms, each
+vessel's own space) publish page by page.
 
 Worth remembering why manuals are written *in* the program: Qt's PDF
 module can't be built with MinGW, so the program can't print chosen pages
-of an uploaded PDF — but it can print any page of a manual it lays out
-itself. Uploaded files open in the normal viewer.
+of an uploaded PDF — but it can print any page it lays out itself.
 
 ## Certificate Control — complete ✅
 
