@@ -11,7 +11,8 @@ the first step 1 — a table of uploaded files, built in `47179f5` — and
 decided the module should work like Confluence instead: spaces, a page
 tree, pages read and edited in place, history. That library is removed.
 
-Steps: 1 spaces + page tree + editor + draft/publish; 2 history + compare;
+Steps: 1 spaces + page tree + editor + draft/publish (✅ built, `7717f6a`;
+waiting for the developer's on-screen check); 2 history + compare;
 3 attachments + search; 4 links + templates; 5 printed output (PDF, change
 bars, Record of Revisions, List of Effective Pages, Print changed pages,
 `.odt`); 6 office → vessel packages with the master's receipt.
@@ -26,7 +27,10 @@ of an uploaded PDF — but it can print any page it lays out itself.
 
 ## Certificate Control — complete ✅
 
-Tagged `certificate-control-v1.0`. Everything in `CLAUDE.md` §11's build
+Tagged `certificate-control-v1.0`, patched as `certificate-control-v1.0.1`
+(`dd51c8f`): the term is now counted to the nearest year, so a certificate
+a few days short of whole years no longer loses its first anniversary
+(found by the developer on the V TRE S.M.C. and DOC). Everything in `CLAUDE.md` §11's build
 order is done, except step 14 (Reports), which the developer dropped:
 the one-vessel PDF from step 13 is enough.
 
@@ -65,6 +69,13 @@ SQLite suggested); Qt Creator's F5 doesn't stop on breakpoints (Ctrl+R
 works).
 
 ## Your pending items
+
+- **Check on screen after v1.0.1:** V TRE No. 14 (S.M.C.) intermediate
+  window 30 Sep 2027 – 30 Mar 2029; No. 13 (DOC) annual window open since
+  21 Sep 2026 — record this year's annual verification if it's done.
+- **Documents step 1 on-screen check** (see the round's report).
+- **Delete the old `Documents` folder** from the removed version 1.0 by hand —
+  the program no longer knows those files exist.
 
 - **Work laptop:** set it up from a backup with the new
   `docs/machine-setup.md` (setup-time restore). Also the last on-screen check

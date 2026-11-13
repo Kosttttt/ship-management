@@ -273,7 +273,9 @@ Rules going forward:
 
 ## 11. Current status
 
-- **Certificate Control — complete** (tag `certificate-control-v1.0`).
+- **Certificate Control — complete** (tag `certificate-control-v1.0`;
+  patched as `certificate-control-v1.0.1` — anniversary dates of certificates a
+  few days short of whole years, `docs/anniversary-dates-fix-spec.md`).
   Spec `docs/certificate-control-spec.md`; history in `docs/PROJECT-STATUS.md`;
   what was deferred, and why, in `docs/roadmap-and-pending.md`. Build order
   as it was carried out:
