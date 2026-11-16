@@ -35,8 +35,12 @@ DocumentTreePanel::DocumentTreePanel(DocumentPageRepository& pages, DocumentPage
     , m_removals(removals)
     , m_revisions(revisions)
     , m_publisher(publisher)
-    , m_actions(std::make_unique<DocumentTreeActions>(pages, moves, removals, revisions,
-                                                     publisher, this))
+    , m_actions(std::make_unique<DocumentTreeActions>(
+          pages, moves, removals, revisions, publisher, this,
+          // The Publish revision… dialog's per-page Compare. Passed straight
+          // out as a signal, because reading a page to compare it is the
+          // screen's job and not the tree's (§4.1).
+          [this](const QString& pageId) { emit compareWithPublishedRequested(pageId); }))
 {
     auto* heading     = new QLabel(tr("PAGES"), this);
     QFont headingFont = heading->font();
@@ -55,6 +59,8 @@ DocumentTreePanel::DocumentTreePanel(DocumentPageRepository& pages, DocumentPage
     m_deleteButton   = new QPushButton(tr("&Delete…"), this);
     m_withdrawButton = new QPushButton(tr("Undo &withdraw"), this);
     m_publishButton  = new QPushButton(tr("Publish re&vision…"), this);
+    // Next to Publish revision… (document-history-spec.md §3).
+    m_revisionsButton = new QPushButton(tr("Re&visions…"), this);
 
     m_newButton->setObjectName(QStringLiteral("newPageButton"));
     m_upButton->setObjectName(QStringLiteral("movePageUpButton"));
@@ -63,6 +69,7 @@ DocumentTreePanel::DocumentTreePanel(DocumentPageRepository& pages, DocumentPage
     m_deleteButton->setObjectName(QStringLiteral("deletePageButton"));
     m_withdrawButton->setObjectName(QStringLiteral("undoWithdrawButton"));
     m_publishButton->setObjectName(QStringLiteral("publishRevisionButton"));
+    m_revisionsButton->setObjectName(QStringLiteral("recordOfRevisionsButton"));
 
     m_upButton->setToolTip(tr("Move up"));
     m_downButton->setToolTip(tr("Move down"));
@@ -82,6 +89,7 @@ DocumentTreePanel::DocumentTreePanel(DocumentPageRepository& pages, DocumentPage
     layout->addLayout(row);
     layout->addWidget(m_withdrawButton);
     layout->addWidget(m_publishButton);
+    layout->addWidget(m_revisionsButton);
 
     connect(m_tree, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem*, QTreeWidgetItem*) {
         updateButtons();
@@ -117,6 +125,9 @@ DocumentTreePanel::DocumentTreePanel(DocumentPageRepository& pages, DocumentPage
             emit published();
         }
     });
+
+    connect(m_revisionsButton, &QPushButton::clicked, this,
+            [this] { emit revisionsRequested(m_space); });
 
     connect(m_upButton, &QPushButton::clicked, this, [this] {
         if (m_moves.moveUp(selectedPageId())) {
@@ -275,5 +286,9 @@ void DocumentTreePanel::updateButtons()
     // §6.2: only a Manual space publishes as a whole.
     m_publishButton->setVisible(hasSpace && m_space.isManual());
     m_publishButton->setEnabled(m_editable);
+
+    // A Record of Revisions is a manual thing, and reading it needs no
+    // write permission (§3).
+    m_revisionsButton->setVisible(hasSpace && m_space.isManual());
 }
 

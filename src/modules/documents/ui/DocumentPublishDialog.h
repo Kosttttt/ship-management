@@ -33,6 +33,13 @@ public:
 
     QString note() const;
 
+signals:
+    // Compare with published, asked for one of the pages this revision
+    // covers (document-history-spec.md §4.1). The dialog has no way to read
+    // a page, and should not: it says which one was asked about and lets
+    // whoever opened it answer.
+    void compareRequested(const QString& pageId);
+
 private:
     DocumentPublishDialog(const QString& heading, const QString& explanation, bool noteRequired,
                           QWidget* parent);

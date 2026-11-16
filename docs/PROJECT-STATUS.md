@@ -3953,6 +3953,180 @@ not launched (the developer does the on-screen checks). Tagged
 `certificate-control-v1.0.1`.
 
 
+### Document Management, step 2 — history, compare and restore ✅
+
+`docs/document-history-spec.md`, version 1.0. **No schema change** — step 1
+already stored every revision and never alters one, so this step only reads
+them. Step 1 passed all seven of the developer's on-screen checks first.
+
+**What it gives the developer.** A History button on the page, listing every
+published revision newest first with its number, the manual revision it
+belongs to, the date, who published it and the note; a Record of Revisions on
+a Manual space; an inline comparison of any two revisions, or of a draft
+against what is published; and Restore, which puts an old revision back into
+the **draft**.
+
+**The comparison is in the domain layer, and that is the point of this step.**
+`DocumentDiff` and `DocumentBlocks` are pure functions of two pieces of
+content: no widgets, no database, no screen (CLAUDE.md §4 rule 1). Not for
+tidiness — step 5 has to print the same changes as change bars in a PDF, and a
+comparison that only knew how to colour a QTextEdit would have to be written
+twice and would then disagree with itself. What it returns is *what changed*;
+painting that is `DocumentDiffRenderer`'s job and printing it will be step 5's.
+
+How it works, in the order §4.3 sets out:
+
+1. **Blocks in reading order.** Qt's own rich-text document does the reading:
+   a recursive walk of frames, with a table's cells taken row by row, gives
+   paragraphs, headings, list items, table cells and pictures in the order a
+   person reads them. Hand-rolling an HTML parser to find them would have been
+   far worse, and QTextDocument is not a widget — the same ground on which §4
+   rule 1 already permits `QString` and `QDate`.
+2. **A longest-common-subsequence match on block text**, so a paragraph
+   inserted in the middle is **one** insertion and everything after it is
+   untouched. A block is matched on its words and its picture, deliberately
+   **not** on its formatting, which is what lets the next rule exist.
+3. **Word by word inside a changed block**, with each word carrying the space
+   that follows it so that joining the pieces back together reproduces the new
+   text exactly. A test asserts that both ways round: the kept and added
+   pieces rebuild the new text and the kept and removed pieces rebuild the old
+   one. A comparison that quietly rewrote the page it was showing would be
+   worse than no comparison.
+4. **Same words, different formatting → "formatting changed"**, from a
+   signature of the block's heading level, alignment, indent, list style and
+   the font and colour of every run, including the block's own character
+   format — which is where a paste from Word leaves a font on an empty
+   paragraph and on a list's bullet.
+
+Two blocks that end up paired are only compared word by word when they still
+have **a third of their words in common**, or when both are four words or
+fewer. Below that they are reported whole, as a removal and an addition: §4.3
+is explicit that a wholesale replacement reads better that way, and a
+word-by-word comparison of two unrelated paragraphs marks every word of both,
+which tells a reader less than showing them. The short-block exception is what
+makes an edited table cell — "Monthly" becoming "Quarterly" — read as a change
+to that cell.
+
+**The proof the matching is load-bearing** (§7). The "paragraph inserted in
+the middle" test is easy to pass by accident, so the suite also contains a
+naive position-by-position comparison — written in the test file and nowhere
+near the program — and asserts what it gets wrong: four marks instead of one,
+claiming the untouched Chapter 2 lost the word "responsibilities" and gained
+"definitions" because Chapter 1A now sits where it used to. The same two pages
+through the real comparison leave that block `Unchanged`.
+
+**Painting it** (§4.2), inline on the newer version rather than side by side:
+it reads like the page itself, works at any window width, and is the shape the
+printed change bars will take. Added text gets a green background; removed
+text is struck through in red and left where it stood; a paragraph whose
+formatting changed gets a blue bar beside it and the words "formatting
+changed"; and a picture that was added, removed or replaced goes in a
+**bordered frame** with a label saying which.
+
+Two implementation notes worth keeping:
+
+- The marks are applied in **two passes**, and the order is the whole trick:
+  colours first, because changing a colour moves nothing, and then the
+  insertions **from the end of the page backwards**, because inserting text
+  shifts everything after it and would otherwise invalidate every position
+  still to be used.
+- A block of a QTextDocument **cannot be given a border**, so the margin bar is
+  a character (▌) with room made for it, and a picture's box is a real
+  bordered `QTextFrame` that the picture is lifted out of the page and put
+  back inside. A removed picture can still be shown inside its box, because
+  `document_image` is never changed — the old revision's picture is still
+  there to draw.
+
+**Reading is allowed everywhere; restoring is not.** A vessel may open a
+company manual's history, view any revision and compare any two — that is
+reading, and the office is where the manual is written. Restore is refused in
+`DocumentRestorer`, not merely greyed on the button (§5), and the history
+reader goes through the space and page repositories for every question, so
+another vessel's history is unreadable by page id **and** by revision id,
+which are the two routes a screen would take. A test asserts all three.
+
+**Restore never publishes.** It copies the revision's title and content into
+the page's draft and stops there: the page then has unpublished changes, the
+editor can look and adjust, and it goes out the normal way — on its own in a
+Collection space, or as part of the manual's next revision. A Restore that
+published by itself would put a manual at Rev 9 with no statement of what
+changed and a page back in force that nobody had agreed to. The suite checks
+the whole of that: the draft lands, nothing is published, the revision in
+force is still the one it was, and when the restored draft *is* published it
+becomes the next revision while Rev 1 keeps its id, number and note.
+
+A page **withdrawn** from a manual is deliberately not restorable (§6). Its
+revisions stay readable through the Record of Revisions, but bringing a
+withdrawn section back is a decision with consequences for the manual's next
+revision, so it waits for a step that can state them. The refusal comes from
+asking whether the page is still in the tree before asking the write rule —
+which leaks nothing, because `findById` already applies §4.3's visibility, so
+a page in a space this installation cannot see gives the same answer as a page
+that is not there.
+
+**One real gap, and a UI test is what found it.** In a Manual space the note
+belongs to the **manual's** revision — a manual is published as a whole with
+one statement of what changed — so a page revision of a manual has no note of
+its own, and the history table's Note column came back empty. Every
+repository-level test had passed. The reader now carries the manual
+revision's note alongside, and the entry's `shownNote()` is the page's own
+note or the manual's when the page has none; the immutable page revision is
+not rewritten to pretend it has one. That is exactly the class of thing the
+category-tabs round learned the hard way, and the reason a dialog-level test
+was written at all.
+
+**Tests** (§7), 64 suites and 880 cases, up from 59/836 — five new suites and
+44 cases:
+
+- `tst_DocumentDiff` (11) — the comparison, with **no database at all**:
+  identical content, one changed word, a paragraph inserted in the middle, the
+  naive-comparison proof, a paragraph removed, an unrelated replacement,
+  formatting-only, a picture added, removed and replaced, an edited table
+  cell, a list item added, and the pieces rebuilding both texts.
+- `tst_DocumentDiffRendering` (8) — that the marks actually land on the page:
+  the added background, the removed words struck through *in place*, a removed
+  paragraph put back between the two it stood between, one removed from the end
+  appended, the bar and the note with room made for them, the bordered box
+  around a replaced picture, and that the untouched text of the page comes
+  through the painting unchanged.
+- `tst_DocumentHistory` (6) — the reader: newest first, the manual revision
+  number and note, Compare with previous, the Record of Revisions marking new,
+  changed and withdrawn, Compare with published marking exactly the draft's
+  changes, and another vessel's history being unreadable.
+- `tst_DocumentRestore` (4) — §5, including that nothing is published and that
+  a withdrawn page's revision is readable but not restorable.
+- `tst_DocumentHistoryUi` (5) — the two screens: the columns §2 asks for and in
+  that order, no Manual rev column in a Collection space, Restore from the
+  dialog really writing the draft, Restore greyed while View and Compare are
+  not, and the Record of Revisions tree with its pages under each revision.
+
+**File sizes** (CLAUDE.md §9). `DocumentDiffRenderer.cpp` came back at 326 and
+was split: the walk that decides **where** each mark goes stayed, and **what**
+a mark is went to `DocumentDiffMarks` — a seam that earns its keep rather than
+one that merely fits, because step 5 replaces the marks and keeps the walk. The
+largest production file in the module is still `DocumentPageRepository.cpp` at
+305, unchanged by this round; the new ones are 295, 285 and 283, and
+`DocumentTreePanel.cpp` went 279 → 294 for one button.
+
+`tst_DocumentHistory.cpp` reached 565 lines and was split along the seam the
+spec itself draws — reading in that file, restoring in `tst_DocumentRestore` —
+with the shared fixture moved to `DocumentHistoryTestSupport.h` so step 1's
+suites do not start depending on step 2's classes to compile. Two new test
+files sit a little over the guideline at 348 and 346, in line with the suites
+already there (`tst_DocumentPublishing.cpp` is 479); neither was cut further,
+because there is no seam left in them worth cutting.
+
+**Verification.** Clean Debug and Release rebuilds from empty build
+directories, 0 warnings, **64/64 suites and 880/880 cases** in each. `dist\`
+redeployed with the exe copied first and `windeployqt` after it. The app was
+not launched — the developer does the on-screen checks.
+
+**Not in step 2:** restoring a withdrawn page, comparing two different pages,
+comparing a whole manual at once (§6); attachments and search (step 3); links
+and templates (step 4); printed output (step 5); office → vessel packages
+(step 6).
+
+
 ## Decisions confirmed by the developer
 
 - **A property assertion is not a proof that something is visible.** The
@@ -4688,27 +4862,33 @@ were all updated to match.
 
 ## Next step
 
-**Document Management, step 2 — history, compare and restore.** Step 1 is
-working: spaces, the page tree, the editor, and draft → publish. What is
-missing is being able to look back.
+**Document Management, step 3 — attachments and search.** Steps 1 and 2 are
+in: spaces, the page tree, the editor, draft → publish, and now history,
+comparison and restore. Step 2 is waiting on the developer's on-screen
+checks.
 
-Per `docs/document-management-spec.md` §3 the step is: a page's revision
-history, a side-by-side or marked-up comparison of two revisions, and
-restoring an older revision as the current draft (never as a published
-revision — restoring is an edit, and an edit is published like any other).
-The data for it is already there and already immutable: every revision has
-its title, content, number and date, and a Manual page's revision knows
-which manual revision it belongs to.
+Per `docs/document-management-spec.md` §3 the step is files attached to a
+page, and finding a page by what is written in it. No spec for it yet — bring
+it up here first, the same way every step in this project has gone.
 
-No spec for step 2 yet — bring it up here first, the same way every step in
-this project has gone.
+Two things from this project's own history are worth having in view while
+designing it. An attachment is a file, and the certificates module already
+learned what that costs: paths stored in the database are **relative** to a
+configured root (CLAUDE.md §6.9), the root is per vessel and absolute and is
+re-chosen on every machine, and replacing a file archives the one it
+replaced rather than overwriting it. The documents module currently owns no
+files at all — pictures are in the database, which is what makes a page and
+its pictures travel together — so where attachments live is a real decision
+and not a detail: in `document_image`'s manner, or in a folder like
+certificate attachments.
 
-Worth keeping in view while designing it: step 5's printed output needs
-change bars, which means the comparison written in step 2 is the same
-comparison the PDF will use. Designing it as something that returns *what
-changed* rather than something that paints a diff on screen is what makes
-that reuse possible — the rule belongs in the service or domain layer, and
-the screen and the report are both callers (CLAUDE.md §4).
+The other is that **the comparison from step 2 is what step 5 prints.**
+`DocumentDiff` returns what changed and nothing about how to show it, so the
+change bars, the Record of Revisions and the List of Effective Pages all
+have their answer already; `DocumentDiffRenderer` paints it for the screen
+and step 5 replaces that one file rather than writing a second comparison.
+The Record of Revisions is already on screen from the same reader the
+printed one will use.
 
 Also worth remembering why manuals are written in the program at all:
 printing chosen pages of an *uploaded* PDF needs a renderer, and Qt PDF
@@ -4719,10 +4899,9 @@ on.
 Carried over, unchanged by this round and listed with reasons in
 `docs/roadmap-and-pending.md`: the audit trail viewer; ship-to-shore sync
 and role-based access control (deliberately last); and making the sidebar
-badge share `CertificateListRows`. The file-size debt that version 1.0 of
-this module added (`DocumentRepository.cpp` and `DocumentActions.cpp`) is
-gone with it; what this round added is split and under the guideline, the
-largest being `DocumentPageRepository.cpp` at 305.
+badge share `CertificateListRows`. The module's largest production file is
+still `DocumentPageRepository.cpp` at 305, untouched by step 2; what step 2
+added is split and under the guideline.
 
 The developer's own pending items are on that page too: the work laptop's
 setup-time restore, two V TRE CSV rows whose survey date is before the

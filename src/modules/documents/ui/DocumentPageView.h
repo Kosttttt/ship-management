@@ -56,6 +56,14 @@ signals:
     // of their own (§6.2), so this is only ever emitted for a Collection.
     void publishRequested();
 
+    // History… — every published revision of this page
+    // (document-history-spec.md §2).
+    void historyRequested();
+
+    // Compare with published, offered while the page has unpublished changes
+    // (document-history-spec.md §4.1).
+    void compareWithPublishedRequested();
+
 private:
     void startEditing();
     void cancelEditing();
@@ -66,6 +74,7 @@ private:
     QLabel*         m_breadcrumb  = nullptr;
     QLabel*         m_revision    = nullptr;
     QPushButton*    m_editButton  = nullptr;
+    QPushButton*    m_historyButton = nullptr;
     QPushButton*    m_publishButton = nullptr;
 
     // The "This page has unpublished changes" bar, with Continue editing and
@@ -73,6 +82,7 @@ private:
     QFrame*      m_draftBar        = nullptr;
     QLabel*      m_draftBarLabel   = nullptr;
     QPushButton* m_continueButton  = nullptr;
+    QPushButton* m_compareButton   = nullptr;
     QPushButton* m_discardButton   = nullptr;
 
     // Page 0 reads, page 1 edits. A stack rather than hiding widgets, so

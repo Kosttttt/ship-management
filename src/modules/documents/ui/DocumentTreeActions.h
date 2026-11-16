@@ -7,6 +7,8 @@
 #include <QList>
 #include <QString>
 
+#include <functional>
+
 class DocumentPageMoves;
 class DocumentPageRemovals;
 class DocumentPageRepository;
@@ -30,9 +32,15 @@ class QWidget;
 class DocumentTreeActions
 {
 public:
+    // `onCompare` is what the Publish revision… dialog's per-page Compare
+    // button calls (document-history-spec.md §4.1). Passed in rather than
+    // wired here, because comparing needs to read a page and these actions
+    // are the panel's buttons, not the screen's: the screen owns the
+    // history actions and answers it.
     DocumentTreeActions(DocumentPageRepository& pages, DocumentPageMoves& moves,
                         DocumentPageRemovals& removals, DocumentRevisionStore& revisions,
-                        DocumentPublisher& publisher, QWidget* dialogParent);
+                        DocumentPublisher& publisher, QWidget* dialogParent,
+                        std::function<void(const QString&)> onCompare = {});
 
     // A child of `parentId`, or a top-level page when it is empty — which is
     // how a space's first page gets made (§5).
@@ -68,4 +76,6 @@ private:
     // Where the dialogs appear. The panel, so they are centred on the screen
     // the user is looking at.
     QWidget* m_parent = nullptr;
+
+    std::function<void(const QString&)> m_onCompare;
 };

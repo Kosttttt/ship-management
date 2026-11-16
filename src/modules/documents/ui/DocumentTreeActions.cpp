@@ -27,13 +27,15 @@ QString translated(const char* text)
 DocumentTreeActions::DocumentTreeActions(DocumentPageRepository& pages, DocumentPageMoves& moves,
                                          DocumentPageRemovals&  removals,
                                          DocumentRevisionStore& revisions,
-                                         DocumentPublisher& publisher, QWidget* dialogParent)
+                                         DocumentPublisher& publisher, QWidget* dialogParent,
+                                         std::function<void(const QString&)> onCompare)
     : m_pages(pages)
     , m_moves(moves)
     , m_removals(removals)
     , m_revisions(revisions)
     , m_publisher(publisher)
     , m_parent(dialogParent)
+    , m_onCompare(std::move(onCompare))
 {
 }
 
@@ -203,6 +205,15 @@ bool DocumentTreeActions::publishManual(const DocumentSpace& space)
 
     DocumentPublishDialog* dialog =
         DocumentPublishDialog::forManual(space.name, next, changes, m_parent);
+
+    // §4.1's Compare, against each listed page. The dialog is the context
+    // object, so the connection dies with it — this class is not a QObject
+    // and has nothing of its own to tie it to.
+    if (m_onCompare) {
+        QObject::connect(dialog, &DocumentPublishDialog::compareRequested, dialog,
+                         [this](const QString& pageId) { m_onCompare(pageId); });
+    }
+
     const int     answer = dialog->exec();
     const QString note   = dialog->note();
     dialog->deleteLater();

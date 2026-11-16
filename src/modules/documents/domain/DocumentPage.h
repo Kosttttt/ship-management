@@ -48,6 +48,11 @@ struct DocumentPageRevision {
     QString content;
     QString note;
 
+    // Who published it — `created_by`, which is SYSTEM until users exist
+    // (CLAUDE.md §11). Read and shown anyway, so the history has the column
+    // already there when roles arrive.
+    QString createdBy;
+
     // When it was published. Stored UTC, shown local (CLAUDE.md §6.2).
     QDateTime publishedAtUtc;
 };
@@ -58,6 +63,7 @@ struct DocumentSpaceRevision {
     QString   spaceId;
     int       number = 0;
     QString   note;
+    QString   createdBy;
     QDateTime publishedAtUtc;
 };
 

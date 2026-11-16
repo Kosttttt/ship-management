@@ -56,6 +56,15 @@ signals:
     // Something was published, so the page on the right is now stale.
     void published();
 
+    // Revisions… on a Manual space — the Record of Revisions
+    // (document-history-spec.md §3).
+    void revisionsRequested(const DocumentSpace& space);
+
+    // Compare with published, asked for one page of the Publish revision…
+    // dialog (document-history-spec.md §4.1). Carried out by the screen,
+    // which owns the history actions.
+    void compareWithPublishedRequested(const QString& pageId);
+
 private:
     void updateButtons();
 
@@ -81,6 +90,7 @@ private:
     QPushButton* m_deleteButton    = nullptr;
     QPushButton* m_withdrawButton  = nullptr;
     QPushButton* m_publishButton   = nullptr;
+    QPushButton* m_revisionsButton = nullptr;
 
     DocumentSpace             m_space;
     bool                      m_editable = false;

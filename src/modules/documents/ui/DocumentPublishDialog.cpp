@@ -2,6 +2,7 @@
 
 #include <QDialogButtonBox>
 #include <QFont>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -85,7 +86,33 @@ void DocumentPublishDialog::buildChangeList(
     list->setSelectionMode(QAbstractItemView::NoSelection);
 
     for (const DocumentPublisher::PendingChange& change : changes) {
-        list->addItem(QStringLiteral("%1  —  %2").arg(change.title, describe(change.kind)));
+        auto* item = new QListWidgetItem(list);
+
+        auto* label = new QLabel(
+            QStringLiteral("%1  —  %2").arg(change.title, describe(change.kind)), list);
+
+        // document-history-spec.md §4.1: the same Compare with published,
+        // against each page the revision covers — the moment somebody is
+        // deciding whether to issue it is the moment they want to see what
+        // it says now.
+        //
+        // Only for a changed page: a new one has nothing published to
+        // compare against, and a withdrawal publishes the text unaltered.
+        auto* compare = new QPushButton(tr("Compare"), list);
+        compare->setObjectName(QStringLiteral("comparePendingChangeButton"));
+        compare->setVisible(change.kind == DocumentPublisher::PendingChange::Kind::Changed);
+        const QString pageId = change.pageId;
+        connect(compare, &QPushButton::clicked, this,
+                [this, pageId] { emit compareRequested(pageId); });
+
+        auto* row       = new QWidget(list);
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->addWidget(label, 1);
+        rowLayout->addWidget(compare);
+
+        item->setSizeHint(row->sizeHint());
+        list->setItemWidget(item, row);
     }
 
     // Above the note, because what is being published is what the note is

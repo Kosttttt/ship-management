@@ -1,9 +1,12 @@
 #include "modules/documents/ui/DocumentsWidget.h"
 
+#include "modules/documents/data/DocumentHistoryReader.h"
 #include "modules/documents/data/DocumentPageRepository.h"
 #include "modules/documents/data/DocumentRevisionStore.h"
 #include "modules/documents/data/DocumentSpaceRepository.h"
 #include "modules/documents/service/DocumentPublisher.h"
+#include "modules/documents/service/DocumentRestorer.h"
+#include "modules/documents/ui/DocumentHistoryActions.h"
 #include "modules/documents/ui/DocumentPageView.h"
 #include "modules/documents/ui/DocumentPublishDialog.h"
 #include "modules/documents/ui/DocumentSpacePanel.h"
@@ -18,12 +21,15 @@
 DocumentsWidget::DocumentsWidget(DocumentSpaceRepository& spaces, DocumentPageRepository& pages,
                                  DocumentPageMoves& moves, DocumentPageRemovals& removals,
                                  DocumentRevisionStore& revisions, DocumentPublisher& publisher,
+                                 DocumentHistoryReader& history, DocumentRestorer& restorer,
                                  DocumentImageStore& images, QWidget* parent)
     : QWidget(parent)
     , m_spaces(spaces)
     , m_pages(pages)
     , m_revisions(revisions)
     , m_publisher(publisher)
+    , m_historyActions(std::make_unique<DocumentHistoryActions>(pages, revisions, history,
+                                                                restorer, images, this))
 {
     m_spacePanel = new DocumentSpacePanel(spaces, removals, this);
     m_treePanel  = new DocumentTreePanel(pages, moves, removals, revisions, publisher, this);
@@ -60,10 +66,26 @@ DocumentsWidget::DocumentsWidget(DocumentSpaceRepository& spaces, DocumentPageRe
     connect(m_pageView, &DocumentPageView::publishRequested, this,
             &DocumentsWidget::publishPage);
 
+    // History, the Record of Revisions and the comparisons
+    // (document-history-spec.md §2, §3, §4.1). Each panel says what was
+    // asked for; the actions know which dialog that is.
+    connect(m_pageView, &DocumentPageView::historyRequested, this,
+            &DocumentsWidget::showHistory);
+    connect(m_pageView, &DocumentPageView::compareWithPublishedRequested, this,
+            [this] { m_historyActions->compareDraftWithPublished(m_pageId); });
+    connect(m_treePanel, &DocumentTreePanel::revisionsRequested, this,
+            [this](const DocumentSpace& space) { m_historyActions->showRevisions(space); });
+    connect(m_treePanel, &DocumentTreePanel::compareWithPublishedRequested, this,
+            [this](const QString& pageId) {
+                m_historyActions->compareDraftWithPublished(pageId);
+            });
+
     // The vessel spaces are already there: the module makes them just before
     // it builds this widget (§4.3).
     m_spacePanel->reload();
 }
+
+DocumentsWidget::~DocumentsWidget() = default;
 
 void DocumentsWidget::spaceChanged(const QString& spaceId)
 {
@@ -85,6 +107,22 @@ void DocumentsWidget::pageChanged(const QString& pageId)
     refreshPage();
 }
 
+bool DocumentsWidget::currentState(DocumentPageState* state)
+{
+    std::optional<DocumentPage> page;
+    if (!m_pages.findById(m_pageId, &page) || !page.has_value()) {
+        return false;
+    }
+
+    // Which revision is current, and the manual's number for it — a rule, so
+    // it is worked out in the repository layer and not here (§4.2).
+    if (!m_revisions.stateFor(*page, m_space.isManual(), state)) {
+        QMessageBox::warning(this, tr("Could not read the page"), m_revisions.errorString());
+        return false;
+    }
+    return true;
+}
+
 void DocumentsWidget::refreshPage()
 {
     if (m_pageId.isEmpty()) {
@@ -94,22 +132,36 @@ void DocumentsWidget::refreshPage()
         return;
     }
 
-    std::optional<DocumentPage> page;
-    if (!m_pages.findById(m_pageId, &page) || !page.has_value()) {
-        m_pageView->showNothing(tr("This page is no longer there."));
-        return;
-    }
-
-    // Which revision is current, and the manual's number for it — a rule, so
-    // it is worked out in the repository layer and not here (§4.2).
     DocumentPageState state;
-    if (!m_revisions.stateFor(*page, m_space.isManual(), &state)) {
-        QMessageBox::warning(this, tr("Could not read the page"), m_revisions.errorString());
+    if (!currentState(&state)) {
+        m_pageView->showNothing(tr("This page is no longer there."));
         return;
     }
 
     m_pageView->showPage(state, m_space, m_treePanel->trailFor(m_pageId),
                          m_spaces.mayEdit(m_space));
+}
+
+void DocumentsWidget::showHistory()
+{
+    if (m_pageId.isEmpty()) {
+        return;
+    }
+
+    DocumentPageState state;
+    if (!currentState(&state)) {
+        return;
+    }
+
+    const QStringList trail = m_treePanel->trailFor(m_pageId);
+    const QString     title = trail.isEmpty() ? QString() : trail.last();
+
+    // A restore writes the draft, so the tree's marker and the page's bar
+    // are both stale (§5).
+    if (m_historyActions->showHistory(state, m_space, title, m_spaces.mayEdit(m_space))) {
+        m_treePanel->reload();
+        refreshPage();
+    }
 }
 
 void DocumentsWidget::saveDraft()

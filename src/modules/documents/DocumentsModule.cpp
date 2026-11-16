@@ -16,6 +16,8 @@ DocumentsModule::DocumentsModule(QSqlDatabase& database, const InstallationConte
     , m_revisions(database, installation.nodeId())
     , m_images(database, installation.nodeId())
     , m_publisher(database, m_spaces, m_pages, m_removals, m_revisions)
+    , m_history(database, m_spaces, m_pages)
+    , m_restorer(m_pages, m_history)
 {
 }
 
@@ -50,7 +52,7 @@ QWidget* DocumentsModule::createMainWidget(QWidget* parent)
     }
 
     return new DocumentsWidget(m_spaces, m_pages, m_moves, m_removals, m_revisions, m_publisher,
-                               m_images, parent);
+                               m_history, m_restorer, m_images, parent);
 }
 
 QList<Migration> DocumentsModule::migrations() const

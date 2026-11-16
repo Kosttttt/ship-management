@@ -170,6 +170,22 @@ add_ship_test(tst_DocumentImages
     modules/documents/tst_DocumentImages.cpp ShipDocuments)
 add_ship_test(tst_WordPasteCleaner
     modules/documents/tst_WordPasteCleaner.cpp ShipDocuments)
+
+# Document Management, step 2 — history, compare, restore
+# (document-history-spec.md §7).
+add_ship_test(tst_DocumentDiff
+    modules/documents/tst_DocumentDiff.cpp ShipDocuments)
+add_ship_test(tst_DocumentHistory
+    modules/documents/tst_DocumentHistory.cpp ShipDocuments)
+ship_add_migrations(tst_DocumentHistory)
+add_ship_test(tst_DocumentDiffRendering
+    modules/documents/tst_DocumentDiffRendering.cpp ShipDocuments)
+add_ship_test(tst_DocumentHistoryUi
+    modules/documents/tst_DocumentHistoryUi.cpp ShipDocuments)
+ship_add_migrations(tst_DocumentHistoryUi)
+add_ship_test(tst_DocumentRestore
+    modules/documents/tst_DocumentRestore.cpp ShipDocuments)
+ship_add_migrations(tst_DocumentRestore)
 add_ship_test(tst_CertificateImportPlaceholder
     modules/certificates/tst_CertificateImportPlaceholder.cpp ShipCertificates)
 ship_add_migrations(tst_CertificateImportPlaceholder)

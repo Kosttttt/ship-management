@@ -216,6 +216,10 @@ qt_add_library(ShipDocuments STATIC
     src/modules/documents/domain/DocumentSpace.h
     src/modules/documents/domain/DocumentSpace.cpp
     src/modules/documents/domain/DocumentPage.h
+    src/modules/documents/domain/DocumentBlocks.h
+    src/modules/documents/domain/DocumentBlocks.cpp
+    src/modules/documents/domain/DocumentDiff.h
+    src/modules/documents/domain/DocumentDiff.cpp
     src/modules/documents/data/DocumentSql.h
     src/modules/documents/data/DocumentVesselSpaces.h
     src/modules/documents/data/DocumentVesselSpaces.cpp
@@ -229,10 +233,14 @@ qt_add_library(ShipDocuments STATIC
     src/modules/documents/data/DocumentPageRemovals.cpp
     src/modules/documents/data/DocumentRevisionStore.h
     src/modules/documents/data/DocumentRevisionStore.cpp
+    src/modules/documents/data/DocumentHistoryReader.h
+    src/modules/documents/data/DocumentHistoryReader.cpp
     src/modules/documents/data/DocumentImageStore.h
     src/modules/documents/data/DocumentImageStore.cpp
     src/modules/documents/service/DocumentPublisher.h
     src/modules/documents/service/DocumentPublisher.cpp
+    src/modules/documents/service/DocumentRestorer.h
+    src/modules/documents/service/DocumentRestorer.cpp
     src/modules/documents/ui/WordPasteCleaner.h
     src/modules/documents/ui/WordPasteCleaner.cpp
     src/modules/documents/ui/DocumentRichEdit.h
@@ -241,6 +249,18 @@ qt_add_library(ShipDocuments STATIC
     src/modules/documents/ui/DocumentEditorToolbar.cpp
     src/modules/documents/ui/DocumentPublishDialog.h
     src/modules/documents/ui/DocumentPublishDialog.cpp
+    src/modules/documents/ui/DocumentDiffMarks.h
+    src/modules/documents/ui/DocumentDiffMarks.cpp
+    src/modules/documents/ui/DocumentDiffRenderer.h
+    src/modules/documents/ui/DocumentDiffRenderer.cpp
+    src/modules/documents/ui/DocumentRevisionDialog.h
+    src/modules/documents/ui/DocumentRevisionDialog.cpp
+    src/modules/documents/ui/DocumentHistoryDialog.h
+    src/modules/documents/ui/DocumentHistoryDialog.cpp
+    src/modules/documents/ui/DocumentRevisionsDialog.h
+    src/modules/documents/ui/DocumentRevisionsDialog.cpp
+    src/modules/documents/ui/DocumentHistoryActions.h
+    src/modules/documents/ui/DocumentHistoryActions.cpp
     src/modules/documents/ui/DocumentPageView.h
     src/modules/documents/ui/DocumentPageView.cpp
     src/modules/documents/ui/DocumentSpacePanel.h

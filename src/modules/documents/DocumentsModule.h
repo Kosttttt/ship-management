@@ -3,6 +3,7 @@
 #include "app/IModule.h"
 #include "core/InstallationContext.h"
 #include "core/VesselRepository.h"
+#include "modules/documents/data/DocumentHistoryReader.h"
 #include "modules/documents/data/DocumentImageStore.h"
 #include "modules/documents/data/DocumentPageMoves.h"
 #include "modules/documents/data/DocumentPageRemovals.h"
@@ -11,6 +12,7 @@
 #include "modules/documents/data/DocumentSpaceRepository.h"
 #include "modules/documents/data/DocumentVesselSpaces.h"
 #include "modules/documents/service/DocumentPublisher.h"
+#include "modules/documents/service/DocumentRestorer.h"
 
 #include <QString>
 
@@ -69,4 +71,11 @@ private:
     DocumentRevisionStore   m_revisions;
     DocumentImageStore      m_images;
     DocumentPublisher       m_publisher;
+
+    // Step 2 (document-history-spec.md): reading what has been published,
+    // and putting an old revision back into the draft. The reader asks the
+    // spaces and the pages about visibility, and the restorer asks the
+    // reader and the pages — so both come after them.
+    DocumentHistoryReader   m_history;
+    DocumentRestorer        m_restorer;
 };

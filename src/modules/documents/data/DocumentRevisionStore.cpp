@@ -12,9 +12,10 @@ namespace {
 // Positional, and read back positionally below. Anything new goes on the END
 // of each list, never into the middle.
 const QString kPageColumns = QStringLiteral(
-    "id, page_id, number, space_revision_id, title, content, note, created_at");
+    "id, page_id, number, space_revision_id, title, content, note, created_at, created_by");
 
-const QString kSpaceColumns = QStringLiteral("id, space_id, number, note, created_at");
+const QString kSpaceColumns =
+    QStringLiteral("id, space_id, number, note, created_at, created_by");
 
 DocumentPageRevision pageRevisionFromRow(const QSqlQuery& query)
 {
@@ -28,6 +29,7 @@ DocumentPageRevision pageRevisionFromRow(const QSqlQuery& query)
     revision.content         = query.value(5).toString();
     revision.note            = query.value(6).toString();
     revision.publishedAtUtc  = DocumentSql::fromUtcText(query.value(7).toString());
+    revision.createdBy       = query.value(8).toString();
     return revision;
 }
 
@@ -39,6 +41,7 @@ DocumentSpaceRevision spaceRevisionFromRow(const QSqlQuery& query)
     revision.number         = query.value(2).toInt();
     revision.note           = query.value(3).toString();
     revision.publishedAtUtc = DocumentSql::fromUtcText(query.value(4).toString());
+    revision.createdBy      = query.value(5).toString();
     return revision;
 }
 

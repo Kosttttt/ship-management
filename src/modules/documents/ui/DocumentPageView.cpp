@@ -51,12 +51,19 @@ DocumentPageView::DocumentPageView(DocumentImageStore& images, QWidget* parent)
     m_editButton = new QPushButton(tr("&Edit"), this);
     m_editButton->setObjectName(QStringLiteral("editPageButton"));
 
+    // Next to Edit (document-history-spec.md §2). Not greyed on a read-only
+    // space: a vessel may read a company manual's history, and only Restore
+    // is refused.
+    m_historyButton = new QPushButton(tr("&History"), this);
+    m_historyButton->setObjectName(QStringLiteral("pageHistoryButton"));
+
     m_publishButton = new QPushButton(tr("&Publish…"), this);
     m_publishButton->setObjectName(QStringLiteral("publishPageButton"));
 
     auto* headerRow = new QHBoxLayout;
     headerRow->setContentsMargins(0, 0, 0, 0);
     headerRow->addWidget(m_revision, 1);
+    headerRow->addWidget(m_historyButton);
     headerRow->addWidget(m_editButton);
     headerRow->addWidget(m_publishButton);
 
@@ -69,11 +76,16 @@ DocumentPageView::DocumentPageView(DocumentImageStore& images, QWidget* parent)
     m_draftBarLabel  = new QLabel(tr("This page has unpublished changes."), m_draftBar);
     m_continueButton = new QPushButton(tr("&Continue editing"), m_draftBar);
     m_continueButton->setObjectName(QStringLiteral("continueEditingButton"));
+    // §4.1: "what have I changed?", in the bar that says there is something
+    // to change — which is the moment the question gets asked.
+    m_compareButton = new QPushButton(tr("Compare with p&ublished"), m_draftBar);
+    m_compareButton->setObjectName(QStringLiteral("compareWithPublishedButton"));
     m_discardButton = new QPushButton(tr("&Discard draft"), m_draftBar);
     m_discardButton->setObjectName(QStringLiteral("discardDraftButton"));
 
     auto* barLayout = new QHBoxLayout(m_draftBar);
     barLayout->addWidget(m_draftBarLabel, 1);
+    barLayout->addWidget(m_compareButton);
     barLayout->addWidget(m_continueButton);
     barLayout->addWidget(m_discardButton);
 
@@ -120,6 +132,9 @@ DocumentPageView::DocumentPageView(DocumentImageStore& images, QWidget* parent)
     layout->addWidget(m_stack, 1);
 
     connect(m_editButton, &QPushButton::clicked, this, &DocumentPageView::startEditing);
+    connect(m_historyButton, &QPushButton::clicked, this, &DocumentPageView::historyRequested);
+    connect(m_compareButton, &QPushButton::clicked, this,
+            &DocumentPageView::compareWithPublishedRequested);
     connect(m_continueButton, &QPushButton::clicked, this, &DocumentPageView::startEditing);
     connect(m_discardButton, &QPushButton::clicked, this,
             &DocumentPageView::draftDiscardRequested);
@@ -138,6 +153,7 @@ void DocumentPageView::showNothing(const QString& message)
     m_breadcrumb->setText(message);
     m_revision->clear();
     m_editButton->setEnabled(false);
+    m_historyButton->setEnabled(false);
     m_publishButton->setVisible(false);
     m_draftBar->setVisible(false);
     m_reader->clear();
@@ -159,6 +175,10 @@ void DocumentPageView::showPage(const DocumentPageState& state, const DocumentSp
     m_editButton->setToolTip(
         editable ? QString()
                  : tr("This space is managed at the office and is read-only here."));
+
+    // History needs something published to show, and nothing else: reading it
+    // is allowed wherever the page is (§2).
+    m_historyButton->setEnabled(state.hasPublished);
 
     // §6.2: a page of a manual has no Publish of its own — it is published
     // with the manual's next revision.
@@ -187,6 +207,8 @@ void DocumentPageView::updateBar()
     m_draftBar->setVisible(show);
     m_continueButton->setEnabled(m_editable);
     m_discardButton->setEnabled(m_editable);
+    // Comparing is reading, so it is offered even where editing is not.
+    m_compareButton->setEnabled(true);
 }
 
 void DocumentPageView::startEditing()
